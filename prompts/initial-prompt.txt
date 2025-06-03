@@ -1,0 +1,15 @@
+I have bought a new domain craicgpt.ie that I plan to use to help demonstrate and compare the various LLMs and IMAGE generators out there. For my initial deployment I would like a traditional newspaper broadsheet comic style front page that contains a banner and branding that's on the top left corner. The top right corner should contain a mini bio of me with an image and explains the purpose. The middle of the top of the webpage should default to the current day and date but this should also be selectable. There should be a main article with an associated image with traditional style headlines. Another article with a graph that will compare the which are the best LLMs of the day. There should be 5 separate fake adds boxes dispersed around this page. A joke of the day article and finally there should be an Interesting LLM story of the day.
+
+Underneath the banner there should be 6 buttons - 2 sets of 3 radio buttons. One set is for LLM selection and the other will be for image generator selection.
+
+Dedicated "Agentic" AWS Lambda functions will be used to populate all the sections of the comic newspaper highlighted above. So, for example, when visiting the page the default LL radio button and the default ImageGen buttons will dictate which content is displayed in these content windows. Website visitors can then select the different LLM and ImageGen to see what those generators created on that day. Ideally this is all served from a static S3 bucket if that's a viable option.
+
+The content should be generated once daily and stored somewhere sensible - so every day for each LLM option and ImageGen option there will be freshly created content. This will be managed by specific prompts for each content window/box. The goal where feasible is to use the same prompts across the various LLMs and ImageGens to try and illustrate how similar/different they can be.
+
+I would like to use HashiCorp Terraform's HCL and it's modularisation best practices to manage the website and infrastructure deployments. The lambda functions should be written in typescript unless there's a good reason not to do this. The website itself should ideally be written in the latest version of angular but as an MVP maybe suggest alternates that would get this up and running as quickly as possible - today?
+
+This is purely a self enablement AI website and I do not expect significant traffic if any!
+
+Please create a high level design (HLD) based on an AWS deployment using AWS infrastructure services that fulfils this requirement. The HLD should also contain follow-on prompts that will be used to generate the actual implementation of the infrastructure, the website itself and a working example of an lambda LLM prompt execution and a lambda IMAGEGEN prompt execution. Also create a comic style CraicGPT.ie branding image prompt.
+
+The content will be stored in github here: https://github.com/allthingsclowd/craicgpt.ie
