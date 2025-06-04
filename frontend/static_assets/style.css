@@ -25,10 +25,19 @@ body {
 
 /* Newspaper banner/header section styling */
 .newspaper-banner {
-    text-align: center; /* Center the text within the banner */
+    display: flex; /* Use flexbox for layout */
+    align-items: center; /* Vertically align logo and text */
+    justify-content: flex-start; /* Align items to the start (left) */
     padding: 20px 10px; /* Padding above/below and left/right */
     border-bottom: 3px double #333; /* Double line border at the bottom, classic newspaper style */
     margin-bottom: 20px; /* Space below the banner */
+}
+
+/* Styling for the banner logo */
+#banner-logo {
+    width: 70px; /* Set logo width */
+    height: 70px; /* Set logo height */
+    margin-right: 20px; /* Space between logo and title */
 }
 
 /* Styling for the main title in the newspaper banner */
@@ -37,6 +46,7 @@ body {
     font-size: 3.5em; /* Large font size for the title */
     margin: 0; /* Remove default margin for h1 */
     color: #1a1a1a; /* Dark color for the title text */
+    text-align: left; /* Align text to the left, following the logo */
 }
 
 /* Styling for the tagline in the newspaper banner */
@@ -45,6 +55,7 @@ body {
     font-size: 1.2em; /* Font size for the tagline */
     color: #555; /* Slightly lighter color for the tagline */
     margin-top: 5px; /* Space above the tagline */
+    text-align: left; /* Align text to the left, following the logo */
 }
 
 /* Styling for the current date section */
