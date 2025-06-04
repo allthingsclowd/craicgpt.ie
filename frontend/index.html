@@ -1,24 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
+<!--
+  Author: graham land
+  Date: 2023-10-27
+  Purpose: Main HTML structure for the CraicGPT.ie website.
+-->
+<!DOCTYPE html> <!-- Specifies the document type as HTML5 -->
+<html lang="en"> <!-- Sets the language of the document to English -->
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Meta tags provide metadata about the HTML document -->
+    <meta charset="UTF-8"> <!-- Specifies the character encoding for the document -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- Configures the viewport for responsive design -->
+
+    <!-- Title of the webpage, displayed in the browser tab or window title bar -->
     <title>CraicGPT.ie - Your Daily Dose of AI Banter!</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto:wght@400;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+
+    <!-- Links to external CSS stylesheets -->
+    <link rel="stylesheet" href="style.css"> <!-- Main stylesheet for the website -->
+
+    <!-- Links to external fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto:wght@400;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet"> <!-- Google Fonts for typography -->
 </head>
 <body>
+    <!-- Overall container for the page content -->
     <div class="page-container">
+        <!-- Newspaper banner/header section -->
         <header id="newspaper-banner" class="newspaper-banner">
             <h1>CraicGPT.ie</h1>
             <p class="tagline">The Artificially Intelligent Irish Times</p>
         </header>
 
+        <!-- Section to display the current date -->
         <section id="current-date-section" class="date-section">
             <p id="current-date">Fetching date...</p>
         </section>
 
+        <!-- Main content grid -->
         <main id="main-content" class="main-content-grid">
+            <!-- Main article section -->
             <article id="main-article" class="grid-item main-story">
                 <h2 id="main-article-title">Main Article Title Loading...</h2>
                 <img id="main-article-image" src="placeholder.jpg" alt="Main article image placeholder" class="article-image">
@@ -27,6 +44,7 @@
                 </div>
             </article>
 
+            <!-- Author biography section -->
             <aside id="author-bio-section" class="grid-item author-bio">
                 <h3>From the Editor's Desk (of a CPU)</h3>
                 <div id="author-bio">
@@ -34,6 +52,7 @@
                 </div>
             </aside>
 
+            <!-- Comparison article section -->
             <article id="comparison-article" class="grid-item comparison-story">
                 <h2 id="comparison-article-title">Comparison Piece Title Loading...</h2>
                 <img id="comparison-article-image" src="placeholder.jpg" alt="Comparison article image placeholder" class="article-image">
@@ -42,6 +61,7 @@
                 </div>
             </article>
 
+            <!-- LLM (Large Language Model) feature section -->
             <section id="llm-story-section" class="grid-item llm-feature">
                 <h3>The LLM Muses</h3>
                 <div id="llm-story-content">
@@ -49,6 +69,7 @@
                 </div>
             </section>
             
+            <!-- Joke section -->
             <section id="joke-section" class="grid-item daily-joke">
                 <h3>Today's Gigglebit</h3>
                 <div id="joke-content">
@@ -56,6 +77,7 @@
                 </div>
             </section>
 
+            <!-- Advertisements column -->
             <aside id="advertisements-column" class="grid-item advertisements">
                 <h3>Sponsored Messages (from our AI Overlords)</h3>
                 <div id="ad-1" class="advertisement">Advertisement 1 Placeholder</div>
@@ -65,10 +87,13 @@
             </aside>
         </main>
 
+        <!-- Page footer section -->
         <footer class="page-footer">
             <p>&copy; <span id="footer-year">YYYY</span> CraicGPT.ie. All rights reserved (mostly by algorithms).</p>
         </footer>
     </div>
+
+    <!-- Script tag for including the main JavaScript file -->
     <script src="main.js"></script>
 </body>
 </html>
