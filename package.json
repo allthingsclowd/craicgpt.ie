@@ -1,0 +1,28 @@
+{
+  "name": "craicgpt.ie",
+  "version": "1.0.0",
+  "description": "AI designed &amp; built AI agentic website",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc",
+    "package": "npm run build && zip -r deployment_package.zip . -x \"*.ts\" \"*.map\" \"*tsconfig.json\" \"*package-lock.json\" \"*package.json\" \"*node_modules/*\" && (cd dist && zip -r ../deployment_package.zip .) "
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0", 
+    "@aws-sdk/client-secrets-manager": "^3.0.0", 
+    "@google/genai": "^0.11.0",
+    "openai": "^4.0.0", 
+    "node-fetch": "^2.6.7", 
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^18.0.0", 
+    "@types/node-fetch": "^2.6.2", 
+    "@types/uuid": "^9.0.0",
+    "typescript": "^5.0.0" 
+  },
+  "keywords": [],
+  "author": "Graham & AI",
+  "license": "ISC"
+}

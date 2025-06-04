@@ -150,3 +150,118 @@ amplify/backend/node_modules/
 *.tfstate.backup
 
 # Add more as needed based on your specific tools and frameworks
+
+# Node.js and npm related
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/
+*.tgz              # Output of 'npm pack'
+
+# Build/Output directories
+# Common names for compiled JavaScript/TypeScript output
+dist/
+build/
+out/
+es/
+lib/
+public/build/      # If your build output goes into a public/build folder
+/dist              # For cases where 'dist' might be at the root of a sub-project
+
+# TypeScript specific
+*.js               # Ignore all generated JavaScript files
+*.js.map           # Ignore all JavaScript sourcemap files
+*.d.ts             # Ignore all generated declaration files (if not intended for publishing)
+!*.d.ts            # UNCOMMENT THIS LINE IF YOU INTEND TO PUBLISH YOUR TYPESCRIPT DECLARATIONS!
+                   # This line negates the previous *.d.ts and allows .d.ts files to be committed.
+                   # Only do this if your library publishes its types.
+
+# Log files
+logs/
+*.log
+
+# Environment variables
+.env
+.env.*
+!.env.example      # Allow an example .env file to be committed for configuration guidance
+
+# Testing and Coverage
+coverage/
+.nyc_output/       # Output from nyc (Istanbul)
+lcov-report/
+
+# Editor/IDE specific files
+.vscode/           # Visual Studio Code settings (can be useful to share some, but often ignored)
+.idea/             # IntelliJ/WebStorm IDE files
+*.iml              # IntelliJ IDEA module files
+.DS_Store          # macOS specific file
+Thumbs.db          # Windows specific file
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# Temporary files
+*.tmp
+*~                 # Backup files created by some editors
+*.swp              # Vim swap files
+*.swo              # Vim swap files
+
+# Dependency management and lock files (usually you *want* to commit these for consistency)
+# package-lock.json    # UNCOMMENT TO IGNORE: Only ignore if you are making a library and
+# yarn.lock            # do not want to force specific dependency versions on consumers.
+                       # For applications, you almost always want to commit these.
+
+# Miscellaneous
+.DS_Store
+.cache/            # For frameworks like Next.js, Gatsby, etc.
+.next/             # Next.js build output
+.svelte-kit/       # SvelteKit build output
+vite.config.js.timestamp-* # Vite related temporary files
+vite.config.ts.timestamp-*
+
+# Specific framework/library outputs (add as needed)
+# Angular
+.angular/
+/node_modules
+/dist
+/tmp
+/.sass-cache
+/coverage
+/e2e/
+/.cache
+
+# React Native
+ios/build/
+android/app/build/
+android/.gradle/
+*.iml
+*.keystore
+.idea/
+
+# Electron
+out/
+release/
+dist/
+
+# AWS Amplify
+amplify/.config/
+amplify/backend/amplify-meta.json
+amplify/backend/awscloudformation/
+amplify/backend/local-env-info.json
+amplify/backend/package.json
+amplify/backend/yarn.lock
+amplify/backend/node_modules/
+
+# Cloudflare Workers
+.wrangler/
+
+# Terraform (if your project includes Terraform configs)
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+*.tfstate
+*.tfstate.backup
+
+# Add more as needed based on your specific tools and frameworks

@@ -51,38 +51,27 @@ export const handler = async (event: ImageGenEvent): Promise<ImageGenResponse> =
     }
 
     const imageGenApiKeySecretArn = process.env.IMAGEGEN_API_KEY_SECRET_ARN;
-    const providerType = event.image_gen_provider |
-| process.env.IMAGE_GEN_PROVIDER_TYPE |
-| 'OPENAI_DALLE';
+    const providerType = event.image_gen_provider || process.env.IMAGE_GEN_PROVIDER_TYPE || 'OPENAI_DALLE';
     const s3BucketName = process.env.S3_CONTENT_BUCKET_NAME;
     const cloudfrontDomain = process.env.CLOUDFRONT_DOMAIN_NAME; // e.g., d123abc.cloudfront.net
 
     // Provider-specific configurations
-    const geminiImageModelId = event.model_id |
-| process.env.GEMINI_IMAGE_MODEL_ID |
-| 'gemini-2.0-flash-preview-image-generation'; // [51, 52]
-    const openAIDalleModelId = event.model_id |
-| process.env.OPENAI_DALLE_MODEL_ID |
-| 'dall-e-3'; // [49]
-    const imageSize = event.size |
-| '1024x1024';
-    const imageQuality = event.quality |
-| 'standard'; // For DALL-E 3 [55]
-    const responseFormat = event.response_format |
-| 'url'; // Default to URL for DALL-E [54]
+    const geminiImageModelId = event.model_id || process.env.GEMINI_IMAGE_MODEL_ID || 'gemini-2.0-flash-preview-image-generation'; // [51, 52]
+    const openAIDalleModelId = event.model_id || process.env.OPENAI_DALLE_MODEL_ID || 'dall-e-3'; // [49]
+    const imageSize = event.size || '1024x1024';
+    const imageQuality = event.quality || 'standard'; // For DALL-E 3 [55]
+    const responseFormat = event.response_format || 'url'; // Default to URL for DALL-E [54]
 
     if (!imageGenApiKeySecretArn) {
         console.error('IMAGEGEN_API_KEY_SECRET_ARN environment variable is not set.');
         return { error: 'ImageGen API key secret ARN is not configured.' };
     }
-    if (!s3BucketName && (providerType.toUpperCase()!== 'OPENAI_DALLE' |
-| responseFormat === 'b64_json')) {
+    if (!s3BucketName && (providerType.toUpperCase()!== 'OPENAI_DALLE' || responseFormat === 'b64_json')) {
         // S3 bucket is needed if we might receive binary data
         console.error('S3_CONTENT_BUCKET_NAME environment variable is not set for binary image upload.');
         return { error: 'S3 content bucket name is not configured.' };
     }
-     if (!cloudfrontDomain && (providerType.toUpperCase()!== 'OPENAI_DALLE' |
-| responseFormat === 'b64_json')) {
+     if (!cloudfrontDomain && (providerType.toUpperCase()!== 'OPENAI_DALLE' || responseFormat === 'b64_json')) {
         console.error('CLOUDFRONT_DOMAIN_NAME environment variable is not set for constructing image URL.');
         return { error: 'CloudFront domain name is not configured.' };
     }
@@ -106,8 +95,7 @@ export const handler = async (event: ImageGenEvent): Promise<ImageGenResponse> =
 
         if (providerType.toUpperCase() === 'GEMINI') {
             // Gemini image generation - typically returns base64 inline data [52]
-            const geminiApiEndpoint = process.env.GEMINI_API_ENDPOINT_IMAGE |
-| `https://generativelanguage.googleapis.com/v1beta/models/${geminiImageModelId}:generateContent?key=${apiKey}`;
+            const geminiApiEndpoint = process.env.GEMINI_API_ENDPOINT_IMAGE || `https://generativelanguage.googleapis.com/v1beta/models/${geminiImageModelId}:generateContent?key=${apiKey}`;
             const geminiPayload = {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: { // Gemini might have specific config for images
@@ -158,8 +146,7 @@ export const handler = async (event: ImageGenEvent): Promise<ImageGenResponse> =
             }
 
         } else if (providerType.toUpperCase() === 'OPENAI_DALLE') {
-            const openAiApiEndpoint = process.env.OPENAI_DALLE_API_ENDPOINT |
-| 'https://api.openai.com/v1/images/generations';
+            const openAiApiEndpoint = process.env.OPENAI_DALLE_API_ENDPOINT || 'https://api.openai.com/v1/images/generations';
             const openAiPayload: any = {
                 model: openAIDalleModelId,
                 prompt: prompt,
@@ -231,7 +218,6 @@ export const handler = async (event: ImageGenEvent): Promise<ImageGenResponse> =
 
     } catch (error: any) {
         console.error('Error in ImageGen handler:', error);
-        return { error: error.message |
-| 'An unexpected error occurred in ImageGen handler.' };
+        return { error: error.message || 'An unexpected error occurred in ImageGen handler.' };
     }
 };

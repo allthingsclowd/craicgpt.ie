@@ -102,8 +102,7 @@ function updateImage(id, imageUrl, altText) {
     const imgElement = document.getElementById(id);
     if (imgElement && imageUrl) {
         imgElement.src = imageUrl;
-        imgElement.alt = altText |
-| 'Dynamic image content';
+        imgElement.alt = altText || 'Dynamic image content';
     } else if (imgElement) {
         // imgElement.style.display = 'none'; // Hide if no image URL
         console.warn(`Image URL for element ID '${id}' not found in JSON or element does not exist.`);

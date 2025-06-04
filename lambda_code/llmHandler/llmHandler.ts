@@ -48,17 +48,11 @@ export const handler = async (event: LLMEvent): Promise<LLMResponse> => {
     }
 
     const llmApiKeySecretArn = process.env.LLM_API_KEY_SECRET_ARN;
-    const providerType = event.llm_provider |
-| process.env.LLM_PROVIDER_TYPE |
-| 'OPENAI_CHATGPT'; // Default provider
+    const providerType = event.llm_provider || process.env.LLM_PROVIDER_TYPE || 'OPENAI_CHATGPT'; // Default provider
     
     // Provider-specific configurations (could also come from env vars or a config file)
-    const geminiModelId = event.model_id |
-| process.env.GEMINI_MODEL_ID |
-| 'gemini-pro'; // [42]
-    const openAIModelId = event.model_id |
-| process.env.OPENAI_MODEL_ID |
-| 'gpt-4o'; // Example model
+    const geminiModelId = event.model_id || process.env.GEMINI_MODEL_ID || 'gemini-pro'; // [42]
+    const openAIModelId = event.model_id || process.env.OPENAI_MODEL_ID || 'gpt-4o'; // Example model
 
     if (!llmApiKeySecretArn) {
         console.error('LLM_API_KEY_SECRET_ARN environment variable is not set.');
@@ -84,15 +78,12 @@ export const handler = async (event: LLMEvent): Promise<LLMResponse> => {
         console.log(`Using LLM provider: ${providerType}`);
 
         if (providerType.toUpperCase() === 'GEMINI') {
-            const geminiApiEndpoint = process.env.GEMINI_API_ENDPOINT |
-| `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:generateContent?key=${apiKey}`;
+            const geminiApiEndpoint = process.env.GEMINI_API_ENDPOINT || `https://generativelanguage.googleapis.com/v1beta/models/${geminiModelId}:generateContent?key=${apiKey}`;
             const geminiPayload = {
                 contents: [{ parts: [{ text: prompt }] }],
                 // generationConfig: { // Optional: add temperature, maxOutputTokens etc.
-                //   temperature: event.temperature |
-| 0.7,
-                //   maxOutputTokens: event.max_tokens |
-| 1024,
+                //   temperature: event.temperature || 0.7,
+                //   maxOutputTokens: event.max_tokens || 1024,
                 // }
             };
             console.log('Sending request to Gemini API:', geminiApiEndpoint);
@@ -111,15 +102,12 @@ export const handler = async (event: LLMEvent): Promise<LLMResponse> => {
             generatedText = geminiData?.candidates?.?.content?.parts?.?.text;
 
         } else if (providerType.toUpperCase() === 'OPENAI_CHATGPT') {
-            const openAiApiEndpoint = process.env.OPENAI_API_ENDPOINT |
-| 'https://api.openai.com/v1/chat/completions';
+            const openAiApiEndpoint = process.env.OPENAI_API_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
             const openAiPayload = {
                 model: openAIModelId,
                 messages: [{ role: 'user', content: prompt }],
-                // temperature: event.temperature |
-| 0.7,
-                // max_tokens: event.max_tokens |
-| 1024,
+                // temperature: event.temperature || 0.7,
+                // max_tokens: event.max_tokens || 1024,
             };
             console.log('Sending request to OpenAI API:', openAiApiEndpoint);
             llmApiResponse = await fetch(openAiApiEndpoint, {
@@ -153,7 +141,6 @@ export const handler = async (event: LLMEvent): Promise<LLMResponse> => {
 
     } catch (error: any) {
         console.error('Error in LLM handler:', error);
-        return { error: error.message |
-| 'An unexpected error occurred in LLM handler.' };
+        return { error: error.message || 'An unexpected error occurred in LLM handler.' };
     }
 };
