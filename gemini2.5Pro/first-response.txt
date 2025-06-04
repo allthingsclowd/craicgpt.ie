@@ -1,0 +1,547 @@
+High-Level Design: CraicGPT.ie AWS DeploymentI. IntroductionA. Project Vision: CraicGPT.ieThe project craicgpt.ie is envisioned as a dynamic platform for demonstrating and comparing the capabilities of various Large Language Models (LLMs) and Image Generation tools. A core objective is to create a "self-enablement AI website," empowering the user to build, deploy, and learn through practical application. A distinctive feature of this platform will be its presentation: a "traditional newspaper broadsheet comic style front page," updated daily with AI-generated content. This unique format aims to engage visitors while showcasing the creative potential of generative AI.B. Purpose of this High-Level Design (HLD)This High-Level Design (HLD) document outlines the architectural blueprint for the initial AWS deployment of craicgpt.ie. It details the proposed infrastructure, the automated daily content generation pipeline, and considerations for the frontend development. This HLD serves as a foundational guide for the subsequent implementation phases. Furthermore, it directly addresses the requirement for follow-on prompts to steer the development of the infrastructure, website, and core generative functionalities.C. Scope and AudienceThe scope of this HLD encompasses the AWS infrastructure necessary for hosting a static website, the mechanisms for daily 'agentic' content generation using AWS Lambda, and an initial strategy for the frontend presentation. A key operational assumption is low expected traffic for this initial deployment.The intended audience for this document is a technically proficient individual, familiar with cloud computing concepts on AWS, Infrastructure as Code (IaC) principles with HashiCorp Terraform, and server-side programming, specifically with TypeScript.II. System Architecture OverviewA. Architectural DiagramThe proposed system architecture is designed to be serverless, scalable, and cost-effective. A visual representation would depict the following key components and interactions:
+User Interaction: Users access craicgpt.ie via a web browser. DNS resolution is handled by Amazon Route 53, which directs traffic to an Amazon CloudFront distribution. AWS Certificate Manager (ACM) provides SSL/TLS certificates for secure HTTPS connections.
+Content Delivery: CloudFront serves the static website assets (HTML, CSS, JavaScript, and static layout images) from a primary Amazon S3 bucket. It also serves the daily generated content (JSON data, images) from a designated path, effectively caching content globally for low-latency access.
+Content Generation:
+
+An Amazon EventBridge Scheduler triggers an AWS Lambda orchestrator function on a daily basis.
+This orchestrator Lambda, and potentially other specialized Lambda functions, execute the logic for generating newspaper content.
+These Lambda functions retrieve API keys for external LLM and Image Generator services securely from AWS Secrets Manager.
+Upon successful generation, the Lambda functions write the structured content (e.g., JSON files for articles, image files) to a specific S3 bucket or prefix.
+
+
+Code & Infrastructure Management: The website's source code (HTML, CSS, JS) and the AWS Lambda function code (TypeScript) are stored and versioned in a GitHub repository. The entire AWS infrastructure is defined and managed using HashiCorp Terraform, with code also stored in GitHub.
+B. End-to-End Data and Operational Flow1. Daily Content GenerationThe daily content generation process is fully automated:
+Trigger: Amazon EventBridge Scheduler initiates the workflow by invoking the primary Orchestrator Lambda function at a pre-defined daily schedule (e.g., 01:00 UTC).
+Prompt & Configuration Retrieval: The Orchestrator Lambda fetches the consistent prompts required for content generation. These prompts may be embedded within the Lambda deployment package or, for easier updates without redeployment, stored as configuration files in an S3 bucket.
+Credential Access: Lambda functions securely retrieve necessary API keys for third-party LLM and Image Generator services from AWS Secrets Manager.
+Content Creation: The Orchestrator Lambda, possibly invoking other specialized Lambdas, sends requests with the prepared prompts to the respective AI services.
+Processing & Structuring: The generated content (text for articles, jokes, image URLs, or raw image data) is received and processed. This may involve formatting text, handling image data, and structuring everything into a coherent format (e.g., a daily JSON manifest).
+Storage: The finalized content, such as a daily_content.json file and any generated image files, is uploaded to a designated S3 path, typically organized by date (e.g., s3://craicgpt-content-bucket/YYYY/MM/DD/).
+2. User Accessing the WebsiteWhen a user visits craicgpt.ie:
+DNS Resolution: The user's browser queries DNS for craicgpt.ie. Amazon Route 53 resolves this domain name to the assigned Amazon CloudFront distribution.
+Content Serving: CloudFront receives the request. It serves the static index.html file and associated assets (CSS, JavaScript, layout images) from the S3 website bucket. These assets form the newspaper template.
+Dynamic Content Fetching: Client-side JavaScript, executed in the user's browser, constructs a URL to fetch the latest daily content manifest (e.g., daily_content.json) from the S3 content path (via CloudFront). This URL will typically include the current date.
+Page Population: The fetched JSON data is parsed by the JavaScript, which then dynamically populates the various sections of the newspaper layout (banner, articles, images, jokes, etc.).
+LLM/ImageGen Selection: The LLM/ImageGen selection buttons on the frontend will initially display information about the models used for the current day's content (this information being part of the fetched JSON).
+3. Infrastructure Deployment & UpdatesThe infrastructure is managed as code:
+Terraform Definition: All AWS resources (S3 buckets, CloudFront distributions, Lambda functions, IAM roles, etc.) are defined in HashiCorp Terraform configuration files (HCL). This code is organized into logical modules for maintainability and reusability.
+Version Control: The Terraform code and Lambda function source code (TypeScript) are stored and version-controlled in the specified GitHub repository.
+Deployment: Infrastructure changes are applied by executing terraform apply commands, typically from a local developer environment or a CI/CD pipeline (a future enhancement).
+Lambda Deployment: TypeScript Lambda code is first built (transpiled to JavaScript and dependencies packaged), and then the resulting artifact is deployed as part of the Terraform apply process.
+A critical aspect of this architecture is the logical separation of the S3 storage for the static website shell (HTML, CSS, JS files that define the newspaper's look and feel) and the storage for the daily generated content (articles, images). This separation can be achieved using two distinct S3 buckets or well-defined prefixes within a single bucket. Opting for two separate buckets (craicgpt-website-assets and craicgpt-daily-content) is recommended. This approach simplifies IAM permissions, allows for independent lifecycle and versioning policies, and streamlines cache invalidation strategies for CloudFront. For instance, the website shell assets, which change infrequently, can be cached by CloudFront for extended periods. In contrast, the daily content path can have a cache Time-To-Live (TTL) aligned with the daily update cycle (e.g., 24 hours), ensuring users receive fresh content without requiring broad cache invalidations. This also provides a clear and distinct target for the Lambda functions when writing new content.III. Core AWS Services and ConfigurationThe CraicGPT.ie platform will leverage several AWS services, each configured to meet the project's specific requirements for static hosting, automated content generation, and security.Table 1: AWS Services Summary
+AWS ServicePurpose in CraicGPT.ieKey Configuration Notes/ConsiderationsAmazon S3Static website hosting & daily generated content storageTwo buckets recommended (site assets, daily content). Origin Access Control (OAC) for CloudFront. Bucket policies for security. Versioning and lifecycle policies. Server-side encryption. 1Amazon CloudFrontCDN for global content delivery, SSL/TLS termination, access control to S3OAC integration with S3. Custom domain (craicgpt.ie). HTTPS enforcement. Cache behaviors optimized for static assets and daily content. 1AWS Certificate ManagerProvision and manage SSL/TLS certificatesPublic certificate for craicgpt.ie and www.craicgpt.ie. Must be created in us-east-1 region for CloudFront. DNS validation via Route 53 recommended. 4Amazon Route 53DNS management for craicgpt.iePublic hosted zone. Alias (A) records pointing to CloudFront distribution. Records for ACM DNS validation. 3AWS LambdaServerless compute for 'Agentic' daily content generation (LLM & ImageGen interactions)TypeScript runtime. IAM roles with least privilege. Integration with Secrets Manager for API keys. Environment variables for non-sensitive config. Small, focused functions. 5Amazon EventBridge SchedulerReliable daily cron job to trigger content generation LambdaRecurring schedule (e.g., daily UTC). Target: Orchestrator Lambda. Configurable retry policy. Preferred over legacy EventBridge Rules. 7AWS Secrets ManagerSecure storage and retrieval of third-party API keys (LLMs, Image Generators)Individual secrets per API key. IAM permissions for Lambda access. AWS Parameters and Secrets Lambda Extension for caching. 9AWS IAMIdentity and Access Management for all AWS resourcesPrinciple of Least Privilege for all roles (Lambda, EventBridge). Managed via Terraform. 5
+A. Static Website HostingThe static nature of the CraicGPT.ie front-end, with content dynamically populated via client-side JavaScript, lends itself well to a hosting solution based on Amazon S3 and Amazon CloudFront.1. Amazon S3 (Simple Storage Service)Two S3 buckets are recommended for optimal management and security:
+
+Website Assets Bucket (e.g., craicgpt-website-assets):
+
+Purpose: To host the core static files of the website, including index.html, CSS stylesheets, JavaScript files for client-side logic, and any static images forming part of the newspaper template.
+Configuration: Static website hosting can be enabled on this bucket for direct endpoint testing, but the primary access will be via CloudFront.
+Access Control: Public access to this bucket will be blocked. Amazon CloudFront will access the objects using Origin Access Control (OAC), ensuring that the S3 bucket is not directly exposed to the internet.1
+Versioning: Enabling versioning is recommended to allow for rollbacks of website assets if needed.11
+
+
+
+Generated Content Bucket (e.g., craicgpt-daily-content):
+
+Purpose: To store the AI-generated content produced by the daily Lambda functions. This includes JSON files containing text for articles, jokes, and other textual elements, as well as any generated image files.
+Structure: Content within this bucket will be organized hierarchically by date, for example: YYYY/MM/DD/main_article.json, YYYY/MM/DD/banner_image.png. This structure simplifies content retrieval by the frontend and organization by the backend Lambdas.2
+Access Control: AWS Lambda functions will require s3:PutObject permissions to write content to this bucket. CloudFront (via OAC on the website assets bucket, with a behavior pointing to this content if served through the same distribution but different origin, or a separate distribution) will require s3:GetObject permissions if it's to serve this content directly. Alternatively, the frontend JavaScript fetches from this bucket via CloudFront.
+Versioning: Versioning should be enabled on this bucket to protect against accidental overwrites or deletions and to allow for historical content retrieval or rollback.2
+Lifecycle Policies: While not critical for an MVP with low traffic, lifecycle policies can be configured in the future to transition older content to more cost-effective storage tiers (e.g., S3 Infrequent Access) or to delete it after a specified period.
+
+
+2. Amazon CloudFrontCloudFront will act as the global CDN, improving performance, security, and availability.
+Purpose: To distribute the website content (both static assets and daily generated data) with low latency to users worldwide. It also provides SSL/TLS termination for HTTPS and acts as a secure front door to the S3 origins.
+Origin Configuration:
+
+The primary origin will be the S3 bucket craicgpt-website-assets.
+Origin Access Control (OAC): OAC is the recommended method for restricting S3 bucket access to CloudFront only.1 An OAC identity will be created and associated with the CloudFront distribution. The S3 bucket policy for craicgpt-website-assets will be updated to grant s3:GetObject permissions exclusively to this OAC identity. This replaces the older Origin Access Identity (OAI) mechanism.
+
+
+Cache Behaviors:
+
+Default Behavior: For static assets like HTML, CSS, and JavaScript files from the craicgpt-website-assets bucket, a longer TTL (e.g., 7 days) can be configured, as these files are expected to change infrequently.
+Daily Content Behavior: A specific cache behavior will be configured for the path from which daily content is served (e.g., /content/* if using a prefix, or requests routed to the craicgpt-daily-content bucket). This behavior will have a shorter TTL, typically 24 hours, to ensure that users receive the newly generated content each day.
+
+
+Custom Domain Name: The CloudFront distribution will be configured to use the custom domain craicgpt.ie and potentially www.craicgpt.ie.
+HTTPS Enforcement: The distribution will be configured to redirect all HTTP requests to HTTPS, ensuring secure communication.
+Price Class: A suitable price class (e.g., PriceClass_100 for US, Canada, Europe, Israel, or PriceClass_All for global reach) should be selected based on the target audience to optimize costs.12
+3. AWS Certificate Manager (ACM)ACM will be used to manage the SSL/TLS certificate for the custom domain.
+Purpose: To provision, manage, and deploy public SSL/TLS certificates required for enabling HTTPS on the CloudFront distribution.
+Certificate Details: A public certificate will be requested for craicgpt.ie and any desired subdomains, such as www.craicgpt.ie or using a wildcard like *.craicgpt.ie.
+Region Requirement: It is critical that the ACM certificate intended for use with Amazon CloudFront is requested in the us-east-1 (N. Virginia) region, regardless of the location of other resources or users.4
+Validation Method: DNS validation is the recommended method. If Amazon Route 53 is used for DNS hosting, ACM can automatically create the necessary CNAME records in the Route 53 hosted zone to validate domain ownership.
+4. Amazon Route 53Route 53 will provide DNS services for the craicgpt.ie domain.
+Purpose: To translate the human-readable domain name craicgpt.ie into the IP addresses of the CloudFront distribution.
+Hosted Zone: A public hosted zone will be created in Route 53 for the craicgpt.ie domain.
+DNS Records:
+
+Alias Records: A (IPv4) and AAAA (IPv6, if desired) alias records will be created for craicgpt.ie and www.craicgpt.ie. These records will point to the CloudFront distribution.3 Alias records are preferred over CNAMEs for root domains when pointing to AWS resources.
+ACM Validation Records: If DNS validation is used for the ACM certificate, Route 53 will automatically (or allow manual creation of) the required CNAME records within the hosted zone.
+
+
+B. Daily Content Generation EngineThe core of the daily content update mechanism relies on AWS Lambda for serverless compute, orchestrated by Amazon EventBridge Scheduler.1. AWS LambdaLambda functions will execute the 'agentic' logic to interact with LLMs and Image Generators.
+Purpose: To run the TypeScript code responsible for fetching prompts, calling external AI APIs, processing responses, and storing the generated content in S3, all without managing servers.
+Function Structure: A modular approach to Lambda functions is recommended:
+
+Orchestrator Lambda: This function is triggered daily by EventBridge Scheduler. It coordinates the overall content generation workflow, potentially invoking other specialized Lambdas or managing the sequence of generation tasks.
+LLM Content Lambda(s): One or more functions specialized in interacting with LLM APIs to generate textual content (main article, comparison, joke, LLM story).
+Image Generation Lambda(s): One or more functions specialized in interacting with Image Generator APIs to create visual content (banner image, article illustrations, comparison graph).
+Alternatively, for the initial MVP, a single, more complex Lambda function could handle all generation tasks if the inter-dependencies are straightforward. However, separating concerns into smaller functions generally improves maintainability, testability, and adherence to the best practice of keeping functions small and focused.6
+
+
+Runtime: TypeScript, as specified in the user requirements. The code will need a build step to transpile to JavaScript and package dependencies before deployment.
+IAM Execution Roles: Each Lambda function will have an IAM execution role granting only the necessary permissions (principle of least privilege) 5:
+
+Basic permissions to write logs to Amazon CloudWatch Logs (logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents).
+Permissions to retrieve specific secrets from AWS Secrets Manager (secretsmanager:GetSecretValue on the ARNs of the required secrets).
+Permissions to write objects to the craicgpt-daily-content S3 bucket (s3:PutObject scoped to the relevant path, e.g., YYYY/MM/DD/*).
+If prompts or configurations are read from S3: s3:GetObject permissions scoped to that specific S3 location.
+
+
+Environment Variables: Used for non-sensitive configuration parameters, such as S3 bucket names, default model identifiers (if not part of the dynamic prompts), or logging levels. Secrets must not be stored in environment variables.
+Prompts Management: "Consistent prompts" will be used for daily generation. These prompts can be stored as part of the Lambda deployment package (e.g., in a JSON or text file). This approach ensures that prompts are version-controlled alongside the Lambda code in GitHub. For an automated system generating consistent daily content, this is simpler than managing prompts in an external S3 object or database, though those are options for more dynamic scenarios.13
+Best Practices for Lambda Development:
+
+Initialize SDK clients (e.g., for S3, Secrets Manager) and database connections outside the main handler function to enable reuse across invocations within the same execution environment, improving performance and reducing costs.5
+Leverage TypeScript features such as interfaces to define data structures (e.g., for event payloads, API responses) and enums for named constants, enhancing code clarity and maintainability.14
+Monitor function performance (duration, memory usage) using CloudWatch metrics and logs to right-size memory allocation. AWS Lambda Power Tuning tools can assist in finding optimal memory configurations.5
+Implement robust error handling, including retries with backoff for transient issues when calling external services, and consider configuring Dead Letter Queues (DLQs) for Lambda functions to capture events that fail persistently for later analysis.6
+
+
+2. Amazon EventBridge SchedulerEventBridge Scheduler provides a reliable and serverless way to trigger the daily content generation.
+Purpose: To invoke the Orchestrator Lambda function automatically at a specified time each day.
+Schedule Configuration: A recurring schedule will be defined using a cron expression (e.g., cron(0 1 * *? *) for 1:00 AM UTC daily) or a rate expression.
+Target: The target for the schedule will be the Orchestrator AWS Lambda function.
+Payload (Optional): While "consistent prompts" are specified, the scheduler can pass a static JSON payload to the Lambda if, for example, a specific theme or seed parameter needs to be injected for a particular day's generation run.
+Retry Policy and Dead-Letter Queue (DLQ): EventBridge Scheduler supports configuring retry policies (number of retries, backoff strategy) in case the target Lambda invocation fails due to transient issues. A DLQ (an SQS queue) can also be configured for the scheduler rule itself to capture events that could not be delivered to the target after exhausting retries.8
+Advantages: EventBridge Scheduler is preferred over legacy EventBridge (CloudWatch Events) rules for scheduled tasks due to its enhanced features, including support for more targets, higher quotas, time zone awareness, and one-time schedules.8
+C. Content Storage Strategy (Reiteration and Detail for S3)The craicgpt-daily-content S3 bucket (or a dedicated prefix like generated-content/ if a single-bucket approach is chosen, though two buckets are recommended) is central to storing the AI-generated newspaper content.
+Naming Convention: A descriptive name like craicgpt-daily-content clearly indicates its purpose.
+Folder Structure: A date-based hierarchical structure, YYYY/MM/DD/, will be used to organize content.2 Within each daily folder, individual files will store specific elements of the newspaper:
+
+metadata.json: Contains overall information for the day, such as the precise generation timestamp, the chosen "bio" snippet, and text for the main banner.
+main_article.json (or .txt/.md): Stores the content for the main feature article.
+comparison_article.json: Contains text for the LLM/ImageGen comparison piece.
+main_image.png (or other image format): The primary image generated for the day, perhaps related to the main article. If the Image Generator API returns a URL to an externally hosted image, this file might store that URL.
+comparison_graph.png: An image representing the comparison data.
+joke_of_the_day.json: Stores the daily joke.
+llm_story.json: Content for the LLM-generated story.
+advertisements.json: An array of fake advertisement texts and/or image URLs.
+A single aggregated JSON file, e.g., todays_paper.json, could also be generated, containing all textual content and references to image files. This might simplify frontend fetching.
+
+
+Access Permissions:
+
+The content generation Lambda functions (specifically the Orchestrator or functions it calls) will require s3:PutObject and s3:PutObjectAcl (if specific ACLs are needed, though bucket policies are generally preferred) permissions to write these files into the bucket under the correct daily path.
+CloudFront (via OAC) will need s3:GetObject permissions to read these files if it's directly serving them. If the frontend JavaScript fetches content via CloudFront, the CloudFront distribution needs this access.
+
+
+Versioning: S3 Object Versioning will be enabled on this bucket to preserve a history of all generated content, allowing for rollbacks or retrieval of past versions if necessary.2
+Lifecycle Policies: For long-term cost management, S3 Lifecycle policies can be configured to:
+
+Transition older versions of objects to S3 Glacier or S3 Glacier Deep Archive.
+Transition non-current (old) content to S3 Infrequent Access (S3 IA) after a certain period (e.g., 30-60 days).
+Permanently delete very old content or non-current versions after an extended period (e.g., 1-2 years), depending on retention requirements. For an MVP with low traffic, aggressive lifecycle policies are less critical initially but are a good practice for future cost optimization.
+
+
+Server-Side Encryption (SSE): Objects in S3 should be encrypted at rest. SSE-S3 (AES-256 encryption managed by S3) is enabled by default for new buckets and is a good baseline. If more control over encryption keys is required, SSE-KMS (using AWS Key Management Service) can be configured.15
+D. Secure Credential ManagementSecuring API keys for third-party LLM and Image Generator services is paramount.
+AWS Secrets Manager
+
+Purpose: To securely store, manage, and retrieve sensitive information like API keys, database credentials, and OAuth tokens. This avoids hardcoding secrets in application code or configuration files.16
+Secret Creation: Individual secrets will be created in Secrets Manager for each external API key required by the Lambda functions (e.g., one secret for the LLM API key, another for the Image Generator API key).
+Access Control: IAM policies associated with the Lambda execution roles will grant secretsmanager:GetSecretValue permission, scoped specifically to the ARNs of the secrets they need to access. This adheres to the principle of least privilege.
+AWS Parameters and Secrets Lambda Extension: To optimize performance and reduce costs associated with API calls to Secrets Manager, the AWS Parameters and Secrets Lambda Extension should be utilized.9 This extension caches retrieved secrets within the Lambda execution environment, making them available to the function code via a local HTTP endpoint. This reduces latency and the number of direct API calls to Secrets Manager, especially if multiple secrets are accessed or the function is invoked frequently.
+Rotation: Secrets Manager supports automatic secret rotation for certain AWS services (like RDS). For third-party API keys, automatic rotation typically requires a custom Lambda function that understands the third-party API's key rotation mechanism.9 For the MVP, manual rotation (updating the secret value in Secrets Manager when a key changes) is likely sufficient. The Lambda functions will always fetch the current version of the secret.
+
+
+E. Identity and Access Management (IAM)IAM is foundational to securing the AWS environment by controlling access to resources.
+Overview of Key Roles and Policies:
+
+Lambda Execution Roles: As detailed previously, each Lambda function (or a logical group of functions with identical permission needs) will have its own execution role. These roles will be tightly scoped to include only:
+
+Permissions for CloudWatch Logs (logs:CreateLogGroup, logs:CreateLogStream, logs:PutLogEvents).
+secretsmanager:GetSecretValue permission on the specific secret ARNs they require.
+s3:PutObject permission to the specific path within the craicgpt-daily-content S3 bucket.
+If Lambdas read configuration files from S3, s3:GetObject on those specific S3 objects/prefixes.
+
+
+EventBridge Scheduler Role: EventBridge Scheduler requires an IAM role that it can assume to invoke the target Lambda function. This role will have a trust policy allowing the events.amazonaws.com service principal and permissions for lambda:InvokeFunction on the specific Orchestrator Lambda function ARN.
+CloudFront Origin Access Control (OAC): While not an IAM role, OAC is an identity principal for CloudFront. The S3 bucket policy for the website assets bucket will grant s3:GetObject permission to the CloudFront OAC principal associated with the distribution.
+
+
+Principle of Least Privilege: This principle will be strictly enforced across all IAM roles and policies. Permissions will be granted only for the actions necessary to perform the intended tasks on the specific resources required.5
+Terraform Management: All IAM roles, policies, and trust relationships will be defined and managed as code using Terraform. Leveraging established Terraform modules like terraform-aws-modules/iam/aws 10 can help implement IAM best practices consistently. These modules provide pre-configured setups for common scenarios and help avoid common misconfigurations.
+IV. Infrastructure as Code (IaC) with TerraformThe entire AWS infrastructure for CraicGPT.ie will be provisioned and managed using HashiCorp Terraform, adhering to IaC best practices.A. Modular Terraform DesignA modular approach to Terraform configuration is specified and highly recommended for this project.
+Philosophy: Organizing Terraform code into reusable, self-contained modules enhances readability, maintainability, and scalability. It allows for better separation of concerns and promotes code reuse across different environments or projects.
+Proposed Structure:
+
+Root Module: This will be the main entry point for the Terraform configuration, containing main.tf (which instantiates child modules), variables.tf (for input parameters), outputs.tf (to expose key resource attributes), and providers.tf (to configure the AWS provider).
+Child Modules: The infrastructure will be broken down into logical components, each managed by a dedicated child module. Examples include:
+
+modules/static_site: Manages S3 buckets for website and content, CloudFront distribution, ACM certificate, and Route 53 records.
+modules/content_generation: Manages the AWS Lambda functions, EventBridge Scheduler rule, and associated IAM roles for the daily content pipeline.
+modules/iam: Could be a dedicated module for more complex IAM role and policy definitions if not handled within service-specific modules.
+modules/secrets: Manages AWS Secrets Manager secrets (or placeholders for them).
+
+
+Leveraging Public Modules: Where appropriate, well-vetted and maintained public modules from the Terraform Registry will be used to accelerate development and incorporate community best practices. Examples include modules from terraform-aws-modules for S3, CloudFront, Lambda, IAM, ACM, EventBridge, and Secrets Manager.10
+
+
+B. Key AWS Resources Managed by TerraformTerraform will be responsible for the lifecycle of the following AWS resources:
+Amazon S3 Buckets: Both the craicgpt-website-assets and craicgpt-daily-content buckets, including their configurations for static website hosting (if applicable), versioning, OAC integration, bucket policies, and lifecycle rules.
+Amazon CloudFront Distribution: The CDN setup, including origin configurations, OAC, cache behaviors, custom domain settings, and SSL/TLS certificate associations.
+AWS Certificate Manager (ACM) Certificate: The SSL/TLS certificate for craicgpt.ie. If DNS validation with Route 53 is used, Terraform can also manage the validation records.
+Amazon Route 53: The public hosted zone for craicgpt.ie and all necessary DNS records (e.g., A records for CloudFront, CNAMEs for ACM validation).
+AWS Lambda Functions: Definition of the Lambda functions, including runtime (TypeScript), handler, memory size, timeout, environment variables, and IAM execution roles. The deployment package for the Lambda code (the ZIP file) will also be managed.
+The terraform-aws-modules/lambda/aws module 18 is particularly useful as it can handle the packaging of Node.js/TypeScript applications, including running npm install if a package.json is found in the source path. This simplifies the build and deployment process, as developers would typically run an npm run build command to transpile TypeScript to JavaScript and bundle dependencies into a ./dist or similar folder, which Terraform then zips and deploys.
+IAM Roles and Policies: All IAM roles (for Lambda, EventBridge) and their associated permission policies and trust relationships.
+Amazon EventBridge Scheduler Rule: The scheduled rule that triggers the Orchestrator Lambda daily.
+AWS Secrets Manager Secrets: Terraform can manage the creation of secret placeholders in Secrets Manager. However, for highly sensitive data like API keys, the actual secret value should not be stored in Terraform configuration files or state files.16 Instead, Terraform can create the secret resource, and the value can be populated manually through the AWS console or a secure, out-of-band process. The Lambda IAM roles will then be granted permission to read these secrets.
+C. State ManagementProper management of Terraform's state file is crucial for team collaboration and preventing infrastructure drift.
+Recommended Backend: An S3 backend is recommended for storing the Terraform state file (terraform.tfstate).24 This provides a centralized, durable, and versioned location for the state.
+State Locking: To prevent concurrent modifications to the state file, which can lead to corruption, DynamoDB should be used for state locking. When one user runs terraform apply, a lock is acquired in the DynamoDB table, preventing other users from making changes simultaneously.
+Configuration: The S3 backend and DynamoDB lock table will be configured in the terraform block of the root module's provider configuration.
+V. Frontend ConsiderationsThe frontend for CraicGPT.ie needs to deliver the unique "traditional newspaper broadsheet comic style front page" while efficiently displaying daily AI-generated content.Table 2: Frontend Approach Comparison
+ApproachProsConsRecommendation for CraicGPT.ie MVPAngularFull-featured framework, TypeScript support, component-based architecture, built-in routing and state management, strong tooling. 25Steeper learning curve if unfamiliar, potentially larger bundle sizes for simple sites, can be overkill for static content display. 25Likely overkill for the initial MVP's focus on a specific visual layout and daily static content. Consider for future major interactive features or if the application complexity grows significantly.Static HTML/CSS/JS (MVP)Lightweight, rapid development for specific visual layouts, direct control over HTML/CSS for comic style, no framework overhead. 25Manual DOM manipulation, state management can become complex if features expand significantly (less of an issue for this MVP).Recommended for initial deployment. Allows for precise control over the comic-style layout, faster delivery of the core visual experience, and is well-suited for fetching and displaying pre-generated daily content with minimal client-side complexity.
+A. Angular vs. Static HTML/CSS/JS (MVP Approach)The choice of frontend technology impacts development speed, complexity, and the ease of achieving the desired visual style.
+
+Angular:
+
+Angular is a comprehensive framework offering a structured approach to building complex single-page applications (SPAs). Its use of TypeScript aligns with the backend Lambda development language, and it provides robust features like dependency injection, two-way data binding, and a rich component model.25
+However, for CraicGPT.ie's initial phase, which prioritizes a specific, static-like visual presentation of daily pre-generated content, Angular's feature set might be excessive. The learning curve and development overhead for a project not fully leveraging its SPA capabilities could slow down MVP delivery.25
+
+
+
+Static HTML/CSS/JS (MVP Approach):
+
+A simpler stack of static HTML, CSS, and vanilla JavaScript offers a more direct and lightweight path to achieving the MVP. This approach provides maximum control over the HTML structure and CSS styling, which is crucial for realizing the "traditional newspaper broadsheet comic style." For sites that are primarily presentational with content updated periodically, simpler solutions are often more efficient.25
+The dynamic aspect involves fetching the daily content (a JSON file) and using JavaScript to populate the pre-defined HTML layout. This is well within the capabilities of vanilla JavaScript without requiring a heavy framework.
+
+
+
+Recommendation: For the initial deployment of CraicGPT.ie, a Static HTML/CSS/JS approach is recommended. The primary challenge is achieving the specific visual and layout goals of the comic-style newspaper. Direct manipulation of HTML and CSS, unencumbered by framework opinions, will likely be more efficient for this task. The content is pre-generated daily, minimizing the need for complex client-side state management or routing that Angular excels at. This lean approach aligns with the "low expected traffic" and rapid MVP delivery goals.
+
+B. Achieving the Comic Style LayoutThe visual presentation is a key differentiator for CraicGPT.ie.
+CSS Grid and Flexbox: These modern CSS layout modules are ideal for creating the structured yet flexible layout of a newspaper or comic page. CSS Grid can be used for the overall page structure (e.g., defining columns, header, footer areas), while Flexbox can manage alignment and distribution of items within those sections (e.g., aligning elements within an article box).27
+Custom CSS: Extensive custom CSS will be required for:
+
+Typography: Selecting appropriate fonts (serifs for body text, display fonts for headlines) and styling them to evoke a classic newspaper feel.
+Borders and Separators: Using borders to define panels, columns, and ad boxes, characteristic of comic strips and newspapers.
+Color Palette: Choosing a color scheme that fits the "craic" theme while maintaining readability.
+Visual Embellishments: Small details that enhance the comic/newspaper aesthetic.
+
+
+C. Content Fetching and DisplayClient-side JavaScript will be responsible for retrieving and rendering the daily content.
+JavaScript fetch API: The modern fetch API will be used to make an HTTP GET request to the CloudFront URL where the daily content manifest (e.g., todays_paper.json) is stored.29
+Dynamic URL Construction: The JavaScript code will need to dynamically construct the URL for the day's content. This typically involves getting the current date (year, month, day) and formatting it into the S3 path structure (e.g., https://<cloudfront_domain_name>/content/YYYY/MM/DD/todays_paper.json).
+JSON Parsing and DOM Manipulation:
+
+Once the JSON data is fetched, response.json() will be used to parse it into a JavaScript object.29
+The script will then traverse this object and use standard DOM manipulation methods (e.g., document.getElementById(), element.innerHTML, element.textContent, document.createElement()) to populate the corresponding HTML elements in the newspaper layout with the fetched text, image URLs, and other data.
+Error handling should be implemented to gracefully manage situations where the content fails to load or is malformed.
+
+
+D. LLM/ImageGen Selection ButtonsThe functionality of these buttons in the MVP will be informational.
+Initial Functionality: The buttons will primarily serve to indicate which LLM or Image Generation model was used to create the content displayed on that particular day. This information will be part of the daily JSON data fetched by the client. JavaScript will update the button states or associated text based on this data.
+Future Enhancements: In later iterations, these buttons could become interactive. For example, clicking a button might trigger an on-demand content generation request to a specific model via an API Gateway endpoint that invokes a Lambda function. However, this on-demand generation is outside the scope of the initial daily agentic generation model.
+VI. Daily Content Generation Workflow (Detailed Steps)The automated daily generation of the CraicGPT.ie newspaper content follows a precise workflow:
+
+Trigger:
+
+At a pre-configured time each day (e.g., 01:00 UTC), the Amazon EventBridge Scheduler rule fires.
+It invokes the primary Orchestrator Lambda function, potentially passing a static JSON payload if needed (though not required for "consistent prompts").
+
+
+
+Initialization (Orchestrator Lambda):
+
+The Orchestrator Lambda starts execution.
+It retrieves necessary configurations. This might include a list of newspaper elements to generate (main article, comparison, joke, etc.) or specific parameters for the day.
+Crucially, it retrieves API keys for the various third-party LLM and Image Generator services from AWS Secrets Manager. This is done securely, ideally using the AWS Parameters and Secrets Lambda Extension for caching and performance benefits.9
+
+
+
+Content Element Generation (Sequential or Parallel as appropriate):
+
+The Orchestrator Lambda iterates through the list of required newspaper content elements.
+For each element:
+
+It prepares the specific, consistent prompt tailored for that element (e.g., a prompt for the main article, a different one for the joke). These prompts are likely bundled with the Lambda code or loaded from a configuration file within the deployment package.
+It then invokes the appropriate specialized Lambda function (e.g., LLMContentLambda, ImageGenerationLambda) or calls an internal helper function within the Orchestrator itself if the logic is simple.
+The prompt and any necessary context (e.g., desired image dimensions, output format) are passed to the specialized function/Lambda.
+
+
+LLM/ImageGen Lambda Execution:
+
+The specialized Lambda (or internal function) receives the prompt.
+It makes an authenticated HTTPS API call to the designated external LLM or Image Generator service using the retrieved API key.
+It handles the API response, which could be JSON containing generated text, image binary data, or a URL pointing to a generated image.
+It may perform light processing or formatting on the response (e.g., extracting relevant text fields, checking for errors).
+The generated content (or a reference to it, like an S3 URL for a newly uploaded image) is returned to the Orchestrator Lambda.
+
+
+
+
+
+Aggregation & Structuring (Orchestrator Lambda):
+
+The Orchestrator Lambda collects all the generated content pieces from the specialized functions/Lambdas.
+It assembles these pieces into a final, structured format for the day. This could be a single comprehensive JSON file (e.g., todays_paper.json) that includes all textual content and URLs to generated images, or it might involve preparing multiple individual files.
+This structured data also includes metadata such as the generation date, the "bio" snippet for the day, and the text for the newspaper's banner.
+
+
+
+Storage to S3 (Orchestrator Lambda):
+
+The Orchestrator Lambda constructs the full S3 key path for each content file based on the current date (e.g., s3://craicgpt-daily-content/YYYY/MM/DD/todays_paper.json, s3://craicgpt-daily-content/YYYY/MM/DD/main_article_image.png).
+It then uploads the structured JSON data and any directly generated image files (if not just URLs) to the craicgpt-daily-content S3 bucket.
+
+
+
+Completion & Logging:
+
+The Orchestrator Lambda logs a summary of its execution, indicating success or failure, to Amazon CloudWatch Logs. Detailed logs from each step (including from specialized Lambdas) are also sent to CloudWatch Logs.
+Robust error handling is implemented throughout the process. If a step fails (e.g., an LLM API call times out), the system might retry (if the error is transient) or log the error in detail and potentially proceed with generating other elements if possible, or fail the entire run. For persistent Lambda failures, a Dead Letter Queue (DLQ), such as an SQS queue, can be configured to capture the failed event payload for investigation and manual reprocessing if necessary.6
+
+
+For the "consistent prompts" used by this automated system, versioning them directly with the Lambda function code in the GitHub repository offers the best balance of simplicity and traceability for this MVP. When the Lambda code is updated, any corresponding prompt changes are part of the same commit and deployment. This avoids the overhead of managing prompts in a separate S3 location or database, which would be more suitable for user-generated or frequently changing prompts.13VII. Follow-on Prompts for ImplementationTo facilitate the development process, the following prompts are provided. They are designed to guide the creation of Terraform infrastructure code, frontend components, Lambda functions, and branding assets.A. Terraform Infrastructure Implementation PromptsThe following table lists key AWS components and suggests reputable Terraform modules from the public registry that can accelerate IaC development and incorporate best practices.Table 3: Key Terraform Modules for AWS Infrastructure
+AWS Service/ComponentSuggested Terraform Module (Registry Path)Relevance/Key FeaturesS3 Static Site + CloudFronttfstack/s3-static-website/aws 4 <br> OR <br> gruntwork-io/terraform-aws-static-assets/s3-cloudfront 15 (check for OAC support)Comprehensive modules for S3 bucket setup for static hosting, CloudFront distribution, OAC/OAI, Route 53 integration, and ACM certificate handling.AWS Lambdaterraform-aws-modules/lambda/aws 18Manages Lambda function creation, code packaging and deployment (including support for Node.js/TypeScript builds), IAM roles, triggers, layers, environment variables, and VPC config.AWS Secrets Managerterraform-aws-modules/secrets-manager/aws 19 <br> OR <br> gitlab.com/wild-beavers/terraform/module-aws-secret-manager 30Facilitates creation of Secrets Manager secrets, management of secret policies, and replication.Amazon EventBridge Schedulerterraform-aws-modules/eventbridge/aws 21 (ensure it supports Scheduler resources, not just Rules)Enables creation of EventBridge rules, schedules (cron/rate), and targets (e.g., Lambda functions).AWS IAMterraform-aws-modules/iam/aws 10Provides submodules for creating IAM roles, policies, users, and groups, adhering to AWS best practices (e.g., for assumable roles, service roles).AWS Certificate Manager (ACM)terraform-aws-modules/acm/aws 23Handles ACM certificate requests, supports DNS and Email validation methods, and integrates with Route 53 for DNS validation records.Amazon Route 53terraform-aws-modules/route53/aws 22Manages Route 53 hosted zones and various types of DNS records.
+Specific Terraform Prompts:
+
+"Generate Terraform HCL code for an S3 bucket named craicgpt-website-assets. This bucket will host static website files (index.html, error.html). Configure it for:
+
+Private access, with content served exclusively via CloudFront using Origin Access Control (OAC).
+Basic object versioning enabled.
+Server-side encryption using SSE-S3."
+1
+
+
+
+"Generate Terraform HCL code for a second S3 bucket named craicgpt-daily-content. This bucket will store daily generated JSON and image files. Configure it for:
+
+Private access (Lambda write, CloudFront read if configured as an origin for content path).
+Object versioning enabled.
+A hierarchical folder structure (e.g., YYYY/MM/DD/).
+Server-side encryption using SSE-S3."
+2
+
+
+
+"Create Terraform HCL for an Amazon CloudFront distribution. This distribution should:
+
+Use the craicgpt-website-assets S3 bucket as its primary origin, configured with Origin Access Control (OAC).
+Be associated with an ACM certificate (use a variable var.acm_certificate_arn as a placeholder, assuming the certificate is created in us-east-1).
+Support the custom domain name craicgpt.ie and www.craicgpt.ie (using CNAMEs in the distribution settings).
+Enforce HTTPS by redirecting HTTP requests to HTTPS.
+Include a default cache behavior optimized for static website assets (e.g., HTML, CSS, JS) with a suitable TTL.
+Include an additional cache behavior for the path /content/* (or an alternative path for daily content) with a TTL of 24 hours.
+Log access to another S3 bucket (optional, but good practice: var.cloudfront_log_bucket_name)."
+1
+
+
+
+"Write Terraform HCL for an AWS Certificate Manager (ACM) certificate. The certificate should be:
+
+Requested in the us-east-1 region.
+For the domain names craicgpt.ie and www.craicgpt.ie.
+Use DNS validation.
+Assume a Route 53 hosted zone ID is provided as a variable (var.route53_zone_id) for creating validation records."
+23
+
+
+
+"Provide Terraform HCL for Amazon Route 53. This should include:
+
+Creation of a public hosted zone for craicgpt.ie (if not existing, use var.domain_name).
+A (Alias) records for craicgpt.ie and www.craicgpt.ie pointing to the CloudFront distribution created earlier (use output from CloudFront module for domain name and hosted zone ID)."
+3
+
+
+
+"Generate Terraform HCL for an AWS Lambda function named ContentOrchestratorLambda using the terraform-aws-modules/lambda/aws module. Configure it as follows:
+
+Runtime: nodejs18.x (or latest compatible Node.js for TypeScript).
+Handler: index.handler (assuming transpiled output is index.js).
+Source Path: ../src/lambda/content-orchestrator (directory containing package.json and TypeScript source).
+Memory Size: 128 MB (initial, adjust after testing).
+Timeout: 60 seconds (initial, adjust after testing).
+Environment Variables:
+
+S3_CONTENT_BUCKET_NAME = var.s3_content_bucket_name
+LLM_API_KEY_SECRET_ARN = var.llm_api_key_secret_arn
+IMAGEGEN_API_KEY_SECRET_ARN = var.imagegen_api_key_secret_arn
+
+
+IAM Role: The module should create an IAM role with policies allowing:
+
+Writing to CloudWatch Logs.
+secretsmanager:GetSecretValue on var.llm_api_key_secret_arn and var.imagegen_api_key_secret_arn.
+s3:PutObject to s3://${var.s3_content_bucket_name}/YYYY/MM/DD/*.
+
+
+Enable the AWS Parameters and Secrets Lambda Extension layer."
+5
+
+
+
+"Create Terraform HCL for an Amazon EventBridge Scheduler rule named DailyCraicGPTContentGeneration. This rule should:
+
+Trigger the ContentOrchestratorLambda function.
+Run daily at 01:00 UTC (using a cron expression).
+Be enabled.
+Include a basic retry policy."
+7
+
+
+
+"Write Terraform HCL to define an AWS Secrets Manager secret named craicgpt/llm_api_key.
+
+Do not include the actual secret value in the HCL; the value will be populated manually.
+Add a description for the secret.
+Ensure the ContentOrchestratorLambda's execution role has secretsmanager:GetSecretValue permission for this specific secret ARN."
+9
+(Repeat for craicgpt/imagegen_api_key)
+
+
+B. Website Development Prompts (Static HTML/CSS/JS MVP)
+
+"Create the basic HTML structure (index.html) for the CraicGPT.ie front page. The structure should be semantic and include placeholders for the following newspaper/comic elements:
+
+A main banner at the top: <header id="page-banner"><h1>CraicGPT.ie</h1><p id="banner-date"></p></header>
+A section for a short, dynamic bio: <section id="author-bio"><p></p></section>
+A main content area, designed to be styled into columns: <main id="main-content-area">
+
+Inside main-content-area, placeholders for:
+
+Main article: <article id="main-article"><h2></h2><img id="main-article-image" src="#" alt="Main Article Image"><p></p></article>
+Comparison article/section: <article id="comparison-article"><h2></h2><img id="comparison-graph-image" src="#" alt="Comparison Graph"><p></p></article>
+LLM-generated story: <article id="llm-story"><h2></h2><p></p></article>
+
+
+
+
+A sidebar or distinct section for fake advertisements: <aside id="fake-advertisements"><h3>Advertisements</h3><div class="ad"></div><div class="ad"></div></aside>
+A dedicated spot for the joke of the day: <section id="joke-of-the-day"><h3>Joke of the Day</h3><p></p></section>
+A container for LLM/ImageGen selection/info buttons: <div id="model-selectors-info"></div>
+Ensure to link to style.css and main.js."
+
+
+
+"Provide CSS code (style.css) to style the index.html elements into a multi-column layout reminiscent of a traditional broadsheet newspaper or comic book.
+
+Utilize CSS Grid for the main page structure (e.g., header, main content columns, sidebar).
+Use Flexbox for aligning items within specific components if needed.
+Define styles for clear visual hierarchy: prominent banner, distinct article boxes, clear headings, and legible body text.
+Incorporate placeholder styles (e.g., borders, background colors) for the different content blocks to visualize the layout before dynamic content is loaded.
+Choose a font family that evokes a classic newspaper/comic feel (e.g., a serif for body text, a sans-serif or display font for headlines).
+Add basic responsive design considerations to ensure readability on smaller screens, perhaps stacking columns."
+27
+
+
+
+"Write JavaScript code (main.js) to dynamically populate the index.html page:
+
+On window load, it should execute a function to fetch daily content.
+This function will:
+
+Get the current date (year, month, day).
+Construct the URL to the daily content JSON file (e.g., https://<your-cloudfront-distribution-domain>/content/YYYY/MM/DD/todays_paper.json). Replace <your-cloudfront-distribution-domain> with the actual domain.
+Use the fetch API to make an asynchronous GET request for this JSON file.29
+Upon receiving a successful response, parse the JSON data.
+Update the innerHTML or textContent of the corresponding HTML elements (identified by their IDs from prompt 1) with the data from the parsed JSON. This includes banner text, date, bio, article titles and content, image src attributes, ad texts, and the joke.
+Implement error handling for the fetch request (e.g., network errors, 404 if content for the day is not found) and JSON parsing, logging errors to the console and displaying a user-friendly message on the page if content cannot be loaded."
+
+
+
+
+C. Lambda LLM Prompt Execution Example (TypeScript)"Provide a TypeScript AWS Lambda handler function (llmHandler.ts) designed to be part of the content generation pipeline. This function should:*   Be an asynchronous handler: export const handler = async (event: { prompt: string }): Promise<string> => {... };*   Accept an event object containing a prompt string.*   Retrieve an LLM API key from AWS Secrets Manager. The ARN of the secret should be passed via an environment variable (e.g., process.env.LLM_API_KEY_SECRET_ARN). Use the AWS SDK v3 for JavaScript (@aws-sdk/client-secrets-manager).*   Make an HTTPS POST request to a hypothetical LLM API endpoint (e.g., https://api.examplellm.com/v1/completions). The request body should be JSON, including the prompt and any other required parameters. The API key should be included in the request headers (e.g., Authorization: Bearer <API_KEY>). Use Node.js's built-in https module or a lightweight library like axios or node-fetch.*   Asynchronously await and parse the LLM's JSON response, expecting a structure like { "choices": [{ "text": "generated content" }] } and extract the generated text.*   Return the extracted generated text as a string.*   Include try...catch blocks for robust error handling (e.g., Secrets Manager errors, API request failures, response parsing errors).*   Log key information and errors to CloudWatch Logs using console.log()/console.error().*   Define interfaces for the Lambda event, API request body, and API response to leverage TypeScript's type safety."6D. Lambda Image Generation Prompt Execution Example (TypeScript)"Provide a TypeScript AWS Lambda handler function (imageGenHandler.ts) for generating images. This function should:*   Be an asynchronous handler: export const handler = async (event: { prompt: string; image_size?: string }): Promise<{ imageUrl: string }> => {... };*   Accept an event object containing a prompt string and an optional image_size (e.g., '1024x1024').*   Retrieve an Image Generation API key from AWS Secrets Manager using an environment variable (e.g., process.env.IMAGEGEN_API_KEY_SECRET_ARN). Use AWS SDK v3.*   Retrieve the target S3 content bucket name from an environment variable (e.g., process.env.S3_CONTENT_BUCKET).*   Make an HTTPS POST request to a hypothetical Image Generator API endpoint (e.g., https://api.exampleimagegen.com/v1/images/generations) with the prompt, image size, and API key.*   Handle two possible API response types:1.  Direct Image URL: If the API returns a JSON response with a URL to the generated image (e.g., { "data": [{ "url": "https://..." }] }), extract and return this URL.2.  Image Binary Data: If the API returns the image binary data directly (e.g., as a buffer with Content-Type: image/png), the function must:*   Generate a unique filename (e.g., using a UUID and .png extension).*   Construct the S3 key (e.g., generated_images/YYYY/MM/DD/<uuid>.png).*   Upload the image binary data to the S3_CONTENT_BUCKET at the generated key using AWS SDK v3 for S3 (@aws-sdk/client-s3 and PutObjectCommand). Ensure correct ContentType is set.*   Return the S3 object URL (e.g., https://<S3_CONTENT_BUCKET>.s3.<region>.amazonaws.com/<key>).*   Return an object { imageUrl: string }.*   Implement comprehensive error handling and logging.*   Use TypeScript interfaces for event and response types."6E. CraicGPT.ie Branding Image Prompt"Generate an image prompt suitable for an advanced Image Generation model (e.g., DALL-E 3, Midjourney, Stable Diffusion XL) to create a distinctive logo or branding image for 'CraicGPT.ie'. The prompt should aim for a style that is:*   Theme: Captures the essence of Irish 'craic' – embodying fun, lively conversation, good humor, and wit.*   AI/Tech Element: Subtly integrates hints of artificial intelligence or technology. This could be through abstract neural network patterns, stylized digital circuits, glowing lines, or a futuristic gleam.*   Newspaper/Comic Influence: Incorporates a visual motif related to a traditional newspaper (e.g., newsprint texture, classic headline fonts, columns) or a comic book (e.g., speech bubbles, panel borders, dynamic action lines).*   Tone: Friendly, engaging, approachable, and slightly mischievous.*   Mascot Idea (Optional): Consider a character like a witty leprechaun interacting with a sleek, futuristic tablet or data streams, or a stylized shamrock with embedded digital patterns. Alternatively, an abstract representation could be effective.*   Color Palette: Predominantly shades of green (emerald, kelly green) are expected, perhaps with contrasting accent colors like gold, orange, or a vibrant blue to make it pop.*   Composition: Suitable for use as a website banner, logo, or favicon. Consider variations for different aspect ratios.*   Artistic Style Keywords: 'Whimsical tech', 'retro-futuristic Ireland', 'digital Celtic art', 'comic book logo', 'playful AI'.*   Example Prompt Snippet (to be expanded): 'Logo for "CraicGPT.ie", a witty leprechaun with a mischievous grin, holding a glowing digital shamrock that morphs into a speech bubble. Background features subtle newsprint texture and faint neural network patterns. Colors: vibrant greens, gold, and a touch of electric blue. Style: clean lines, modern comic art, friendly and inviting.'"VIII. Key Design ConsiderationsSeveral overarching considerations will guide the successful implementation and operation of CraicGPT.ie.A. Security Best PracticesSecurity is a non-negotiable aspect of any cloud deployment.
+IAM: The Principle of Least Privilege will be rigorously applied to all IAM roles and policies. Each entity (Lambda function, EventBridge Scheduler) will only have the permissions necessary to perform its specific tasks on designated resources.5
+Amazon S3:
+
+Origin Access Control (OAC) will be used to ensure that S3 buckets hosting website content are only accessible via the CloudFront distribution, not directly from the public internet.1
+S3 bucket policies will be configured to further restrict access. For example, denying any non-HTTPS access.
+Server-Side Encryption (SSE-S3 by default, or SSE-KMS for finer-grained key control) will be enabled for all S3 buckets to encrypt data at rest.15
+
+
+AWS Secrets Manager: All sensitive API keys for external services will be stored in Secrets Manager. Lambda functions will retrieve these keys at runtime using IAM roles with narrowly scoped permissions to the specific secrets they need.9
+Amazon CloudFront: HTTPS will be enforced for all client connections to CloudFront, ensuring data is encrypted in transit. While AWS WAF (Web Application Firewall) can provide additional protection against common web exploits, it is likely overkill for an MVP with low expected traffic but can be considered for future enhancements.
+AWS Lambda:
+
+Secrets will never be stored in Lambda environment variables.
+Source code and dependencies should be regularly reviewed for vulnerabilities.
+Ensure Lambda execution roles do not have overly permissive network access if configured within a VPC (though not anticipated for this initial design).
+
+
+B. Cost Optimization for Low TrafficGiven the "low expected traffic" constraint, cost-effectiveness is a primary driver for service selection and configuration.
+Serverless-First Architecture: The core services chosen—AWS Lambda, Amazon S3, Amazon EventBridge Scheduler, and Amazon CloudFront—are serverless or have pay-as-you-go pricing models. This means costs are directly related to usage and can scale down to very low levels (or within free tiers) when traffic is minimal.
+Amazon S3 Storage Classes:
+
+For frequently accessed website assets and the latest daily content, S3 Standard is appropriate.
+For older generated content that might be retained for archival purposes, S3 Lifecycle policies can be configured to automatically transition data to more cost-effective storage classes like S3 Infrequent Access (IA) or S3 Glacier Flexible Retrieval/Deep Archive. This is more of a future optimization as storage costs for text-based JSON and a few images daily will be minimal initially.
+
+
+Amazon CloudFront:
+
+Select an appropriate Price Class for the CloudFront distribution (e.g., PriceClass_100 typically covers North America and Europe at a lower cost than PriceClass_All) based on the primary target audience.12
+Optimize cache hit ratios to minimize requests to the S3 origin.
+
+
+AWS Lambda:
+
+Right-size Lambda function memory allocation. Start with a low memory setting (e.g., 128MB or 256MB) and monitor performance using CloudWatch metrics. Increase memory only if necessary, as cost is proportional to memory and execution duration.5 The AWS Lambda Power Tuning tool can assist in finding the optimal configuration.
+Consider using the ARM64 (Graviton2) architecture for Lambda functions if all dependencies and the runtime support it, as it can offer better price/performance compared to x86_64.
+
+
+Amazon EventBridge Scheduler: This service is highly cost-effective for simple scheduled tasks like daily Lambda invocations.
+The "low expected traffic" directive is pivotal. While foundational security and scalability best practices are incorporated, the design deliberately avoids complex or costly solutions that are not justified for an MVP. For example, provisioned concurrency for Lambda functions 5 is unnecessary for a single daily batch job, and a dedicated relational database for storing simple daily content is an over-provision. The architecture prioritizes lean, serverless components that inherently scale down to zero or near-zero cost when idle.C. Scalability (Future Considerations)While the initial focus is on low traffic, the chosen architecture has inherent scalability characteristics.
+Read Traffic (Website Access): The combination of Amazon S3 and Amazon CloudFront is highly scalable and can handle significant spikes in read traffic with low latency due to CloudFront's global edge network.
+Content Generation:
+
+AWS Lambda can scale its concurrent executions automatically in response to triggers. The primary bottleneck for the daily content generation throughput will likely be the rate limits imposed by the external LLM and Image Generator APIs, not Lambda itself.
+The EventBridge Scheduler triggers a single daily batch process, so Lambda concurrency for this specific workflow is not a major concern.
+
+
+Future On-Demand Generation: If CraicGPT.ie evolves to include on-demand content generation (e.g., users selecting models and providing prompts), Amazon API Gateway can be introduced to provide HTTP endpoints that trigger Lambda functions. Both API Gateway and Lambda can scale to handle many concurrent requests, again subject to downstream API limits.
+Data Storage and Querying: If the site's functionality expands to include user accounts, persistent user-specific data, or more complex querying of historical content, a dedicated database (e.g., Amazon DynamoDB for NoSQL, Amazon Aurora Serverless for relational) might become necessary.
+D. Maintainability and OperationsEase of maintenance and operational visibility are important for the long-term health of the application.
+Infrastructure as Code (IaC): Using Terraform to define and manage all AWS infrastructure ensures that deployments are repeatable, version-controlled, and changes can be reviewed and audited.24
+Modular Design:
+
+Terraform: Organizing Terraform code into modules improves readability and allows for easier updates to specific parts of the infrastructure.
+Lambda: Writing small, focused Lambda functions with clear responsibilities makes them easier to understand, test, and maintain.6
+
+
+Logging:
+
+AWS Lambda: All Lambda function invocations, console.log statements, and errors will be automatically logged to Amazon CloudWatch Logs.
+Amazon EventBridge Scheduler: Delivery attempts and failures can be logged.
+Amazon CloudFront: Access logs can be enabled and stored in an S3 bucket for analysis of website traffic patterns and troubleshooting.
+
+
+Monitoring:
+
+Amazon CloudWatch Metrics: Provides default metrics for most AWS services used, including Lambda (invocations, duration, errors, concurrency), S3 (bucket size, requests), CloudFront (requests, data transfer, error rates), and EventBridge.
+CloudWatch Alarms: Alarms can be configured to provide notifications (e.g., via Amazon SNS) if critical errors occur, such as persistent Lambda failures or high error rates on CloudFront.
+
+
+Code Repository: A single GitHub repository will serve as the source of truth for all code: Terraform HCL, TypeScript Lambda functions, and frontend HTML/CSS/JS files.
+CI/CD Pipeline (Future Enhancement): Implementing a Continuous Integration/Continuous Deployment (CI/CD) pipeline (e.g., using AWS CodePipeline, GitHub Actions) would automate testing, building, and deploying infrastructure and application changes, improving reliability and development velocity.
+IX. ConclusionA. Summary of Proposed DesignThe proposed high-level design for CraicGPT.ie outlines a robust, serverless, and cost-effective architecture leveraging core AWS services. The frontend, a static website styled as a comic newspaper, will be hosted on Amazon S3 and delivered globally via Amazon CloudFront, secured with an ACM SSL/TLS certificate and managed by Amazon Route 53 for DNS.Daily content generation will be an automated, 'agentic' process driven by AWS Lambda functions written in TypeScript. These functions, triggered by an Amazon EventBridge Scheduler, will interact with external Large Language Models and Image Generators—with API keys securely managed by AWS Secrets Manager—to produce the various elements of the newspaper. This generated content will be stored in a structured manner in an S3 bucket. The entire infrastructure will be defined and managed as code using HashiCorp Terraform with a modular design.This architecture directly addresses the user's requirements for a daily-updated AI demonstration site with a unique visual presentation, low initial traffic expectations, and a desire for a self-enablement project built on modern cloud practices.B. Next Steps for ImplementationThe following steps are recommended to proceed with the implementation of CraicGPT.ie based on this HLD:
+Set up AWS Account and IAM: Ensure an AWS account is available and configure necessary IAM users/roles for Terraform execution with appropriate permissions.
+Terraform Infrastructure: Begin implementing the AWS infrastructure using Terraform, guided by the prompts in Section VII.A and leveraging the suggested public modules. Prioritize the S3, CloudFront, ACM, and Route 53 setup to establish the website hosting foundation.
+Frontend Development: Develop the static HTML, CSS, and JavaScript for the newspaper front page, focusing on achieving the comic style layout and implementing the client-side logic for fetching and displaying daily content, as per prompts in Section VII.B.
+Lambda Function Development: Implement the TypeScript AWS Lambda functions (Orchestrator, LLM interaction, Image Generation) as outlined in Section VI and guided by prompts in Sections VII.C and VII.D. Ensure thorough unit testing.
+Secrets Management: Populate AWS Secrets Manager with the actual API keys for the chosen LLM and Image Generator services.
+Integration and Testing: Deploy the Lambda functions and integrate them with the EventBridge Scheduler. Conduct end-to-end testing of the daily content generation pipeline and the frontend's ability to display the generated content.
+Iterate and Refine: Continuously test, debug, and refine all components. Monitor CloudWatch logs and metrics to identify and address any issues.
+C. Future Enhancements (Briefly)Once the initial MVP is operational, several enhancements could be considered:
+CI/CD Pipeline: Automate the build, test, and deployment processes for both infrastructure (Terraform) and application code (Lambda, frontend) using services like AWS CodePipeline or GitHub Actions.
+On-Demand Content Generation: Introduce an API Gateway endpoint to allow users to select LLMs/Image Generators and submit prompts for immediate content generation, moving beyond the daily static update.
+Advanced Analytics: Implement more sophisticated tracking and analytics for website usage and content popularity using services like Amazon Pinpoint or by integrating third-party analytics tools.
+User Accounts and Personalization: If the scope expands, consider adding user registration, authentication (e.g., with Amazon Cognito), and personalized content experiences.
+Enhanced Error Handling and Resilience: Implement more sophisticated error handling in Lambdas, potentially using AWS Step Functions for more complex orchestration if the generation workflow grows significantly.
+AWS WAF Integration: Add AWS WAF to the CloudFront distribution for enhanced security against common web exploits, especially if traffic grows or interactive features are added.
+
