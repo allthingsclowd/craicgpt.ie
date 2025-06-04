@@ -101,7 +101,7 @@ window.addEventListener('load', () => {
                 mainContent.innerHTML = `<p class="error-message">Sorry, we couldn't load today's Craic. The AI might be on a tea break. Please try again later. (Error: ${error.message})</p>`;
             }
             // Provide fallback content for critical elements in case of an error
-            updateElement('newspaper-banner', 'CraicGPT.ie - Offline Edition', true, 'h1');
+            //updateElement('newspaper-banner', 'CraicGPT.ie - Offline Edition', true, 'h1');
             updateElement('main-article-title', 'Content Unavailable', true, 'h2');
         });
 });

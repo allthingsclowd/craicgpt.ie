@@ -27,7 +27,7 @@ body {
 .newspaper-banner {
     display: flex; /* Use flexbox for layout */
     align-items: center; /* Vertically align logo and text */
-    justify-content: flex-start; /* Align items to the start (left) */
+    justify-content: center; /* Align items to the start (left) */
     padding: 20px 10px; /* Padding above/below and left/right */
     border-bottom: 3px double #333; /* Double line border at the bottom, classic newspaper style */
     margin-bottom: 20px; /* Space below the banner */
@@ -35,8 +35,8 @@ body {
 
 /* Styling for the banner logo */
 #banner-logo {
-    width: 70px; /* Set logo width */
-    height: 70px; /* Set logo height */
+    width: 570px; /* Set logo width */
+    height: 270px; /* Set logo height */
     margin-right: 20px; /* Space between logo and title */
 }
 
