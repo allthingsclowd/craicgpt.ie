@@ -1,0 +1,166 @@
+/* /static_assets/style.css */
+body {
+    font-family: 'Roboto', sans-serif; /* A neutral, readable sans-serif for base */
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f0; /* Off-white, paper-like background */
+    color: #333;
+    line-height: 1.6;
+}
+
+.page-container {
+    max-width: 1600px; /* Max width for very large screens */
+    margin: 0 auto;
+    padding: 10px;
+    background-color: #fff; /* White "page" background */
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
+}
+
+.newspaper-banner {
+    text-align: center;
+    padding: 20px 10px;
+    border-bottom: 3px double #333;
+    margin-bottom: 20px;
+}
+
+.newspaper-banner h1 {
+    font-family: 'Playfair Display', serif; /* Classic, somewhat ornate serif for title */
+    font-size: 3.5em;
+    margin: 0;
+    color: #1a1a1a;
+}
+
+.newspaper-banner.tagline {
+    font-family: 'Merriweather', serif;
+    font-size: 1.2em;
+    color: #555;
+    margin-top: 5px;
+}
+
+.date-section {
+    text-align: center;
+    font-family: 'Merriweather', serif;
+    font-size: 1em;
+    color: #666;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 10px;
+}
+
+.main-content-grid {
+    display: grid;
+    gap: 20px;
+    /* Define grid areas for a classic newspaper layout */
+    grid-template-areas:
+        "main-story   main-story   author-bio"
+        "main-story   main-story   comparison-story"
+        "llm-feature  daily-joke   advertisements"
+        "llm-feature  daily-joke   advertisements";
+    grid-template-columns: 2fr 2fr 1fr; /* Example column proportions */
+}
+
+/* Assigning grid areas to elements */
+.main-story { grid-area: main-story; }
+.author-bio { grid-area: author-bio; }
+.comparison-story { grid-area: comparison-story; }
+.llm-feature { grid-area: llm-feature; }
+.daily-joke { grid-area: daily-joke; }
+.advertisements { grid-area: advertisements; }
+
+.grid-item {
+    padding: 15px;
+    border: 1px solid #e0e0e0;
+    background-color: #fdfdfd;
+}
+
+.grid-item h2,.grid-item h3 {
+    font-family: 'Merriweather', serif; /* Strong serif for article/section titles */
+    color: #2c3e50;
+    margin-top: 0;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 5px;
+}
+
+.article-image {
+    width: 100%;
+    max-height: 300px; /* Limit image height */
+    object-fit: cover; /* Ensure image covers area nicely */
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
+}
+
+.article-text p {
+    font-family: 'Roboto', sans-serif; /* Readable sans-serif for body copy */
+    font-size: 0.95em;
+    line-height: 1.7;
+    margin-bottom: 1em;
+}
+
+.advertisements h3 {
+    text-align: center;
+}
+
+.advertisement {
+    background-color: #e9ecef;
+    padding: 10px;
+    margin-bottom: 10px;
+    text-align: center;
+    font-size: 0.9em;
+    border: 1px dashed #ccc;
+    min-height: 80px; /* Placeholder height */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.page-footer {
+    text-align: center;
+    padding: 20px 10px;
+    border-top: 1px solid #ccc;
+    margin-top: 30px;
+    font-size: 0.9em;
+    color: #777;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+   .main-content-grid {
+        grid-template-areas:
+            "main-story   main-story"
+            "comparison-story author-bio"
+            "llm-feature  daily-joke"
+            "advertisements advertisements";
+        grid-template-columns: 1fr 1fr;
+    }
+   .newspaper-banner h1 {
+        font-size: 3em;
+    }
+}
+
+@media (max-width: 768px) {
+   .main-content-grid {
+        grid-template-areas:
+            "main-story"
+            "comparison-story"
+            "author-bio"
+            "llm-feature"
+            "daily-joke"
+            "advertisements";
+        grid-template-columns: 1fr; /* Single column layout */
+    }
+   .newspaper-banner h1 {
+        font-size: 2.5em;
+    }
+   .newspaper-banner.tagline {
+        font-size: 1em;
+    }
+}
+
+@media (max-width: 480px) {
+   .newspaper-banner h1 {
+        font-size: 2em;
+    }
+   .article-text p {
+        font-size: 0.9em;
+    }
+}

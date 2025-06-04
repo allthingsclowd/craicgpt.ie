@@ -1,0 +1,25 @@
+For the AWS IaC Terrform component:
+
+1. Generate Terraform HCL for an S3 bucket named `craicgpt-website-assets` to host static files. Configure it for private access via CloudFront using OAC, with versioning and SSE-S3 encryption.
+
+2. Create Terraform HCL for a CloudFront distribution using the S3 website bucket as an OAC origin. Associate an ACM certificate ARN, add custom domains, enforce HTTPS, and set cache behaviors for static assets (long TTL) and daily content at `/content/*` (24hr TTL).
+
+3. Generate Terraform HCL for an AWS Lambda function `ContentOrchestratorLambda` using the `terraform-aws-modules/lambda/aws` module. Set runtime to `nodejs18.x`, define source path, and pass S3 bucket name and Secret ARNs as environment variables. The IAM role should allow logging, getting specific secrets, and putting objects to the content S3 bucket.
+
+4. Create Terraform HCL for an EventBridge Scheduler rule to trigger the `ContentOrchestratorLambda` daily at 01:00 UTC using a cron expression.
+
+For the frontend (HTML/CSS/JS) please create the following complete code:
+
+1. Create the basic HTML structure (`index.html`) for the CraicGPT.ie front page. The structure should be semantic and include placeholder divs with unique IDs for all dynamic newspaper elements: banner, date, bio, main article (title, image, text), comparison article (title, image, text), LLM story, a joke, and 4 fake advertisements.
+
+2. Provide CSS code (`style.css`) to style the `index.html` into a multi-column layout reminiscent of a traditional broadsheet newspaper. Utilize CSS Grid for the main page structure. Define styles for a clear visual hierarchy using classic newspaper fonts. Ensure the layout is responsive.
+
+3. Write JavaScript code (`main.js`). On window load, it should get the current date, construct a URL to the daily content JSON file (e.g., `.../content/YYYY/MM/DD/todays_paper.json`), and use the `fetch` API. On success, parse the JSON and update the `innerHTML` of the placeholder elements with the fetched data. Include error handling.
+
+
+And for the backend (Lambda):
+
+1. Provide a TypeScript AWS Lambda handler (`llmHandler.ts`). It should accept a `prompt` in the event payload, retrieve an LLM API key from Secrets Manager (using an environment variable for the Secret's ARN), make a POST request to a hypothetical LLM API, parse the response, and return the generated text. Include robust error handling and logging. The LLM URL and parameters should be interchangeable and based on switching between both GEMINI and ChatGPT calls
+
+2. Provide a TypeScript AWS Lambda handler (`imageGenHandler.ts`). It should accept a `prompt` in the event, retrieve an ImageGen API key from Secrets Manager, and post to an ImageGen API. If the API returns image binary data, the function must upload it to the S3 content bucket (name from env var) under a unique, date-stamped key and return the S3 object URL. If the API returns a URL, return that directly. Again ensure this is generic and can handle both Gemini and ChatGPT's imagegen offerings.
+

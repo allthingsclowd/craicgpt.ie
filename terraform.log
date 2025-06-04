@@ -1,0 +1,20 @@
+2025-06-04T17:35:59.652+0100 [INFO]  Terraform version: 1.5.7
+2025-06-04T17:35:59.652+0100 [INFO]  Go runtime version: go1.23.1
+2025-06-04T17:35:59.652+0100 [INFO]  CLI args: []string{"terraform", "version"}
+2025-06-04T17:35:59.653+0100 [INFO]  CLI command args: []string{"version"}
+2025-06-04T17:36:18.559+0100 [INFO]  Terraform version: 1.5.7
+2025-06-04T17:36:18.560+0100 [INFO]  Go runtime version: go1.23.1
+2025-06-04T17:36:18.560+0100 [INFO]  CLI args: []string{"terraform", "update"}
+2025-06-04T17:36:18.560+0100 [INFO]  CLI command args: []string{"update"}
+2025-06-04T17:38:11.457+0100 [INFO]  Terraform version: 1.5.7
+2025-06-04T17:38:11.458+0100 [INFO]  Go runtime version: go1.23.1
+2025-06-04T17:38:11.458+0100 [INFO]  CLI args: []string{"terraform", "-version", "#", "verify"}
+2025-06-04T17:38:11.459+0100 [INFO]  CLI command args: []string{"version", "-version", "#", "verify"}
+2025-06-04T17:39:05.233+0100 [INFO]  Terraform version: 1.5.7
+2025-06-04T17:39:05.233+0100 [INFO]  Go runtime version: go1.23.1
+2025-06-04T17:39:05.233+0100 [INFO]  CLI args: []string{"terraform", "version"}
+2025-06-04T17:39:05.233+0100 [INFO]  CLI command args: []string{"version"}
+2025-06-04T17:43:01.407+0100 [INFO]  Terraform version: 1.12.1
+2025-06-04T17:43:01.407+0100 [INFO]  Go runtime version: go1.24.2
+2025-06-04T17:43:01.407+0100 [INFO]  CLI args: []string{"terraform", "-version"}
+2025-06-04T17:43:01.407+0100 [INFO]  CLI command args: []string{"version", "-version"}
