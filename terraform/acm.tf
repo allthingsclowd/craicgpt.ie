@@ -2,8 +2,8 @@
 # Date: 2025-06-04
 # Filename and Path: terraform/acm.tf
 # Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain,
-#              including DNS validation using Route 53.
-#              Prerequisites: Route 53 hosted zone for the domain name specified in locals.domain_name.
+#              including DNS validation using the us-east-1 provider alias.
+#              Prerequisites: Route 53 hosted zone for the domain; providers configured in providers.tf.
 #              Validation: Check if the ACM certificate status is 'Issued' in the AWS console (us-east-1 region).
 #                          Verify DNS records for validation are created in the Route 53 hosted zone.
 
@@ -22,14 +22,6 @@ locals {
   certificate_tags = merge(local.common_tags, {
     Name = "${local.domain_name}-cloudfront-certificate"
   })
-}
-
-# AWS Provider configured for the us-east-1 region (N. Virginia).
-# This specific provider instance is required for AWS Certificate Manager (ACM)
-# certificates that are used with Amazon CloudFront distributions, as they must be in this region.
-provider "aws" {
-  alias  = "us_east_1_acm"
-  region = "us-east-1" # Must be us-east-1 for CloudFront ACM certificates.
 }
 
 # Retrieves information about the Route 53 hosted zone for the site's domain.

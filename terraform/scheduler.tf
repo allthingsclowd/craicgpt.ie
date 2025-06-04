@@ -123,6 +123,4 @@ resource "aws_scheduler_schedule" "daily_content_orchestrator_trigger" {
     aws_iam_role_policy_attachment.scheduler_invoke_content_orchestrator_lambda_attach,
     module.content_orchestrator_lambda # Also depends on the Lambda module itself to ensure the Lambda function exists.
   ]
-
-  tags = local.scheduler_tags
 }
