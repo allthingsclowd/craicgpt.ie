@@ -1,70 +1,118 @@
-# /terraform/lambda.tf
+# Author: Graham Land
+# Date: 2025-06-04
+# Filename and Path: terraform/lambda.tf
+# Description: Defines the 'ContentOrchestratorLambda' using the terraform-aws-modules/lambda/aws module.
+#              This includes its IAM execution role, necessary permissions (CloudWatch Logs, S3 Put, Secrets Manager Get),
+#              and environment variables for accessing other services.
+#              Prerequisites: S3 bucket ARN (from s3.tf, via aws_s3_bucket.website_assets.bucket/arn),
+#                             API key ARNs for LLM and Image Gen (from variables.tf, sourced from AWS Secrets Manager).
+#                             Lambda source code located at locals.lambda_source_path.
+#              Validation: Lambda function created in AWS console with correct runtime, handler, and environment variables.
+#                          IAM role for Lambda exists with attached policies granting specified permissions.
+#                          Lambda function logs appear in CloudWatch Logs.
 
+# terraform/lambda.tf
+
+# Defines common values and configuration for the Lambda module.
+locals {
+  project_name      = "CraicGPT.ie"
+  lambda_function_name = "ContentOrchestratorLambda"
+  lambda_description   = "Orchestrates daily content generation for ${local.project_name}"
+  lambda_handler       = "index.handler" # Assumes the Lambda entry point is 'index.js' and it exports a function named 'handler'.
+  lambda_runtime       = "nodejs18.x"    # Specifies the Node.js 18.x runtime environment. [Ref: 18]
+  lambda_source_path   = "../lambda_code/content_orchestrator" # Path to the Lambda function's source code.
+
+  # Common tags to be applied to all resources created by this module instance.
+  common_tags = {
+    Environment = "production"
+    Project     = local.project_name
+    ManagedBy   = "Terraform"
+  }
+  # Specific tags for the Lambda function, merged with common tags.
+  lambda_tags = merge(local.common_tags, {
+    Name         = local.lambda_function_name
+    Orchestrates = "DailyContentGeneration" # More descriptive tag
+  })
+}
+
+# Provisions the AWS Lambda function responsible for orchestrating daily content generation.
+# This module, from terraform-aws-modules/lambda/aws, simplifies the creation and configuration
+# of the Lambda function, its IAM role, and necessary permissions.
 module "content_orchestrator_lambda" {
   source = "terraform-aws-modules/lambda/aws"
-  # Ensure you are using a version of the module that supports the features you need.
-  # Check the module's documentation for the latest version. Example:
-  # version = "~> 7.0" 
+  # It's recommended to pin to a specific version of the module for stability.
+  # version = "~> 7.0" # Example: Check module documentation for the latest appropriate version.
 
-  function_name = "ContentOrchestratorLambda"
-  description   = "Orchestrates daily content generation for CraicGPT.ie"
-  handler       = "index.handler" # Assuming the entry point is index.js and exports 'handler'
-  runtime       = "nodejs18.x"    # As requested [18]
+  function_name = local.lambda_function_name # The name of the Lambda function in AWS.
+  description   = local.lambda_description   # A description for the Lambda function.
+  handler       = local.lambda_handler
+  runtime       = local.lambda_runtime
 
-  # source_path can be a local directory containing Lambda code and package.json,
-  # or a path to a pre-built ZIP file.
-  # If a directory with package.json for nodejs runtime, the module can attempt to build it.
-  source_path = "../lambda_code/content_orchestrator" # Update with actual path to Lambda code
+  # Specifies the location of the Lambda function's source code.
+  # If 'source_path' points to a directory containing a 'package.json' (for Node.js runtimes),
+  # the module may attempt to build the package by running 'npm install'.
+  # Alternatively, it can be a path to a pre-built ZIP file.
+  source_path = local.lambda_source_path # Ensure this path is correct relative to the Terraform execution directory.
 
-  # Environment variables passed to the Lambda function [18]
+  # Environment variables made available to the Lambda function at runtime. [Ref: 18]
   environment_variables = {
-    S3_BUCKET_NAME                = aws_s3_bucket.website_assets.bucket
-    LLM_API_KEY_SECRET_ARN        = var.llm_api_key_secret_arn
-    IMAGEGEN_API_KEY_SECRET_ARN   = var.image_gen_api_key_secret_arn
-    # Add other necessary environment variables, e.g., API endpoints if they are configurable
-    # LLM_PROVIDER_TYPE             = "GEMINI" # Example
-    # IMAGE_GEN_PROVIDER_TYPE     = "OPENAI" # Example
+    S3_BUCKET_NAME              = aws_s3_bucket.website_assets.bucket # Name of the S3 bucket for storing generated content.
+    LLM_API_KEY_SECRET_ARN      = var.llm_api_key_secret_arn          # ARN of the Secrets Manager secret for the LLM API key.
+    IMAGEGEN_API_KEY_SECRET_ARN = var.image_gen_api_key_secret_arn    # ARN of the Secrets Manager secret for the Image Generator API key.
+    # Example: Add other necessary environment variables, such as API endpoints or provider types if configurable.
+    # LLM_PROVIDER_TYPE           = "GEMINI"
+    # IMAGE_GEN_PROVIDER_TYPE   = "OPENAI"
   }
 
-  # IAM policy statements attached to the Lambda execution role [19]
-  # The module creates the role and attaches these statements.
-  attach_policy_statements = true
+  # Defines IAM policy statements that will be attached to the Lambda function's execution role.
+  # The module automatically creates the IAM role and attaches these policy statements. [Ref: 19]
+  attach_policy_statements = true # Instructs the module to manage policy attachments.
   policy_statements = {
+    # Permissions for CloudWatch Logs, allowing the Lambda function to write logs.
     CloudWatchLogs = {
       effect    = "Allow"
-      actions   =
-      resources = ["arn:aws:logs:*:*:*"] # Standard logging permissions
+      actions   = [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ]
+      resources = ["arn:aws:logs:*:*:*"] # Allows logging to any log group (standard practice).
     },
+    # Permissions to put objects into the specified S3 bucket, under the "/content/" path.
     S3PutContent = {
       effect    = "Allow"
       actions   = ["s3:PutObject"]
-      # Scoped down to the /content/ path within the specific bucket
+      # Scoped down to the '/content/' prefix within the specific S3 bucket used for website assets.
       resources = ["${aws_s3_bucket.website_assets.arn}/content/*"] 
     },
+    # Permissions to retrieve the LLM API key from AWS Secrets Manager.
     SecretsManagerGetLLMKey = {
       effect    = "Allow"
-      actions   =
-      # Scoped down to the specific LLM API key secret ARN
+      actions   = ["secretsmanager:GetSecretValue"]
+      # Scoped down to the specific ARN of the LLM API key secret.
       resources = [var.llm_api_key_secret_arn]
     },
+    # Permissions to retrieve the Image Generator API key from AWS Secrets Manager.
     SecretsManagerGetImageGenKey = {
       effect    = "Allow"
-      actions   =
-      # Scoped down to the specific ImageGen API key secret ARN
+      actions   = ["secretsmanager:GetSecretValue"]
+      # Scoped down to the specific ARN of the Image Generator API key secret.
       resources = [var.image_gen_api_key_secret_arn]
     }
-    # Add other permissions if the orchestrator invokes other Lambdas, etc.
-    # e.g., InvokeLLMHandler = {... actions = ["lambda:InvokeFunction"]... }
+    # Example: Add other permissions if the orchestrator needs to invoke other Lambda functions,
+    # interact with other AWS services, etc.
+    # InvokeLLMHandler = {
+    #   effect    = "Allow"
+    #   actions   = ["lambda:InvokeFunction"]
+    #   resources = [module.llm_handler_lambda.lambda_function_arn] # Assuming another Lambda module
+    # }
   }
 
-  # Optional: If Lambda needs VPC access (e.g., to access resources in a VPC)
+  # Optional: VPC configuration if the Lambda function needs to access resources within a VPC
+  # (e.g., RDS databases, ElastiCache clusters).
   # vpc_subnet_ids         = var.lambda_subnet_ids
   # vpc_security_group_ids = var.lambda_security_group_ids
-  # attach_network_policy  = true # If VPC settings are provided
+  # attach_network_policy  = true # Required if VPC settings are provided.
 
-  tags = {
-    Environment = "production"
-    Project     = "CraicGPT.ie"
-    Orchestrates = "DailyContent"
-  }
+  tags = local.lambda_tags # Applies the defined tags to the Lambda function and related resources.
 }
