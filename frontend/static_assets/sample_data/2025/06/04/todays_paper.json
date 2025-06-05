@@ -13,9 +13,9 @@
         "claude": { "title": "Claude Main Title - Yesterday", "text": "<p>Claude main text for Yesterday.</p>" }
       },
       "imageOutputs": {
-        "imagen": { "imageUrl": "/content/2025/06/04/images/main_article_imagen.png", "imageAlt": "Main Imagen - Yesterday" },
-        "stablediffusion": { "imageUrl": "/content/2025/06/04/images/main_article_stablediffusion.png", "imageAlt": "Main SD - Yesterday" },
-        "dalle": { "imageUrl": "/content/2025/06/04/images/main_article_dalle.png", "imageAlt": "Main DALL-E - Yesterday" }
+        "imagen": { "imageUrl": "static_assets/sample_data/2025/06/04/images/main_article_imagen.png", "imageAlt": "Main Imagen - Yesterday" },
+        "stablediffusion": { "imageUrl": "static_assets/sample_data/2025/06/04/images/main_article_stablediffusion.png", "imageAlt": "Main SD - Yesterday" },
+        "dalle": { "imageUrl": "static_assets/sample_data/2025/06/04/images/main_article_dalle.png", "imageAlt": "Main DALL-E - Yesterday" }
       }
     },
     "authorBio": {
@@ -28,9 +28,9 @@
         "claude": { "title": "Claude Comparison Title - Yesterday", "text": "<p>Claude comparison text for Yesterday.</p>" }
       },
       "imageOutputs": {
-        "imagen": { "imageUrl": "/content/2025/06/04/images/comparison_imagen.png", "imageAlt": "Comparison Imagen - Yesterday" },
-        "stablediffusion": { "imageUrl": "/content/2025/06/04/images/comparison_stablediffusion.png", "imageAlt": "Comparison SD - Yesterday" },
-        "dalle": { "imageUrl": "/content/2025/06/04/images/comparison_dalle.png", "imageAlt": "Comparison DALL-E - Yesterday" }
+        "imagen": { "imageUrl": "static_assets/sample_data/2025/06/04/images/comparison_imagen.png", "imageAlt": "Comparison Imagen - Yesterday" },
+        "stablediffusion": { "imageUrl": "static_assets/sample_data/2025/06/04/images/comparison_stablediffusion.png", "imageAlt": "Comparison SD - Yesterday" },
+        "dalle": { "imageUrl": "static_assets/sample_data/2025/06/04/images/comparison_dalle.png", "imageAlt": "Comparison DALL-E - Yesterday" }
       }
     },
     "llmStory": {
@@ -50,22 +50,22 @@
     "advertisements": {
       "imageOutputs": {
         "imagen": [
-          { "imageUrl": "/content/2025/06/04/images/ad_imagen_1.png", "imageAlt": "Ad 1 Imagen - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_imagen_2.png", "imageAlt": "Ad 2 Imagen - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_imagen_3.png", "imageAlt": "Ad 3 Imagen - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_imagen_4.png", "imageAlt": "Ad 4 Imagen - Yesterday" }
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_imagen_1.png", "imageAlt": "Ad 1 Imagen - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_imagen_2.png", "imageAlt": "Ad 2 Imagen - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_imagen_3.png", "imageAlt": "Ad 3 Imagen - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_imagen_4.png", "imageAlt": "Ad 4 Imagen - Yesterday" }
         ],
         "stablediffusion": [
-          { "imageUrl": "/content/2025/06/04/images/ad_stablediffusion_1.png", "imageAlt": "Ad 1 SD - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_stablediffusion_2.png", "imageAlt": "Ad 2 SD - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_stablediffusion_3.png", "imageAlt": "Ad 3 SD - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_stablediffusion_4.png", "imageAlt": "Ad 4 SD - Yesterday" }
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_stablediffusion_1.png", "imageAlt": "Ad 1 SD - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_stablediffusion_2.png", "imageAlt": "Ad 2 SD - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_stablediffusion_3.png", "imageAlt": "Ad 3 SD - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_stablediffusion_4.png", "imageAlt": "Ad 4 SD - Yesterday" }
         ],
         "dalle": [
-          { "imageUrl": "/content/2025/06/04/images/ad_dalle_1.png", "imageAlt": "Ad 1 DALL-E - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_dalle_2.png", "imageAlt": "Ad 2 DALL-E - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_dalle_3.png", "imageAlt": "Ad 3 DALL-E - Yesterday" },
-          { "imageUrl": "/content/2025/06/04/images/ad_dalle_4.png", "imageAlt": "Ad 4 DALL-E - Yesterday" }
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_dalle_1.png", "imageAlt": "Ad 1 DALL-E - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_dalle_2.png", "imageAlt": "Ad 2 DALL-E - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_dalle_3.png", "imageAlt": "Ad 3 DALL-E - Yesterday" },
+          { "imageUrl": "static_assets/sample_data/2025/06/04/images/ad_dalle_4.png", "imageAlt": "Ad 4 DALL-E - Yesterday" }
         ]
       }
     }

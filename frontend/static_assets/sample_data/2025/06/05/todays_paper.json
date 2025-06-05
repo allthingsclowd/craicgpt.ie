@@ -13,9 +13,9 @@
         "claude": { "title": "Claude Main Title - Today", "text": "<p>Claude main text for Today.</p>" }
       },
       "imageOutputs": {
-        "imagen": { "imageUrl": "/content/2025/06/05/images/main_article_imagen.png", "imageAlt": "Main Imagen - Today" },
-        "stablediffusion": { "imageUrl": "/content/2025/06/05/images/main_article_stablediffusion.png", "imageAlt": "Main SD - Today" },
-        "dalle": { "imageUrl": "/content/2025/06/05/images/main_article_dalle.png", "imageAlt": "Main DALL-E - Today" }
+        "imagen": { "imageUrl": "static_assets/sample_data/2025/06/05/images/main_article_imagen.png", "imageAlt": "Main Imagen - Today" },
+        "stablediffusion": { "imageUrl": "static_assets/sample_data/2025/06/05/images/main_article_stablediffusion.png", "imageAlt": "Main SD - Today" },
+        "dalle": { "imageUrl": "static_assets/sample_data/2025/06/05/images/main_article_dalle.png", "imageAlt": "Main DALL-E - Today" }
       }
     },
     "authorBio": {
@@ -28,9 +28,9 @@
         "claude": { "title": "Claude Comparison Title - Today", "text": "<p>Claude comparison text for Today.</p>" }
       },
       "imageOutputs": {
-        "imagen": { "imageUrl": "/content/2025/06/05/images/comparison_imagen.png", "imageAlt": "Comparison Imagen - Today" },
-        "stablediffusion": { "imageUrl": "/content/2025/06/05/images/comparison_stablediffusion.png", "imageAlt": "Comparison SD - Today" },
-        "dalle": { "imageUrl": "/content/2025/06/05/images/comparison_dalle.png", "imageAlt": "Comparison DALL-E - Today" }
+        "imagen": { "imageUrl": "static_assets/sample_data/2025/06/05/images/comparison_imagen.png", "imageAlt": "Comparison Imagen - Today" },
+        "stablediffusion": { "imageUrl": "static_assets/sample_data/2025/06/05/images/comparison_stablediffusion.png", "imageAlt": "Comparison SD - Today" },
+        "dalle": { "imageUrl": "static_assets/sample_data/2025/06/05/images/comparison_dalle.png", "imageAlt": "Comparison DALL-E - Today" }
       }
     },
     "llmStory": {
@@ -50,22 +50,22 @@
     "advertisements": {
       "imageOutputs": {
         "imagen": [
-          { "imageUrl": "/content/2025/06/05/images/ad_imagen_1.png", "imageAlt": "Ad 1 Imagen - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_imagen_2.png", "imageAlt": "Ad 2 Imagen - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_imagen_3.png", "imageAlt": "Ad 3 Imagen - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_imagen_4.png", "imageAlt": "Ad 4 Imagen - Today" }
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_imagen_1.png", "imageAlt": "Ad 1 Imagen - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_imagen_2.png", "imageAlt": "Ad 2 Imagen - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_imagen_3.png", "imageAlt": "Ad 3 Imagen - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_imagen_4.png", "imageAlt": "Ad 4 Imagen - Today" }
         ],
         "stablediffusion": [
-          { "imageUrl": "/content/2025/06/05/images/ad_stablediffusion_1.png", "imageAlt": "Ad 1 SD - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_stablediffusion_2.png", "imageAlt": "Ad 2 SD - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_stablediffusion_3.png", "imageAlt": "Ad 3 SD - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_stablediffusion_4.png", "imageAlt": "Ad 4 SD - Today" }
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_stablediffusion_1.png", "imageAlt": "Ad 1 SD - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_stablediffusion_2.png", "imageAlt": "Ad 2 SD - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_stablediffusion_3.png", "imageAlt": "Ad 3 SD - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_stablediffusion_4.png", "imageAlt": "Ad 4 SD - Today" }
         ],
         "dalle": [
-          { "imageUrl": "/content/2025/06/05/images/ad_dalle_1.png", "imageAlt": "Ad 1 DALL-E - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_dalle_2.png", "imageAlt": "Ad 2 DALL-E - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_dalle_3.png", "imageAlt": "Ad 3 DALL-E - Today" },
-          { "imageUrl": "/content/2025/06/05/images/ad_dalle_4.png", "imageAlt": "Ad 4 DALL-E - Today" }
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_dalle_1.png", "imageAlt": "Ad 1 DALL-E - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_dalle_2.png", "imageAlt": "Ad 2 DALL-E - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_dalle_3.png", "imageAlt": "Ad 3 DALL-E - Today" },
+          { "imageUrl": "static_assets/sample_data/2025/06/05/images/ad_dalle_4.png", "imageAlt": "Ad 4 DALL-E - Today" }
         ]
       }
     }
