@@ -27,7 +27,7 @@ body {
 .newspaper-banner {
     display: flex; /* Use flexbox for layout */
     align-items: center; /* Vertically align logo and text */
-    justify-content: center; /* Align items to the start (left) */
+    justify-content: flex-start; /* Align items to the start (left) */
     padding: 20px 10px; /* Padding above/below and left/right */
     border-bottom: 3px double #333; /* Double line border at the bottom, classic newspaper style */
     margin-bottom: 20px; /* Space below the banner */
@@ -35,8 +35,8 @@ body {
 
 /* Styling for the banner logo */
 #banner-logo {
-    width: 570px; /* Set logo width */
-    height: 270px; /* Set logo height */
+    width: 70px; /* Set logo width */
+    height: 70px; /* Set logo height */
     margin-right: 20px; /* Space between logo and title */
 }
 
@@ -150,6 +150,59 @@ body {
     margin-top: 30px; /* Space above the footer */
     font-size: 0.9em; /* Smaller font size for footer text */
     color: #777; /* Grey color for footer text */
+}
+
+/* Styling for the new controls container and date picker */
+.controls-container {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping if controls don't fit */
+    align-items: center;
+    justify-content: flex-start; /* Align items to the start */
+    padding: 10px;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #ccc;
+    gap: 15px; /* Spacing between control groups */
+}
+
+#date-picker {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.control-group {
+    border: 1px solid #ddd;
+    padding: 5px 10px 10px 10px; /* top, right, bottom, left */
+    border-radius: 4px;
+    margin: 0; /* Reset fieldset default margin */
+}
+
+.control-group legend {
+    font-size: 0.9em;
+    font-weight: bold;
+    padding: 0 5px; /* Add some horizontal padding to the legend */
+    color: #333;
+}
+
+.control-group div { /* Container for each radio button and its label */
+    display: inline-block; /* Arrange radio options horizontally */
+    margin-right: 10px;
+}
+
+.control-group div:last-child {
+    margin-right: 0; /* No margin for the last item in a group */
+}
+
+.control-group input[type="radio"] {
+    margin-right: 3px;
+    vertical-align: middle;
+}
+
+.control-group label {
+    font-size: 0.9em;
+    vertical-align: middle;
+    cursor: pointer;
 }
 
 /* Responsive adjustments for different screen sizes */

@@ -14,7 +14,8 @@
     <title>CraicGPT.ie - Your Daily Dose of AI Banter!</title>
 
     <!-- Links to external CSS stylesheets -->
-    <link rel="stylesheet" href="static_assets/style.css"> <!-- Main stylesheet for the website -->
+    <link rel="stylesheet" href="style.css"> <!-- Main stylesheet for the website -->
+    <link rel="stylesheet" href="static_assets/vendor/flatpickr/flatpickr.min.css"> <!-- Flatpickr CSS -->
 
     <!-- Links to external fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto:wght@400;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet"> <!-- Google Fonts for typography -->
@@ -25,14 +26,52 @@
         <!-- Newspaper banner/header section -->
         <header id="newspaper-banner" class="newspaper-banner">
             <img src="static_assets/WebsiteBrandingChatGPT.png" alt="CraicGPT.ie Logo" id="banner-logo">
-            <!-- <h1>CraicGPT.ie</h1>
-            <p class="tagline">The Artificially Intelligent Irish Times</p> -->
+            <h1>CraicGPT.ie</h1>
+            <p class="tagline">The Artificially Intelligent Irish Times</p>
         </header>
 
         <!-- Section to display the current date -->
         <section id="current-date-section" class="date-section">
             <p id="current-date">Fetching date...</p>
         </section>
+
+        <!-- Container for new controls like date picker -->
+        <div id="controls-container" class="controls-container">
+            <input type="text" id="date-picker" placeholder="Select Date">
+            <!-- LLM Selection Radio Buttons -->
+            <fieldset id="llm-selection-group" class="control-group">
+                <legend>Choose LLM:</legend>
+                <div>
+                    <input type="radio" id="llm-chatgpt" name="llm_choice" value="chatgpt" checked>
+                    <label for="llm-chatgpt">ChatGPT</label>
+                </div>
+                <div>
+                    <input type="radio" id="llm-gemini" name="llm_choice" value="gemini">
+                    <label for="llm-gemini">Gemini</label>
+                </div>
+                <div>
+                    <input type="radio" id="llm-claude" name="llm_choice" value="claude">
+                    <label for="llm-claude">Claude</label>
+                </div>
+            </fieldset>
+
+            <!-- Image Generator Selection Radio Buttons -->
+            <fieldset id="imagegen-selection-group" class="control-group">
+                <legend>Choose Image Gen:</legend>
+                <div>
+                    <input type="radio" id="imagegen-imagen" name="imagegen_choice" value="imagen" checked>
+                    <label for="imagegen-imagen">Imagen</label>
+                </div>
+                <div>
+                    <input type="radio" id="imagegen-stablediffusion" name="imagegen_choice" value="stablediffusion">
+                    <label for="imagegen-stablediffusion">Stable Diffusion</label>
+                </div>
+                <div>
+                    <input type="radio" id="imagegen-dalle" name="imagegen_choice" value="dalle">
+                    <label for="imagegen-dalle">DALL-E</label>
+                </div>
+            </fieldset>
+        </div>
 
         <!-- Main content grid -->
         <main id="main-content" class="main-content-grid">
@@ -95,6 +134,7 @@
     </div>
 
     <!-- Script tag for including the main JavaScript file -->
-    <script src="static_assets/main.js"></script>
+    <script src="static_assets/vendor/flatpickr/flatpickr.min.js"></script> <!-- Flatpickr JS -->
+    <script src="main.js"></script>
 </body>
 </html>
