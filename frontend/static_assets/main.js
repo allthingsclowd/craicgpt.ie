@@ -210,7 +210,8 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
     const jsMonth = parseInt(monthStr, 10) - 1;
     const day = parseInt(dayStr, 10);
 
-    const contentUrl = `/content/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
+    // const contentUrl = `/content/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
+    const contentUrl = `static_assets/sample_data/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
 
     fetch(contentUrl)
         .then(response => {
