@@ -35,8 +35,8 @@ body {
 
 /* Styling for the banner logo */
 #banner-logo {
-    width: 70px; /* Set logo width */
-    height: 70px; /* Set logo height */
+    width: 500px; /* Set logo width */
+    height: 250px; /* Set logo height */
     margin-right: 20px; /* Space between logo and title */
 }
 
