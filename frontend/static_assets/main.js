@@ -209,10 +209,19 @@ function fetchContentForDate(dateString) {
                 else console.warn(`Default ImageGen radio for value "${currentPaperData.metadata.defaultImageGen}" not found.`);
             }
 
-            const datePickerInstance = document.querySelector("#date-picker")._flatpickr;
-            if (datePickerInstance && currentPaperData.publicationDate) {
-                // Ensure not to trigger Flatpickr's onChange during this programmatic set
-                datePickerInstance.setDate(currentPaperData.publicationDate, false);
+            // Update js-datepicker instance if it exists and a publicationDate is available
+            const datePickerElement = document.getElementById('date-picker');
+            if (datePickerElement && datePickerElement.datepicker && currentPaperData.publicationDate) {
+                // Parse publicationDate from JSON (YYYY-MM-DD string) into a Date object
+                const parts = currentPaperData.publicationDate.split('-');
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed in JS Date
+                const day = parseInt(parts[2], 10);
+                const newDateToSet = new Date(year, month, day);
+                // Programmatically set the date of the js-datepicker.
+                // The third argument 'true' usually means to prevent onSelect from firing.
+                // Behavior might vary; check js-datepicker docs if re-fetch loop occurs.
+                datePickerElement.datepicker.setDate(newDateToSet, true);
             }
             renderContent(); // Render after setting defaults and date picker
         })
@@ -238,30 +247,52 @@ function fetchContentForDate(dateString) {
 
 // Main function that runs when the window has finished loading
 window.addEventListener('load', () => {
-    // Initialize Flatpickr
-    flatpickr("#date-picker", {
-        dateFormat: "Y-m-d",
-        defaultDate: "today", // This should ideally trigger onChange for initial load.
-        onChange: function(selectedDates, dateStr, instance) {
-            console.log("Date selected via Flatpickr:", dateStr);
-            fetchContentForDate(dateStr); // Fetch and render content for the newly selected date
-        }
-    });
+    const datePickerInput = document.getElementById('date-picker');
+    if (!datePickerInput) {
+        console.error("#date-picker element not found!");
+        // Potentially stop further JS execution or UI updates dependent on the picker
+        // For now, other parts like radio buttons might still work if data is fetched by other means.
+    } else {
+        const picker = datepicker(datePickerInput, {
+            formatter: (input, date, instance) => {
+                // Format the date displayed in the input field
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                input.value = `${year}-${month}-${day}`; // Set the input value
+            },
+            onSelect: (instance, date) => {
+                // This function is called when a date is picked.
+                if (date) {
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const day = String(date.getDate()).padStart(2, '0');
+                    const dateStr = `${year}-${month}-${day}`;
 
-    // Robust initial load: Flatpickr's defaultDate: "today" should trigger its onChange.
-    // If there's a concern it might not, or if a date other than "today" was default,
-    // this explicit fetch ensures content loading.
-    // However, modern Flatpickr usually handles defaultDate triggering onChange.
-    // For this iteration, we'll rely on Flatpickr's onChange for the initial load triggered by defaultDate.
-    // If issues arise, the explicit fetch method below can be reinstated:
-    /*
-    const initialDatePickerInstance = document.querySelector("#date-picker")._flatpickr;
-    let initialDateToLoad = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
-    if (initialDatePickerInstance.selectedDates.length > 0) {
-        initialDateToLoad = initialDatePickerInstance.formatDate(initialDatePickerInstance.selectedDates[0], "Y-m-d");
+                    console.log("Date selected via js-datepicker:", dateStr);
+                    fetchContentForDate(dateStr);
+                } else {
+                    console.log("Date cleared or selection invalid via js-datepicker.");
+                    currentPaperData = null;
+                    renderContent();
+                }
+            },
+            dateSelected: new Date() // Set default date to today
+        });
+        // Example: Storing the instance if needed globally, though it's better to manage scope.
+        // window.craicDatePicker = picker;
     }
+
+    // Initial content load for today's date.
+    // js-datepicker with `dateSelected: new Date()` should display today's date.
+    // The onSelect handler will be triggered by the initial selection or a manual selection.
+    // However, to ensure content loads on the very first page load with the default date,
+    // an explicit fetch is still a good idea, especially if onSelect isn't triggered by dateSelected.
+    const today = new Date();
+    const initialDateToLoad = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
     fetchContentForDate(initialDateToLoad);
-    */
+    // If datePickerInput exists, its value will be formatted by the picker's formatter
+    // or by the setDate call in fetchContentForDate's success logic.
 
     // Update footer year with the current year
     const footerYearElement = document.getElementById('footer-year');
@@ -278,11 +309,10 @@ window.addEventListener('load', () => {
                 renderContent();
             } else {
                 console.warn("LLM choice changed, but no currentPaperData to render.");
-                // Attempt to load data for the currently selected date in the picker
-                const datePickerInstance = document.querySelector("#date-picker")._flatpickr;
-                const currentDateInPicker = datePickerInstance.selectedDates[0];
-                const dateStrToFetch = currentDateInPicker ?
-                                       datePickerInstance.formatDate(currentDateInPicker, "Y-m-d") :
+                // Attempt to load data for the currently selected date in the text input
+                const datePickerValue = document.getElementById('date-picker').value;
+                const dateStrToFetch = (/^\d{4}-\d{2}-\d{2}$/.test(datePickerValue)) ?
+                                       datePickerValue :
                                        new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
                 fetchContentForDate(dateStrToFetch);
             }
@@ -297,10 +327,9 @@ window.addEventListener('load', () => {
                 renderContent();
             } else {
                 console.warn("ImageGen choice changed, but no currentPaperData to render.");
-                const datePickerInstance = document.querySelector("#date-picker")._flatpickr;
-                const currentDateInPicker = datePickerInstance.selectedDates[0];
-                const dateStrToFetch = currentDateInPicker ?
-                                       datePickerInstance.formatDate(currentDateInPicker, "Y-m-d") :
+                const datePickerValue = document.getElementById('date-picker').value;
+                const dateStrToFetch = (/^\d{4}-\d{2}-\d{2}$/.test(datePickerValue)) ?
+                                       datePickerValue :
                                        new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-' + String(new Date().getDate()).padStart(2, '0');
                 fetchContentForDate(dateStrToFetch);
             }
