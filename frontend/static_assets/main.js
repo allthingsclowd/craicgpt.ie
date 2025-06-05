@@ -7,6 +7,7 @@
 let currentPaperData = null;
 let selectedLLM = ''; // Will be updated by radio button interactions
 let selectedImageGen = ''; // Will be updated by radio button interactions
+const MAX_FALLBACK_ATTEMPTS = 7;
 
 // Helper function to get the currently selected LLM
 function getSelectedLLM() {
@@ -132,17 +133,39 @@ function renderContent() {
     }
 
     // Advertisements
-    if (slots.advertisements && Array.isArray(slots.advertisements)) {
+    const adImageGenOutput = slots.advertisements?.imageOutputs?.[selectedImageGen];
+    if (adImageGenOutput && Array.isArray(adImageGenOutput)) {
         for (let i = 0; i < 4; i++) {
-            if (slots.advertisements[i] && typeof slots.advertisements[i].text !== 'undefined') {
-                updateElement(`ad-${i + 1}`, slots.advertisements[i].text, true);
-            } else {
-                updateElement(`ad-${i + 1}`, 'Advertisement space available.', false);
+            const adData = adImageGenOutput[i];
+            const adElementContainer = document.getElementById(`ad-${i + 1}`); // Gets the div container
+            if (adElementContainer) {
+                const imgElement = adElementContainer.querySelector('img'); // Gets the <img> tag within the div
+                if (imgElement) {
+                    if (adData && adData.imageUrl) {
+                        imgElement.src = adData.imageUrl;
+                        imgElement.alt = adData.imageAlt || 'Advertisement';
+                        imgElement.style.display = ''; // Ensure image is visible if previously hidden
+                    } else {
+                        // Fallback if specific adData (e.g., for ad_2) is missing but array exists
+                        imgElement.src = 'static_assets/images/placeholder_ad.png'; // Default placeholder
+                        imgElement.alt = 'Advertisement space unavailable';
+                    }
+                } else {
+                    // This case should ideally not happen if HTML structure is consistent
+                    // console.warn(`Image element within ad container ad-${i + 1} not found.`);
+                }
             }
         }
-    } else { // Fallback if ads structure is missing
+    } else { // Fallback if 'advertisements.imageOutputs[selectedImageGen]' path is broken or missing
         for (let i = 0; i < 4; i++) {
-            updateElement(`ad-${i + 1}`, 'Advertisement space available.', false);
+            const adElementContainer = document.getElementById(`ad-${i + 1}`);
+            if (adElementContainer) {
+                const imgElement = adElementContainer.querySelector('img');
+                if (imgElement) {
+                    imgElement.src = 'static_assets/images/placeholder_ad.png'; // Default placeholder
+                    imgElement.alt = 'Advertisements not available for selected generator';
+                }
+            }
         }
     }
 
@@ -165,8 +188,8 @@ function renderContent() {
 }
 
 // Function to fetch content for a given date string (YYYY-MM-DD)
-function fetchContentForDate(dateString) {
-    console.log(`Fetching content for date: ${dateString}`);
+function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringForAlert = null) {
+    console.log(`Fetching content for date: ${dateString}, Attempt: ${attemptNumber + 1}`);
     if (!dateString || !/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
         console.error("Invalid date string format provided to fetchContentForDate. Expected YYYY-MM-DD. Received:", dateString);
         const mainContent = document.getElementById('main-content');
@@ -174,78 +197,111 @@ function fetchContentForDate(dateString) {
             mainContent.innerHTML = '<p class="error-message">Invalid date format selected. Please use YYYY-MM-DD.</p>';
         }
         currentPaperData = null;
-        renderContent(); // Attempt to render a cleared state
+        renderContent();
         return;
     }
 
-    const [year, month, day] = dateString.split('-');
-    const contentUrl = `/content/${year}/${month}/${day}/todays_paper.json`;
-    // const contentUrl = 'todays_paper_example.json'; // For local testing
+    if (attemptNumber === 0) {
+        originalDateStringForAlert = dateString;
+    }
+
+    const [yearStr, monthStr, dayStr] = dateString.split('-');
+    const year = parseInt(yearStr, 10);
+    const jsMonth = parseInt(monthStr, 10) - 1;
+    const day = parseInt(dayStr, 10);
+
+    const contentUrl = `/content/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
 
     fetch(contentUrl)
         .then(response => {
             if (!response.ok) {
-                throw new Error(`Network response was not ok: ${response.statusText} (Status: ${response.status}) for URL: ${contentUrl}`);
+                const status = response.status;
+                throw new Error(`Network response was not ok: ${response.statusText} (Status: ${status}) for URL: ${contentUrl}`);
             }
             return response.json();
         })
         .then(data => {
-            console.log("Fetched content:", data);
+            console.log("Fetched content successfully for:", data.publicationDate);
             currentPaperData = data;
+
+            if (attemptNumber > 0 && originalDateStringForAlert !== currentPaperData.publicationDate) {
+                alert(`Content for ${originalDateStringForAlert} was not found. Showing available content for ${currentPaperData.publicationDate}.`);
+            }
             
-            // Set radio buttons to default selections from metadata, if available
             if (currentPaperData.metadata?.defaultLLM) {
-                const defaultLLMRadio = document.getElementById(`llm-${currentPaperData.metadata.defaultLLM}`);
+                const defaultLLMRadio = document.querySelector(`input[name="llm_choice"][value="${currentPaperData.metadata.defaultLLM}"]`);
                 if (defaultLLMRadio) defaultLLMRadio.checked = true;
             }
-            if (currentPaperData.metadata?.defaultLLM) {
-                const llmRadio = document.querySelector(`input[name="llm_choice"][value="${currentPaperData.metadata.defaultLLM}"]`);
-                if (llmRadio) llmRadio.checked = true;
-                else console.warn(`Default LLM radio for value "${currentPaperData.metadata.defaultLLM}" not found.`);
-            }
             if (currentPaperData.metadata?.defaultImageGen) {
-                const imageGenRadio = document.querySelector(`input[name="imagegen_choice"][value="${currentPaperData.metadata.defaultImageGen}"]`);
-                if (imageGenRadio) imageGenRadio.checked = true;
-                else console.warn(`Default ImageGen radio for value "${currentPaperData.metadata.defaultImageGen}" not found.`);
+                const defaultImageGenRadio = document.querySelector(`input[name="imagegen_choice"][value="${currentPaperData.metadata.defaultImageGen}"]`);
+                if (defaultImageGenRadio) defaultImageGenRadio.checked = true;
             }
 
-            // Update js-datepicker instance if it exists and a publicationDate is available
             const datePickerElement = document.getElementById('date-picker');
             if (datePickerElement && datePickerElement.datepicker && currentPaperData.publicationDate) {
-                // Parse publicationDate from JSON (YYYY-MM-DD string) into a Date object
                 const parts = currentPaperData.publicationDate.split('-');
-                const year = parseInt(parts[0], 10);
-                const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed in JS Date
-                const day = parseInt(parts[2], 10);
-                const newDateToSet = new Date(year, month, day);
-                // Programmatically set the date of the js-datepicker.
-                // The third argument 'true' usually means to prevent onSelect from firing.
-                // Behavior might vary; check js-datepicker docs if re-fetch loop occurs.
-                datePickerElement.datepicker.setDate(newDateToSet, true);
+                const loadedYear = parseInt(parts[0], 10);
+                const loadedMonth = parseInt(parts[1], 10) - 1;
+                const loadedDay = parseInt(parts[2], 10);
+                const newDateToSet = new Date(loadedYear, loadedMonth, loadedDay);
+
+                const pickerInstance = datePickerElement.datepicker;
+                const originalOnSelect = pickerInstance.options.onSelect;
+                pickerInstance.options.onSelect = () => {};
+                pickerInstance.setDate(newDateToSet, true);
+                pickerInstance.options.onSelect = originalOnSelect;
             }
-            renderContent(); // Render after setting defaults and date picker
+            renderContent();
         })
         .catch(error => {
-            console.error('Error fetching or parsing daily content:', error);
-            currentPaperData = null;
-            renderContent();
+            console.warn(`Failed to fetch content for ${dateString} (Attempt ${attemptNumber + 1}/${MAX_FALLBACK_ATTEMPTS + 1}): ${error.message}`);
 
-            const mainContent = document.getElementById('main-content');
-            if (mainContent) {
-                mainContent.innerHTML = `<p class="error-message">Sorry, we couldn't load the Craic for ${dateString}. The AI might have been napping. Please try another date or check back later. (Error: ${error.message})</p>`;
-            }
-            const bannerTitleElement = document.querySelector('#newspaper-banner h1');
-            if (bannerTitleElement) {
-                 bannerTitleElement.textContent = 'CraicGPT.ie - Offline Edition';
-            }
-            const dateElement = document.getElementById('current-date');
-            if (dateElement) {
-                dateElement.textContent = `Failed to load content for ${dateString}`;
+            if (attemptNumber < MAX_FALLBACK_ATTEMPTS) {
+                if (attemptNumber === 0) {
+                     alert(`Content for ${originalDateStringForAlert} is not available. Attempting to find the latest available content...`);
+                }
+
+                const currentDateObj = new Date(year, jsMonth, day);
+                currentDateObj.setDate(currentDateObj.getDate() - 1);
+
+                const prevYear = currentDateObj.getFullYear();
+                const prevMonthStr = String(currentDateObj.getMonth() + 1).padStart(2, '0');
+                const prevDayStr = String(currentDateObj.getDate()).padStart(2, '0');
+                const previousDateString = `${prevYear}-${prevMonthStr}-${prevDayStr}`;
+
+                fetchContentForDate(previousDateString, attemptNumber + 1, originalDateStringForAlert);
+            } else {
+                console.error(`All fallback attempts failed. No content found for ${originalDateStringForAlert} or nearby dates.`);
+                currentPaperData = null;
+                renderContent();
+
+                const mainContent = document.getElementById('main-content');
+                if (mainContent) {
+                    mainContent.innerHTML = `<p class="error-message">Sorry, content for ${originalDateStringForAlert} and the previous ${MAX_FALLBACK_ATTEMPTS} days is unavailable. Please try a different date range.</p>`;
+                }
+
+                const dateElement = document.getElementById('current-date');
+                if (dateElement) {
+                    dateElement.textContent = `Failed to load content for ${originalDateStringForAlert}`;
+                }
+
+                const datePickerElement = document.getElementById('date-picker');
+                if (datePickerElement && datePickerElement.datepicker && originalDateStringForAlert) {
+                    const parts = originalDateStringForAlert.split('-');
+                    const originalYear = parseInt(parts[0], 10);
+                    const originalMonth = parseInt(parts[1], 10) - 1;
+                    const originalDay = parseInt(parts[2], 10);
+                    const originalDateToSet = new Date(originalYear, originalMonth, originalDay);
+
+                    const pickerInstance = datePickerElement.datepicker;
+                    const originalOnSelect = pickerInstance.options.onSelect;
+                    pickerInstance.options.onSelect = () => {};
+                    pickerInstance.setDate(originalDateToSet, true);
+                    pickerInstance.options.onSelect = originalOnSelect;
+                }
             }
         });
 }
-
-// Main function that runs when the window has finished loading
 window.addEventListener('load', () => {
     const datePickerInput = document.getElementById('date-picker');
     if (!datePickerInput) {

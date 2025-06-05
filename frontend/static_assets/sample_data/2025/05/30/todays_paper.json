@@ -1,0 +1,73 @@
+{
+  "publicationDate": "2025-05-30",
+  "metadata": {
+    "bannerTitle": "The Artificially Intelligent Times - 6 days ago",
+    "defaultLLM": "chatgpt",
+    "defaultImageGen": "imagen"
+  },
+  "contentSlots": {
+    "mainArticle": {
+      "llmOutputs": {
+        "chatgpt": { "title": "ChatGPT Main Title - 6 days ago", "text": "<p>ChatGPT main text for 6 days ago.</p>" },
+        "gemini": { "title": "Gemini Main Title - 6 days ago", "text": "<p>Gemini main text for 6 days ago.</p>" },
+        "claude": { "title": "Claude Main Title - 6 days ago", "text": "<p>Claude main text for 6 days ago.</p>" }
+      },
+      "imageOutputs": {
+        "imagen": { "imageUrl": "/content/2025/05/30/images/main_article_imagen.png", "imageAlt": "Main Imagen - 6 days ago" },
+        "stablediffusion": { "imageUrl": "/content/2025/05/30/images/main_article_stablediffusion.png", "imageAlt": "Main SD - 6 days ago" },
+        "dalle": { "imageUrl": "/content/2025/05/30/images/main_article_dalle.png", "imageAlt": "Main DALL-E - 6 days ago" }
+      }
+    },
+    "authorBio": {
+      "text": "<p>Author bio for 6 days ago. Our AI editor is feeling particularly '6 days ago'.</p>"
+    },
+    "comparisonArticle": {
+      "llmOutputs": {
+        "chatgpt": { "title": "ChatGPT Comparison Title - 6 days ago", "text": "<p>ChatGPT comparison text for 6 days ago.</p>" },
+        "gemini": { "title": "Gemini Comparison Title - 6 days ago", "text": "<p>Gemini comparison text for 6 days ago.</p>" },
+        "claude": { "title": "Claude Comparison Title - 6 days ago", "text": "<p>Claude comparison text for 6 days ago.</p>" }
+      },
+      "imageOutputs": {
+        "imagen": { "imageUrl": "/content/2025/05/30/images/comparison_imagen.png", "imageAlt": "Comparison Imagen - 6 days ago" },
+        "stablediffusion": { "imageUrl": "/content/2025/05/30/images/comparison_stablediffusion.png", "imageAlt": "Comparison SD - 6 days ago" },
+        "dalle": { "imageUrl": "/content/2025/05/30/images/comparison_dalle.png", "imageAlt": "Comparison DALL-E - 6 days ago" }
+      }
+    },
+    "llmStory": {
+      "llmOutputs": {
+        "chatgpt": { "content": "<p>ChatGPT story for 6 days ago. It was a dark and stormy night...</p>" },
+        "gemini": { "content": "<p>Gemini story for 6 days ago. Once upon a time, in a land of circuits...</p>" },
+        "claude": { "content": "<p>Claude story for 6 days ago. The algorithm pondered its existence...</p>" }
+      }
+    },
+    "joke": {
+      "llmOutputs": {
+        "chatgpt": { "content": "<p>ChatGPT joke for 6 days ago: Why did the electron break up with the proton? Too much positivity.</p>" },
+        "gemini": { "content": "<p>Gemini joke for 6 days ago: What do you call a lazy kangaroo? Pouch potato.</p>" },
+        "claude": { "content": "<p>Claude joke for 6 days ago: I told my wife she was drawing her eyebrows too high. She seemed surprised.</p>" }
+      }
+    },
+    "advertisements": {
+      "imageOutputs": {
+        "imagen": [
+          { "imageUrl": "/content/2025/05/30/images/ad_imagen_1.png", "imageAlt": "Ad 1 Imagen - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_imagen_2.png", "imageAlt": "Ad 2 Imagen - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_imagen_3.png", "imageAlt": "Ad 3 Imagen - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_imagen_4.png", "imageAlt": "Ad 4 Imagen - 6 days ago" }
+        ],
+        "stablediffusion": [
+          { "imageUrl": "/content/2025/05/30/images/ad_stablediffusion_1.png", "imageAlt": "Ad 1 SD - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_stablediffusion_2.png", "imageAlt": "Ad 2 SD - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_stablediffusion_3.png", "imageAlt": "Ad 3 SD - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_stablediffusion_4.png", "imageAlt": "Ad 4 SD - 6 days ago" }
+        ],
+        "dalle": [
+          { "imageUrl": "/content/2025/05/30/images/ad_dalle_1.png", "imageAlt": "Ad 1 DALL-E - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_dalle_2.png", "imageAlt": "Ad 2 DALL-E - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_dalle_3.png", "imageAlt": "Ad 3 DALL-E - 6 days ago" },
+          { "imageUrl": "/content/2025/05/30/images/ad_dalle_4.png", "imageAlt": "Ad 4 DALL-E - 6 days ago" }
+        ]
+      }
+    }
+  }
+}
