@@ -1,41 +1,24 @@
-# Author: Graham Land
-# Date: 2025-06-04
-# Filename and Path: terraform/scheduler.tf
-# Description: Sets up an AWS EventBridge Scheduler rule to trigger the ContentOrchestratorLambda
-#              on a defined daily schedule (cron expression defined in locals). This includes creating
-#              the necessary IAM role and policy for the scheduler to invoke the Lambda function.
-#              Prerequisites: Content Orchestrator Lambda function ARN (from lambda.tf, via module output)
-#                             and its name for constructing IAM resource names.
-#              Validation: EventBridge Scheduler rule is 'Enabled' in the AWS console. The Lambda function
-#                          is triggered according to the schedule (verify via Lambda logs in CloudWatch).
-#                          IAM role and policy grant necessary invoke permissions.
+# Author: Graham Land & AI
+# Date: YYYY-MM-DD
+# Filename and Path: terraform/modules/scheduler/main.tf
+# Description: Manages the EventBridge Scheduler rule for triggering the Lambda function.
 
-# terraform/scheduler.tf
-
-# Defines common values and configuration for AWS EventBridge Scheduler resources.
 locals {
-  project_name         = "CraicGPT.ie"
-  scheduler_role_name  = "SchedulerInvoke-${module.content_orchestrator_lambda.lambda_function_name}-Role"
-  scheduler_policy_name= "SchedulerInvoke-${module.content_orchestrator_lambda.lambda_function_name}-Policy"
-  schedule_name        = "Daily-${module.content_orchestrator_lambda.lambda_function_name}-Trigger"
-  schedule_description = "Triggers ${module.content_orchestrator_lambda.lambda_function_name} daily at 01:00 UTC for ${local.project_name}"
+  // project_name is now var.project_name
+  // common_tags is now var.common_tags
+  // lambda_function_name comes from var.lambda_function_name
 
-  # Cron expression for daily execution at 01:00 UTC.
-  # Format: (minute hour day-of-month month day-of-week year). '?' denotes no specific value for day-of-week.
-  schedule_cron_expression = "cron(0 1 * * ? *)" # [Ref: 23]
-  schedule_timezone        = "UTC"               # Timezone for the cron expression. [Ref: 23]
+  scheduler_role_name  = "SchedulerInvoke-${var.lambda_function_name}-Role"
+  scheduler_policy_name= "SchedulerInvoke-${var.lambda_function_name}-Policy"
+  schedule_name        = "Daily-${var.lambda_function_name}-Trigger"
+  schedule_description = "Triggers ${var.lambda_function_name} daily for ${var.project_name}"
+  // schedule_cron_expression is now var.schedule_cron_expression
+  // schedule_timezone is now var.schedule_timezone
 
-  # Common tags to be applied to scheduler-related resources.
-  common_tags = {
-    Environment = "production"
-    Project     = local.project_name
-    ManagedBy   = "Terraform"
-  }
-  # Specific tags for IAM and Scheduler resources, merged with common tags.
-  iam_tags = merge(local.common_tags, {
+  iam_tags = merge(var.common_tags, {
     Purpose = "SchedulerLambdaInvocation"
   })
-  scheduler_tags = merge(local.common_tags, {
+  scheduler_tags = merge(var.common_tags, {
     Purpose = "DailyContentOrchestration"
   })
 }
@@ -66,7 +49,7 @@ resource "aws_iam_role" "scheduler_invoke_content_orchestrator_lambda_role" {
 # This policy will be attached to the scheduler's IAM role.
 resource "aws_iam_policy" "scheduler_invoke_content_orchestrator_lambda_policy" {
   name        = local.scheduler_policy_name # Name of the IAM policy in AWS.
-  description = "Allows EventBridge Scheduler to invoke the ${module.content_orchestrator_lambda.lambda_function_name} for ${local.project_name}"
+  description = "Allows EventBridge Scheduler to invoke the ${var.lambda_function_name} for ${var.project_name}"
 
   # Policy document granting invoke permission.
   policy = jsonencode({
@@ -75,7 +58,7 @@ resource "aws_iam_policy" "scheduler_invoke_content_orchestrator_lambda_policy" 
       {
         Effect   = "Allow", # Specifies that this statement allows the action.
         Action   = "lambda:InvokeFunction", # The specific action allowed (invoking a Lambda function).
-        Resource = module.content_orchestrator_lambda.lambda_function_arn # ARN of the target Lambda function.
+        Resource = var.lambda_function_arn # ARN of the target Lambda function.
       }
     ]
   })
@@ -97,8 +80,8 @@ resource "aws_scheduler_schedule" "daily_content_orchestrator_trigger" {
   description = local.schedule_description # A description for the schedule.
   group_name  = "default"                  # Schedules can be organized into groups; 'default' is used if not specified.
 
-  schedule_expression          = local.schedule_cron_expression # Cron expression defining when the schedule runs.
-  schedule_expression_timezone = local.schedule_timezone        # Timezone for the schedule expression.
+  schedule_expression          = var.schedule_cron_expression # Cron expression defining when the schedule runs.
+  schedule_expression_timezone = var.schedule_timezone        # Timezone for the schedule expression.
 
   # Flexible time window configuration. 'OFF' means the schedule attempts to run at the exact time defined by cron.
   flexible_time_window {
@@ -107,7 +90,7 @@ resource "aws_scheduler_schedule" "daily_content_orchestrator_trigger" {
 
   # Target configuration: specifies the Lambda function to be invoked by this schedule.
   target {
-    arn      = module.content_orchestrator_lambda.lambda_function_arn # ARN of the target Lambda function.
+    arn      = var.lambda_function_arn # ARN of the target Lambda function.
     role_arn = aws_iam_role.scheduler_invoke_content_orchestrator_lambda_role.arn # ARN of the IAM role that Scheduler assumes for invocation. [Ref: 23]
 
     # Optional: Input to pass to the Lambda function if needed.
@@ -116,11 +99,10 @@ resource "aws_scheduler_schedule" "daily_content_orchestrator_trigger" {
     # })
   }
 
-  state = "ENABLED" # Ensures the schedule is active upon creation. Can be "DISABLED".
+  state = var.enable_scheduler ? "ENABLED" : "DISABLED" # Ensures the schedule is active upon creation. Can be "DISABLED".
 
   # Explicit dependencies to ensure IAM role and policy are fully configured before the schedule is created.
   depends_on = [
-    aws_iam_role_policy_attachment.scheduler_invoke_content_orchestrator_lambda_attach,
-    module.content_orchestrator_lambda # Also depends on the Lambda module itself to ensure the Lambda function exists.
+    aws_iam_role_policy_attachment.scheduler_invoke_content_orchestrator_lambda_attach
   ]
 }

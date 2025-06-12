@@ -1,43 +1,32 @@
-# Author: Graham Land
-# Date: 2025-06-04
-# Filename and Path: terraform/acm.tf
-# Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain,
-#              including DNS validation using the us-east-1 provider alias.
-#              Prerequisites: Route 53 hosted zone for the domain; providers configured in providers.tf.
-#              Validation: Check if the ACM certificate status is 'Issued' in the AWS console (us-east-1 region).
-#                          Verify DNS records for validation are created in the Route 53 hosted zone.
+# Author: Graham Land & AI
+# Date: YYYY-MM-DD
+# Filename and Path: terraform/modules/acm/main.tf
+# Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain.
 
-# terraform/acm.tf
-
-# Defines common values for ACM certificate management.
 locals {
-  domain_name = "craicgpt.ie"
-  # Common tags for resources in this file, promoting consistency.
-  common_tags = {
-    Environment = "production"
-    Project     = "CraicGPT.ie"
-    ManagedBy   = "Terraform"
-  }
-  # Specific tags for the ACM certificate.
-  certificate_tags = merge(local.common_tags, {
-    Name = "${local.domain_name}-cloudfront-certificate"
+  // domain_name is now var.domain_name
+  // common_tags is now var.common_tags
+  // project_name is now var.project_name (though not directly used in this simplified local block anymore)
+
+  certificate_tags = merge(var.common_tags, {
+    Name = "${var.domain_name}-cloudfront-certificate"
   })
 }
 
 # Retrieves information about the Route 53 hosted zone for the site's domain.
 # This data source is used to get the zone ID, which is necessary for creating DNS validation records for ACM.
 data "aws_route53_zone" "site_domain" {
-  name = "${local.domain_name}." # The domain name of the hosted zone. Note the trailing dot.
+  name = "${var.domain_name}." # The domain name of the hosted zone. Note the trailing dot.
 }
 
 # Provisions an ACM (AWS Certificate Manager) certificate for the specified domain.
 # This certificate will be validated using DNS records created in the Route 53 hosted zone.
 resource "aws_acm_certificate" "site_certificate" {
-  provider          = aws.us_east_1_acm   # Explicitly uses the us-east-1 AWS provider.
-  domain_name       = local.domain_name   # The primary domain name for the certificate.
+  provider          = var.aws_provider_alias_us_east_1   # Explicitly uses the us-east-1 AWS provider.
+  domain_name       = var.domain_name   # The primary domain name for the certificate.
   validation_method = "DNS"               # Specifies DNS as the validation method.
   subject_alternative_names = [
-    "www.${local.domain_name}"            # Subject Alternative Names (SANs) for the certificate.
+    "www.${var.domain_name}"            # Subject Alternative Names (SANs) for the certificate.
   ]
 
   # Lifecycle rule to ensure a new certificate is created before the old one is destroyed.
@@ -75,7 +64,7 @@ resource "aws_route53_record" "certificate_validation" {
 # This resource effectively 'waits' for AWS to confirm that the DNS validation records
 # are correctly in place and match the details of the certificate.
 resource "aws_acm_certificate_validation" "site_certificate_validation" {
-  provider                = aws.us_east_1_acm # Explicitly uses the us-east-1 AWS provider.
+  provider                = var.aws_provider_alias_us_east_1 # Explicitly uses the us-east-1 AWS provider.
   certificate_arn         = aws_acm_certificate.site_certificate.arn # ARN of the certificate to validate.
   # A list of Fully Qualified Domain Names (FQDNs) of the DNS records used for validation.
   validation_record_fqdns = [for record in aws_route53_record.certificate_validation : record.fqdn]

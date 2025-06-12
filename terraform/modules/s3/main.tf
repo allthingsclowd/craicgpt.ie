@@ -1,32 +1,13 @@
-# Author: Graham Land
-# Date: 2025-06-04
-# Filename and Path: terraform/s3.tf
-# Description: Manages the S3 bucket ('craicgpt-website-assets') used for storing all website assets.
-#              This includes enabling versioning for data protection, configuring server-side
-#              encryption (SSE-S3), setting bucket ownership controls to 'BucketOwnerEnforced'
-#              (required for CloudFront OAC), and blocking all public access to the bucket.
-#              The bucket policy granting CloudFront access is managed in cloudfront.tf due to dependencies.
-#              Prerequisites: None (this file defines the base S3 bucket).
-#              Validation: S3 bucket exists in the AWS console with the specified name. Versioning is enabled.
-#                          Server-side encryption is set to AES256 by default. Object ownership is
-#                          'Bucket owner enforced'. All public access block settings are 'On'.
+# Author: Graham Land & AI
+# Date: YYYY-MM-DD
+# Filename and Path: terraform/modules/s3/main.tf
+# Description: Manages the S3 bucket for website assets.
 
-# terraform/s3.tf
-
-# Defines common values for S3 bucket configuration.
 locals {
-  bucket_name  = "craicgpt-website-assets" # The globally unique name for the S3 bucket.
-  project_name = "CraicGPT.ie"             # Consistent project name for tagging.
-
-  # Common tags to be applied to S3 resources.
-  common_tags = {
-    Environment = "production"
-    Project     = local.project_name
-    ManagedBy   = "Terraform"
-  }
-  # Specific tags for the S3 bucket, merged with common tags.
-  bucket_tags = merge(local.common_tags, {
-    Name = local.bucket_name
+  // bucket_name is now var.bucket_name
+  // common_tags is now var.common_tags
+  bucket_tags = merge(var.common_tags, {
+    Name = var.bucket_name // Use var.bucket_name for the Name tag
   })
 }
 
@@ -34,7 +15,7 @@ locals {
 # This bucket will host static content like HTML, CSS, JavaScript, and images,
 # as well as dynamically generated content (e.g., daily articles).
 resource "aws_s3_bucket" "website_assets" {
-  bucket = local.bucket_name # The name of the bucket. Must be globally unique.
+  bucket = var.bucket_name # The name of the bucket. Must be globally unique.
   # ACLs (Access Control Lists) are disabled by setting 'BucketOwnerEnforced' for object ownership.
   # This is a security best practice and a prerequisite for using CloudFront OAC (Origin Access Control).
   # Bucket policy will be used to grant access to CloudFront.
@@ -49,7 +30,7 @@ resource "aws_s3_bucket_versioning" "website_assets_versioning" {
   bucket = aws_s3_bucket.website_assets.id # References the ID of the 'website_assets' bucket.
 
   versioning_configuration {
-    status = "Enabled" # Enables versioning for the bucket. Can be "Disabled" or "Suspended".
+    status = var.enable_versioning ? "Enabled" : "Suspended" # Enables versioning for the bucket. Can be "Disabled" or "Suspended".
   }
 }
 

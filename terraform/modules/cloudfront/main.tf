@@ -1,37 +1,17 @@
-# Author: Graham Land
-# Date: 2025-06-04
-# Filename and Path: terraform/cloudfront.tf
-# Description: Defines the CloudFront distribution to serve website content from the S3 bucket.
-#              Includes Origin Access Control (OAC) for secure S3 access, and cache behaviors
-#              for static and dynamic content. Also manages the S3 bucket policy for CloudFront access.
-#              Prerequisites: S3 bucket (from s3.tf), ACM certificate ARN (from acm.tf output or direct reference),
-#                             CloudFront aliases variable (from variables.tf).
-#              Validation: Distribution status 'Deployed' in AWS console. Website accessible via CloudFront domain name
-#                          and CNAME aliases over HTTPS. Correct caching headers observed for different content types.
-#                          S3 bucket policy correctly references the CloudFront distribution.
+# Author: Graham Land & AI
+# Date: YYYY-MM-DD
+# Filename and Path: terraform/modules/cloudfront/main.tf
+# Description: Manages the CloudFront distribution, OAC, and S3 bucket policy for CloudFront access.
 
-# terraform/cloudfront.tf
-
-# Defines common values for CloudFront resources.
 locals {
-  project_name    = "CraicGPT.ie"                             # Consistent project name for comments and resource names.
-  s3_origin_id    = "S3-${aws_s3_bucket.website_assets.id}" # Unique ID for the S3 origin, derived from the S3 bucket ID.
-  price_class     = "PriceClass_100"                          # CloudFront price class. PriceClass_100 offers a balance of cost and performance for US, Canada, Europe.
-  oac_resource_name = "${aws_s3_bucket.website_assets.id}-oac"  # Name for the OAC resource itself (visible in AWS console).
-  oac_description = "Origin Access Control for ${aws_s3_bucket.website_assets.id} S3 bucket" # Description for OAC.
-
-  # Common tags to be applied to all resources in this file, promoting consistency.
-  common_tags = {
-    Environment = "production"
-    Project     = local.project_name
-    ManagedBy   = "Terraform"
-  }
+  // project_name is now var.project_name
+  // common_tags is now var.common_tags
+  // s3_origin_id needs the s3 bucket id, which is var.s3_bucket_website_assets_id
+  s3_origin_id    = "S3-${var.s3_bucket_website_assets_id}"
+  // price_class is now var.price_class
+  oac_resource_name = "${var.s3_bucket_website_assets_id}-oac" // Use S3 bucket ID variable
+  oac_description = "Origin Access Control for ${var.s3_bucket_website_assets_id} S3 bucket" // Use S3 bucket ID variable
 }
-
-# Retrieves the AWS account ID of the current caller (where Terraform is being executed).
-# This account ID is used in the S3 bucket policy to restrict access specifically to
-# the CloudFront distribution created within this same AWS account.
-data "aws_caller_identity" "current" {}
 
 # Retrieves the AWS managed cache policy named "Managed-CachingOptimized".
 # This policy is provided by AWS and is optimized for caching static assets
@@ -54,7 +34,7 @@ resource "aws_cloudfront_origin_access_control" "website_assets_oac" {
 # Defines a custom cache policy specifically for content that is expected to update daily,
 # such as dynamically generated articles or data. This policy sets a Time-To-Live (TTL) of 24 hours.
 resource "aws_cloudfront_cache_policy" "daily_content_cache_policy" {
-  name        = "${local.project_name}-DailyContent-CachePolicy" # Unique name for this custom cache policy.
+  name        = "${var.project_name}-DailyContent-CachePolicy" # Unique name for this custom cache policy.
   comment     = "Cache policy for daily content with a 24-hour TTL."
   default_ttl = 86400 # Default TTL in seconds (86400 seconds = 24 hours). [Ref: 14]
   max_ttl     = 86400 # Maximum TTL, also set to 24 hours.
@@ -83,15 +63,15 @@ resource "aws_cloudfront_cache_policy" "daily_content_cache_policy" {
 resource "aws_cloudfront_distribution" "website_distribution" {
   # Origin configuration: specifies the S3 bucket as the source of content.
   origin {
-    domain_name              = aws_s3_bucket.website_assets.bucket_regional_domain_name # The regional domain name of the S3 bucket. This is crucial for OAC. [Ref: 3]
+    domain_name              = var.s3_bucket_website_assets_regional_domain_name # The regional domain name of the S3 bucket. This is crucial for OAC. [Ref: 3]
     origin_id                = local.s3_origin_id             # A unique identifier for this origin within the distribution.
     origin_access_control_id = aws_cloudfront_origin_access_control.website_assets_oac.id # Links the OAC configuration to this origin.
   }
 
-  enabled             = true               # Enables the distribution, making it active.
+  enabled             = var.enable_distribution               # Enables the distribution, making it active.
   is_ipv6_enabled     = true               # Enables IPv6 support for the distribution.
-  comment             = "CloudFront distribution for ${local.project_name}" # A descriptive comment for easier identification in AWS console.
-  default_root_object = "index.html"       # Specifies the default object (e.g., "index.html") to serve when the root URL of the distribution is requested.
+  comment             = "CloudFront distribution for ${var.project_name}" # A descriptive comment for easier identification in AWS console.
+  default_root_object = var.default_root_object       # Specifies the default object (e.g., "index.html") to serve when the root URL of the distribution is requested.
 
   aliases = var.cloudfront_aliases # A list of CNAMEs (alternative domain names) for the distribution, e.g., ["craicgpt.ie", "www.craicgpt.ie"].
 
@@ -118,7 +98,7 @@ resource "aws_cloudfront_distribution" "website_distribution" {
     cache_policy_id        = aws_cloudfront_cache_policy.daily_content_cache_policy.id # Uses the custom 'daily_content_cache_policy'. [Ref: 16]
   }
 
-  price_class = local.price_class # Sets the price class for the distribution, affecting cost and geographic reach.
+  price_class = var.price_class # Sets the price class for the distribution, affecting cost and geographic reach.
 
   # Restrictions configuration: can be used to apply geographic restrictions (geo-blocking).
   restrictions {
@@ -131,20 +111,15 @@ resource "aws_cloudfront_distribution" "website_distribution" {
   viewer_certificate {
     # Directly references the validated ACM certificate resource from 'acm.tf'.
     # This ensures that CloudFront uses a valid, AWS-issued certificate for the specified domain(s).
-    acm_certificate_arn      = aws_acm_certificate_validation.site_certificate_validation.certificate_arn # ARN of the ACM certificate in us-east-1. [Ref: 17]
+    acm_certificate_arn      = var.acm_certificate_validation_arn # ARN of the ACM certificate in us-east-1. [Ref: 17]
     ssl_support_method       = "sni-only"             # Specifies Server Name Indication (SNI), allowing multiple domains with one IP.
     minimum_protocol_version = "TLSv1.2_2021"         # Sets the minimum TLS protocol version for viewer connections.
   }
 
   http_version = "http2" # Enables HTTP/2 for improved performance in viewer connections.
 
-  tags = local.common_tags # Applies the defined common tags to the CloudFront distribution.
+  tags = var.common_tags # Applies the defined common tags to the CloudFront distribution.
 
-  # Explicit dependency on the S3 bucket.
-  # This ensures that the S3 bucket is fully created before CloudFront attempts to configure it as an origin.
-  depends_on = [
-    aws_s3_bucket.website_assets
-  ]
 }
 
 # Defines the IAM policy document that grants the CloudFront distribution permission to access objects in the S3 bucket.
@@ -154,7 +129,7 @@ data "aws_iam_policy_document" "s3_website_assets_policy_doc" {
     sid    = "AllowCloudFrontOAC" # A descriptive statement ID.
     effect = "Allow"              # Specifies that this statement allows access.
     actions   = ["s3:GetObject"]  # Allows CloudFront to perform 's3:GetObject' actions, i.e., read objects.
-    resources = ["${aws_s3_bucket.website_assets.arn}/*"] # Grants permission to all objects ("/*") within the specified S3 bucket.
+    resources = ["${var.s3_bucket_website_assets_arn}/*"] # Grants permission to all objects ("/*") within the specified S3 bucket.
 
     principals {
       type        = "Service"
@@ -166,7 +141,7 @@ data "aws_iam_policy_document" "s3_website_assets_policy_doc" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn" # Condition key that checks the ARN of the source making the request.
-      values   = ["arn:aws:cloudfront::${data.aws_caller_identity.current.account_id}:distribution/${aws_cloudfront_distribution.website_distribution.id}"] # The ARN of this CloudFront distribution. [Ref: 3]
+      values   = ["arn:aws:cloudfront::${var.aws_account_id}:distribution/${aws_cloudfront_distribution.website_distribution.id}"] # The ARN of this CloudFront distribution. [Ref: 3]
     }
   }
 }
@@ -174,11 +149,7 @@ data "aws_iam_policy_document" "s3_website_assets_policy_doc" {
 # Applies the S3 bucket policy (defined above) to the website assets S3 bucket.
 # This policy is crucial for allowing the CloudFront distribution (via OAC) to securely fetch objects from the bucket.
 resource "aws_s3_bucket_policy" "website_assets_policy" {
-  bucket = aws_s3_bucket.website_assets.id # Associates this policy with the website_assets S3 bucket.
+  bucket = var.s3_bucket_website_assets_id # Associates this policy with the website_assets S3 bucket.
   policy = data.aws_iam_policy_document.s3_website_assets_policy_doc.json # The IAM policy document in JSON format.
 
-  # Explicit dependency on the CloudFront distribution.
-  # This ensures that the CloudFront distribution exists and its ID is available before this bucket policy,
-  # which references the distribution's ARN, is applied.
-  depends_on = [aws_cloudfront_distribution.website_distribution]
 }
