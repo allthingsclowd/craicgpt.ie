@@ -1,3 +1,13 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      # Not specifying version here, it should inherit constraints or use the one from root.
+      # version = "~> 5.0" # Optionally, mirror the root or make it more flexible
+    }
+  }
+}
+
 # Author: Graham Land & AI
 # Date: YYYY-MM-DD
 # Filename and Path: terraform/modules/scheduler/main.tf
