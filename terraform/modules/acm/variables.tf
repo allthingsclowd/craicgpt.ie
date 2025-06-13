@@ -18,9 +18,3 @@ variable "common_tags" {
   type        = map(string)
   default     = {}
 }
-
-variable "aws_provider_alias_us_east_1" {
-  description = "Alias for the AWS provider configured for us-east-1, needed for ACM certificate."
-  type        = string
-  default     = "aws.us_east_1_acm" # Defaulting to the alias used in the original acm.tf
-}

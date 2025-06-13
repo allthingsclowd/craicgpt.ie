@@ -34,7 +34,6 @@ module "acm" {
   # The acm module's internal provider reference will use 'aws.us_east_1_acm' via var.aws_provider_alias_us_east_1
   # This ensures the module knows which provider configuration to pick up if multiple are passed or available.
   # However, the `providers` meta-argument below is the more direct way to assign it.
-  aws_provider_alias_us_east_1 = "aws.us_east_1_acm"
 
 
   providers = {

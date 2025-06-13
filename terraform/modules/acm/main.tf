@@ -32,7 +32,7 @@ data "aws_route53_zone" "site_domain" {
 # Provisions an ACM (AWS Certificate Manager) certificate for the specified domain.
 # This certificate will be validated using DNS records created in the Route 53 hosted zone.
 resource "aws_acm_certificate" "site_certificate" {
-  provider          = var.aws_provider_alias_us_east_1   # Explicitly uses the us-east-1 AWS provider.
+  provider          = aws   # Explicitly uses the us-east-1 AWS provider.
   domain_name       = var.domain_name   # The primary domain name for the certificate.
   validation_method = "DNS"               # Specifies DNS as the validation method.
   subject_alternative_names = [
@@ -74,7 +74,7 @@ resource "aws_route53_record" "certificate_validation" {
 # This resource effectively 'waits' for AWS to confirm that the DNS validation records
 # are correctly in place and match the details of the certificate.
 resource "aws_acm_certificate_validation" "site_certificate_validation" {
-  provider                = var.aws_provider_alias_us_east_1 # Explicitly uses the us-east-1 AWS provider.
+  provider                = aws # Explicitly uses the us-east-1 AWS provider.
   certificate_arn         = aws_acm_certificate.site_certificate.arn # ARN of the certificate to validate.
   # A list of Fully Qualified Domain Names (FQDNs) of the DNS records used for validation.
   validation_record_fqdns = [for record in aws_route53_record.certificate_validation : record.fqdn]
