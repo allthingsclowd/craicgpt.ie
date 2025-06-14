@@ -24,6 +24,12 @@ provider "aws" {
 
 data "aws_caller_identity" "current" {}
 
+# Data source to get the Route 53 hosted zone for your domain
+data "aws_route53_zone" "primary" {
+  count = var.enable_cloudfront ? 1 : 0 # Only fetch if CloudFront is enabled
+  name  = var.domain_name # e.g., "craicgpt.ie"
+}
+
 # ACM Module for SSL/TLS Certificate
 module "acm" {
   source = "./modules/acm"
