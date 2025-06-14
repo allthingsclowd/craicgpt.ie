@@ -1,141 +1,141 @@
 <!--
-  Author: graham land
-  Date: 2023-10-27
+  Author: Graham Land
+  Date: 2023-10-27  •  Updated: 2025-06-14
   Purpose: Main HTML structure for the CraicGPT.ie website.
 -->
-<!DOCTYPE html> <!-- Specifies the document type as HTML5 -->
-<html lang="en"> <!-- Sets the language of the document to English -->
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <!-- Meta tags provide metadata about the HTML document -->
-    <meta charset="UTF-8"> <!-- Specifies the character encoding for the document -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"> <!-- Configures the viewport for responsive design -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CraicGPT.ie – Your Daily Dose of AI Banter!</title>
 
-    <!-- Title of the webpage, displayed in the browser tab or window title bar -->
-    <title>CraicGPT.ie - Your Daily Dose of AI Banter!</title>
+  <!-- Styles -->
+  <link rel="stylesheet" href="static_assets/style.css">
+  <link rel="stylesheet" href="static_assets/vendor/js-datepicker/datepicker.min.css">
 
-    <!-- Links to external CSS stylesheets -->
-    <link rel="stylesheet" href="static_assets/style.css"> <!-- Main stylesheet for the website -->
-    <link rel="stylesheet" href="static_assets/vendor/js-datepicker/datepicker.min.css"> <!-- js-datepicker CSS -->
-
-    <!-- Links to external fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto:wght@400;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet"> <!-- Google Fonts for typography -->
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
-    <!-- Overall container for the page content -->
-    <div class="page-container">
-        <!-- Newspaper banner/header section -->
-        <header id="newspaper-banner" class="newspaper-banner">
-            <img src="static_assets/images/WebsiteBrandingChatGPT.png" alt="CraicGPT.ie Logo (Left)" id="banner-logo-left">
-            <h1>The Artificially Intelligent Times</h1>
-            <img src="static_assets/images/webpage-branding.png" alt="CraicGPT.ie Logo (Right)" id="banner-logo-right">
-            <!-- <p class="tagline">The Artificially Intelligent Irish Times</p> -->
-        </header>
+  <div class="page-container">
 
-        <!-- Section to display the current date -->
-        <section id="current-date-section" class="date-section">
-            <p id="current-date">Fetching date...</p>
-        </section>
+    <!-- ▸▸  HEADER  ◂◂ -->
+    <header id="newspaper-banner" class="newspaper-banner">
+        <img id="banner-logo-left"
+       class="banner-logo"
+       src="static_assets/images/CraicGPT_240h.png"
+       alt="CraicGPT.ie logo – left">
 
-        <!-- Container for new controls like date picker -->
-        <div id="controls-container" class="controls-container">
-            <input type="text" id="date-picker" placeholder="Select Date">
-            <!-- LLM Selection Radio Buttons -->
-            <fieldset id="llm-selection-group" class="control-group">
-                <legend>Choose LLM:</legend>
-                <div>
-                    <input type="radio" id="llm-chatgpt" name="llm_choice" value="chatgpt" checked>
-                    <label for="llm-chatgpt">ChatGPT</label>
-                </div>
-                <div>
-                    <input type="radio" id="llm-gemini" name="llm_choice" value="gemini">
-                    <label for="llm-gemini">Gemini</label>
-                </div>
-                <div>
-                    <input type="radio" id="llm-claude" name="llm_choice" value="claude">
-                    <label for="llm-claude">Claude</label>
-                </div>
-            </fieldset>
+  <h1>The Artificially Intelligent Times</h1>
 
-            <!-- Image Generator Selection Radio Buttons -->
-            <fieldset id="imagegen-selection-group" class="control-group">
-                <legend>Choose Image Gen:</legend>
-                <div>
-                    <input type="radio" id="imagegen-imagen" name="imagegen_choice" value="imagen" checked>
-                    <label for="imagegen-imagen">Imagen</label>
-                </div>
-                <div>
-                    <input type="radio" id="imagegen-stablediffusion" name="imagegen_choice" value="stablediffusion">
-                    <label for="imagegen-stablediffusion">Stable Diffusion</label>
-                </div>
-                <div>
-                    <input type="radio" id="imagegen-dalle" name="imagegen_choice" value="dalle">
-                    <label for="imagegen-dalle">DALL-E</label>
-                </div>
-            </fieldset>
-        </div>
+  <img id="banner-logo-right"
+       class="banner-logo"
+       src="static_assets/images/GeekwiththePeak.png"
+       alt="CraicGPT.ie logo – right">
+</header>
 
-        <!-- Main content grid -->
-        <main id="main-content" class="main-content-grid">
-            <!-- Main article section -->
-            <article id="main-article" class="grid-item main-story">
-                <h2 id="main-article-title">Main Article Title Loading...</h2>
-                <img id="main-article-image" src="static_assets/images/placeholder_article.png" alt="Main article image placeholder" class="article-image">
-                <div id="main-article-text" class="article-text">
-                    <p>Loading main article content...</p>
-                </div>
-            </article>
 
-            <!-- Author biography section -->
-            <aside id="author-bio-section" class="grid-item author-bio">
-                <h3>From the Editor's Desk (of a CPU)</h3>
-                <div id="author-bio">
-                    <p>Our esteemed editor, a sophisticated language model, works tirelessly (without coffee breaks!) to bring you the latest insights and ramblings from the digital ether. Likes: clean data, efficient algorithms. Dislikes: infinite loops, existential questions before the first byte of the day.</p>
-                </div>
-            </aside>
+    <!-- Current date -->
+    <section id="current-date-section" class="date-section">
+      <p id="current-date">Fetching date…</p>
+    </section>
 
-            <!-- Comparison article section -->
-            <article id="comparison-article" class="grid-item comparison-story">
-                <h2 id="comparison-article-title">Comparison Piece Title Loading...</h2>
-                <img id="comparison-article-image" src="static_assets/images/placeholder_article.png" alt="Comparison article image placeholder" class="article-image">
-                <div id="comparison-article-text" class="article-text">
-                    <p>Loading comparison article content...</p>
-                </div>
-            </article>
+    <!-- Controls -->
+    <div id="controls-container" class="controls-container">
+      <input type="text" id="date-picker" placeholder="Select Date">
 
-            <!-- LLM (Large Language Model) feature section -->
-            <section id="llm-story-section" class="grid-item llm-feature">
-                <h3>The LLM Muses</h3>
-                <div id="llm-story-content">
-                    <p>An LLM ponders the meaning of a full stop. More at 11 (binary time).</p>
-                </div>
-            </section>
-            
-            <!-- Joke section -->
-            <section id="joke-section" class="grid-item daily-joke">
-                <h3>Today's Gigglebit</h3>
-                <div id="joke-content">
-                    <p>Why did the scarecrow win an award? Because he was outstanding in his field... of data!</p>
-                </div>
-            </section>
+      <!-- LLM radio group -->
+      <fieldset id="llm-selection-group" class="control-group">
+        <legend>Choose&nbsp;LLM:</legend>
 
-            <!-- Advertisements column -->
-            <aside id="advertisements-column" class="grid-item advertisements">
-                <h3>Sponsored Messages (from our AI Overlords)</h3>
-                <div id="ad-1" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Advertisement" style="width: 100%; height: 100%; object-fit: cover;"></div>
-                <div id="ad-2" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Advertisement" style="width: 100%; height: 100%; object-fit: cover;"></div>
-                <div id="ad-3" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Advertisement" style="width: 100%; height: 100%; object-fit: cover;"></div>
-                <div id="ad-4" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Advertisement" style="width: 100%; height: 100%; object-fit: cover;"></div>
-            </aside>
-        </main>
+        <label><input type="radio" name="llm_choice" value="chatgpt" id="llm-chatgpt" checked> ChatGPT</label>
+        <label><input type="radio" name="llm_choice" value="gemini"  id="llm-gemini">        Gemini</label>
+        <label><input type="radio" name="llm_choice" value="claude"  id="llm-claude">        Claude</label>
+      </fieldset>
 
-        <!-- Page footer section -->
-        <footer class="page-footer">
-            <p>&copy; <span id="footer-year">YYYY</span> CraicGPT.ie. All rights reserved (mostly by algorithms).</p>
-        </footer>
+      <!-- Image-gen radio group -->
+      <fieldset id="imagegen-selection-group" class="control-group">
+        <legend>Choose&nbsp;Image&nbsp;Gen:</legend>
+
+        <label><input type="radio" name="imagegen_choice" value="imagen"          id="imagegen-imagen"          checked> Imagen</label>
+        <label><input type="radio" name="imagegen_choice" value="stablediffusion" id="imagegen-stablediffusion"> Stable&nbsp;Diffusion</label>
+        <label><input type="radio" name="imagegen_choice" value="dalle"           id="imagegen-dalle">           DALL-E</label>
+      </fieldset>
     </div>
 
-    <!-- Script tag for including the main JavaScript file -->
-    <script src="static_assets/vendor/js-datepicker/datepicker.min.js"></script> <!-- js-datepicker JS -->
-    <script src="static_assets/main.js"></script>
+
+    <!-- ▸▸  MAIN CONTENT  ◂◂ -->
+    <main id="main-content" class="main-content-grid">
+
+      <!-- Main Article -->
+      <article id="main-article" class="grid-item main-story">
+        <h2 id="main-article-title">Main Article Title Loading…</h2>
+        <img id="main-article-image"
+             src="static_assets/images/placeholder_article.png"
+             alt="Main article placeholder"
+             class="article-image">
+        <div id="main-article-text" class="article-text">
+          <p>Loading main article content…</p>
+        </div>
+      </article>
+
+      <!-- Author Bio -->
+      <aside id="author-bio-section" class="grid-item author-bio">
+        <h3>From the Editor’s Desk (of a CPU)</h3>
+        <div id="author-bio">
+          <p>Our esteemed editor, a sophisticated language model, works tirelessly (without coffee breaks!) to bring you the latest insights and ramblings from the digital ether…</p>
+        </div>
+      </aside>
+
+      <!-- Comparison Article -->
+      <article id="comparison-article" class="grid-item comparison-story">
+        <h2 id="comparison-article-title">Comparison Piece Title Loading…</h2>
+        <img id="comparison-article-image"
+             src="static_assets/images/placeholder_article.png"
+             alt="Comparison article placeholder"
+             class="article-image">
+        <div id="comparison-article-text" class="article-text">
+          <p>Loading comparison article content…</p>
+        </div>
+      </article>
+
+      <!-- LLM Feature -->
+      <section id="llm-story-section" class="grid-item llm-feature">
+        <h3>The LLM Muses</h3>
+        <div id="llm-story-content">
+          <p>An LLM ponders the meaning of a full stop. More at 11 (binary time).</p>
+        </div>
+      </section>
+
+      <!-- Joke -->
+      <section id="joke-section" class="grid-item daily-joke">
+        <h3>Today’s Gigglebit</h3>
+        <div id="joke-content">
+          <p>Why did the scarecrow win an award? Because he was outstanding in his field… of data!</p>
+        </div>
+      </section>
+
+      <!-- Ads -->
+      <aside id="advertisements-column" class="grid-item advertisements">
+        <h3>Sponsored Messages (from our AI Overlords)</h3>
+        <div id="ad-1" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Ad 1"></div>
+        <div id="ad-2" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Ad 2"></div>
+        <div id="ad-3" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Ad 3"></div>
+        <div id="ad-4" class="advertisement"><img src="static_assets/images/placeholder_ad.png" alt="Ad 4"></div>
+      </aside>
+    </main>
+
+
+    <!-- Footer -->
+    <footer class="page-footer">
+      <p>&copy; <span id="footer-year">YYYY</span> CraicGPT.ie. All rights reserved (mostly by algorithms).</p>
+    </footer>
+  </div>
+
+  <!-- Scripts -->
+  <script src="static_assets/vendor/js-datepicker/datepicker.min.js"></script>
+  <script src="static_assets/main.js"></script>
 </body>
 </html>
