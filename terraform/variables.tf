@@ -12,7 +12,7 @@ variable "aws_region" {
 variable "domain_name" {
   description = "The primary domain name for the project (e.g., 'craicgpt.ie'). Used for ACM."
   type        = string
-  # No default, this is critical and site-specific
+  default     = "craicgpt.ie"
 }
 
 variable "cloudfront_aliases" {
@@ -45,32 +45,32 @@ variable "enable_acm" {
 variable "enable_s3" {
   description = "Set to true to enable the S3 module for website assets."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "enable_lambda" {
   description = "Set to true to enable the Lambda module for content orchestration."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "enable_cloudfront" {
   description = "Set to true to enable the CloudFront module for content delivery."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "enable_scheduler" {
   description = "Set to true to enable the Scheduler module for daily Lambda triggers."
   type        = bool
-  default     = true
+  default     = false
 }
 
 # S3 Module specific variables
 variable "s3_bucket_name_override" {
   description = "Optional: Override the default S3 bucket name. If empty, a name based on project_name is used."
   type        = string
-  default     = ""
+  default     = "craicgpt-ie-development"
 }
 
 variable "s3_enable_versioning" {
