@@ -1,5 +1,5 @@
 # Author: Graham Land & AI
-# Date: YYYY-MM-DD
+# Date: 2024-07-30
 # Filename and Path: terraform/variables.tf
 # Description: Declares input variables for the root Terraform configuration.
 
@@ -45,7 +45,7 @@ variable "enable_acm" {
 variable "enable_s3" {
   description = "Set to true to enable the S3 module for website assets."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_lambda" {
@@ -54,10 +54,16 @@ variable "enable_lambda" {
   default     = false
 }
 
+variable "enable_frontend_upload" {
+  description = "Set to true to enable the frontend-upload module."
+  type        = bool
+  default     = true # Assuming you want to upload by default
+}
+
 variable "enable_cloudfront" {
   description = "Set to true to enable the CloudFront module for content delivery."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "enable_scheduler" {
@@ -77,6 +83,24 @@ variable "s3_enable_versioning" {
   description = "Set to true to enable versioning for the S3 bucket."
   type        = bool
   default     = true
+}
+
+variable "s3_website_index_document" {
+  description = "The index document for the S3 static website."
+  type        = string
+  default     = "index.html"
+}
+
+variable "s3_website_error_document" {
+  description = "The error document for the S3 static website."
+  type        = string
+  default     = "error.html"
+}
+
+variable "s3_frontend_content_path" {
+  description = "Path to the local /frontend directory whose contents will be uploaded to S3. Relative to the root module."
+  type        = string
+  default     = "../frontend" # Assuming 'frontend' is one level up from 'terraform' directory
 }
 
 # Lambda Module specific variables

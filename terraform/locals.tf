@@ -6,7 +6,7 @@
 locals {
   project_name = "CraicGPT.ie"
   common_tags = {
-    Environment = "production"
+    Environment = "Development"
     Project     = local.project_name
     ManagedBy   = "Terraform"
     Author      = "Graham Land"

@@ -6,10 +6,11 @@ terraform {
       # version = "~> 5.0" # Optionally, mirror the root or make it more flexible
     }
   }
+  required_version = ">= 1.12.1" # Ensures Terraform version is new enough
 }
 
 # Author: Graham Land & AI
-# Date: YYYY-MM-DD
+# Date: 2024-07-30
 # Filename and Path: terraform/modules/s3/main.tf
 # Description: Manages the S3 bucket for website assets.
 
@@ -28,6 +29,7 @@ resource "aws_s3_bucket" "website_assets" {
   bucket = var.bucket_name # The name of the bucket. Must be globally unique.
   # ACLs (Access Control Lists) are disabled by setting 'BucketOwnerEnforced' for object ownership.
   # This is a security best practice and a prerequisite for using CloudFront OAC (Origin Access Control).
+  force_destroy = true    # This will delete all objects (including all versions) from the bucket when the bucket is destroyed.
   # Bucket policy will be used to grant access to CloudFront.
 
   tags = local.bucket_tags
@@ -91,3 +93,17 @@ resource "aws_s3_bucket_public_access_block" "website_assets_pab" {
 # Example structure (actual resource is in cloudfront.tf):
 # data "aws_iam_policy_document" "s3_website_assets_policy_doc" { ... }
 # resource "aws_s3_bucket_policy" "website_assets_policy" { ... }
+
+# Configures the S3 bucket for static website hosting.
+# This defines the index and error documents for the website.
+resource "aws_s3_bucket_website_configuration" "website_assets_config" {
+  bucket = aws_s3_bucket.website_assets.id # References the ID of the 'website_assets' bucket.
+
+  index_document {
+    suffix = var.index_document # e.g., "index.html"
+  }
+
+  error_document {
+    key = var.error_document # e.g., "error.html"
+  }
+}

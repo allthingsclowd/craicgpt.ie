@@ -6,6 +6,7 @@ terraform {
       # version = "~> 5.0" # Optionally, mirror the root or make it more flexible
     }
   }
+  required_version = ">= 1.12.1" # Ensures Terraform version is new enough
 }
 
 # Author: Graham Land & AI
@@ -44,7 +45,7 @@ resource "aws_cloudfront_origin_access_control" "website_assets_oac" {
 # Defines a custom cache policy specifically for content that is expected to update daily,
 # such as dynamically generated articles or data. This policy sets a Time-To-Live (TTL) of 24 hours.
 resource "aws_cloudfront_cache_policy" "daily_content_cache_policy" {
-  name        = "${var.project_name}-DailyContent-CachePolicy" # Unique name for this custom cache policy.
+  name        = "${replace(var.project_name, ".", "-")}-DailyContent-CachePolicy" # Unique name for this custom cache policy. Replaces '.' with '-' for compatibility.
   comment     = "Cache policy for daily content with a 24-hour TTL."
   default_ttl = 86400 # Default TTL in seconds (86400 seconds = 24 hours). [Ref: 14]
   max_ttl     = 86400 # Maximum TTL, also set to 24 hours.

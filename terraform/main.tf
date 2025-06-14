@@ -1,5 +1,5 @@
 # Author: Graham Land & AI
-# Date: YYYY-MM-DD
+# Date: 2024-07-30
 # Filename and Path: terraform/main.tf
 # Description: Root module to deploy the CraicGPT.ie infrastructure by orchestrating submodules.
 
@@ -10,6 +10,7 @@ terraform {
       version = "~> 5.0" # Specify a version constraint
     }
   }
+  required_version = ">= 1.8.0" # Or your target minimum version, e.g., ">= 1.12.1"
 }
 
 provider "aws" {
@@ -30,6 +31,7 @@ module "acm" {
 
   project_name    = local.project_name
   domain_name     = var.domain_name # e.g., "craicgpt.ie"
+  subject_alternative_names_list = var.cloudfront_aliases # Pass all required aliases to the ACM module
   common_tags     = local.common_tags
   # The acm module's internal provider reference will use 'aws.us_east_1_acm' via var.aws_provider_alias_us_east_1
   # This ensures the module knows which provider configuration to pick up if multiple are passed or available.
@@ -49,25 +51,8 @@ module "s3" {
   bucket_name       = var.s3_bucket_name_override == "" ? "${local.project_name}-website-assets" : var.s3_bucket_name_override
   common_tags       = local.common_tags
   enable_versioning = var.s3_enable_versioning
-}
-
-# Lambda Module for Content Orchestration
-module "lambda" {
-  source = "./modules/lambda"
-  count  = var.enable_lambda ? 1 : 0
-
-  project_name                  = local.project_name
-  s3_bucket_website_assets_name = module.s3[0].bucket_name
-  s3_bucket_website_assets_arn  = module.s3[0].bucket_arn
-  llm_api_key_secret_arn        = var.llm_api_key_secret_arn
-  image_gen_api_key_secret_arn  = var.image_gen_api_key_secret_arn
-  common_tags                   = local.common_tags
-  lambda_source_path_override   = var.lambda_source_path_override
-  lambda_handler_override       = var.lambda_handler_override
-  lambda_runtime_override       = var.lambda_runtime_override
-  lambda_function_name_override = var.lambda_function_name_override
-  # enable_lambda variable within the module is for the module's internal logic,
-  # root var.enable_lambda controls if the module is instantiated via count.
+  index_document    = var.s3_website_index_document
+  error_document    = var.s3_website_error_document
 }
 
 # CloudFront Module for Content Delivery
@@ -87,6 +72,36 @@ module "cloudfront" {
   price_class                             = var.cloudfront_price_class
   # enable_distribution variable within the module is for the module's internal logic,
   # root var.enable_cloudfront controls if the module is instantiated via count.
+}
+
+# Frontend Upload Module for S3 content
+module "frontend_upload" {
+  source = "./modules/frontend-upload"
+  count  = var.enable_frontend_upload && var.enable_s3 ? 1 : 0 # Depends on S3 being enabled
+
+  s3_bucket_id       = module.s3[0].bucket_id
+  frontend_directory = var.s3_frontend_content_path # Use existing variable for path
+  common_tags        = local.common_tags
+  enable_upload      = true # Internal enable flag, root control is via count
+}
+
+# Lambda Module for Content Orchestration
+module "lambda" {
+  source = "./modules/lambda"
+  count  = var.enable_lambda ? 1 : 0
+
+  project_name                  = local.project_name
+  s3_bucket_website_assets_name = module.s3[0].bucket_name
+  s3_bucket_website_assets_arn  = module.s3[0].bucket_arn
+  llm_api_key_secret_arn        = var.llm_api_key_secret_arn
+  image_gen_api_key_secret_arn  = var.image_gen_api_key_secret_arn
+  common_tags                   = local.common_tags
+  lambda_source_path_override   = var.lambda_source_path_override
+  lambda_handler_override       = var.lambda_handler_override
+  lambda_runtime_override       = var.lambda_runtime_override
+  lambda_function_name_override = var.lambda_function_name_override
+  # enable_lambda variable within the module is for the module's internal logic,
+  # root var.enable_lambda controls if the module is instantiated via count.
 }
 
 # Scheduler Module for Daily Lambda Trigger

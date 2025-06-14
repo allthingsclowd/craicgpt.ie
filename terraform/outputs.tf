@@ -1,5 +1,5 @@
 # Author: Graham Land & AI
-# Date: YYYY-MM-DD
+# Date: 2024-07-30
 # Filename and Path: terraform/outputs.tf
 # Description: Declares root outputs from the Terraform configuration, referencing submodule outputs.
 
@@ -26,6 +26,16 @@ output "s3_bucket_arn" {
 output "s3_bucket_regional_domain_name" {
   description = "The regional domain name of the S3 bucket (from S3 module)."
   value       = var.enable_s3 ? module.s3[0].bucket_regional_domain_name : null
+}
+
+output "s3_website_endpoint" {
+  description = "The S3 bucket website endpoint (from S3 module)."
+  value       = var.enable_s3 ? module.s3[0].website_endpoint : null
+}
+
+output "s3_website_domain" {
+  description = "The S3 bucket website domain (from S3 module)."
+  value       = var.enable_s3 ? module.s3[0].website_domain : null
 }
 
 output "lambda_function_name" {
@@ -56,4 +66,9 @@ output "scheduler_name" {
 output "scheduler_arn" {
   description = "The ARN of the EventBridge Scheduler rule (from Scheduler module)."
   value       = var.enable_scheduler ? module.scheduler[0].schedule_arn : null
+}
+
+output "s3_uploaded_object_keys" {
+  description = "List of S3 object keys uploaded by the frontend-upload module."
+  value       = var.enable_frontend_upload && var.enable_s3 ? module.frontend_upload[0].uploaded_object_keys : []
 }

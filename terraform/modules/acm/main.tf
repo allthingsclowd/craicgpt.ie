@@ -1,5 +1,5 @@
 # Author: Graham Land
-# Date: 14/06/2025
+# Date: 2024-07-30
 # Filename and Path: terraform/modules/acm/main.tf
 # Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain.
 
@@ -12,6 +12,7 @@ terraform {
       # version = "~> 5.0" # Optionally, mirror the root or make it more flexible
     }
   }
+  required_version = ">= 1.8.0" # Ensures Terraform version is new enough
 }
 
 locals {
@@ -36,9 +37,7 @@ resource "aws_acm_certificate" "site_certificate" {
   provider          = aws   # Explicitly uses the us-east-1 AWS provider.
   domain_name       = var.domain_name   # The primary domain name for the certificate.
   validation_method = "DNS"               # Specifies DNS as the validation method.
-  subject_alternative_names = [
-    "www.${var.domain_name}"            # Subject Alternative Names (SANs) for the certificate.
-  ]
+  subject_alternative_names = var.subject_alternative_names_list # Use the comprehensive list of SANs.
 
   # Lifecycle rule to ensure a new certificate is created before the old one is destroyed.
   # This helps prevent downtime during certificate renewal by managing the replacement process.
