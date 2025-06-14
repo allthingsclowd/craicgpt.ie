@@ -10,6 +10,8 @@ let selectedImageGen = ''; // Will be updated by radio button interactions
 const MAX_FALLBACK_ATTEMPTS = 7;
 
 const newspaperPlaceholders = {
+    bannerTitle: "The Artificially Intelligent Times (Offline View)",
+    currentDateText: "Date Not Available - Showing Default Layout",
     mainArticle: {
         title: "City Celebrates Annual Tech Chronicle Gala",
         text: "The grand ballroom buzzed with excitement as tech enthusiasts, innovators, and investors gathered for the annual Tech Chronicle Gala. The event, known for showcasing cutting-edge technology and fostering collaboration, did not disappoint. Highlights included a keynote from visionary Dr. Aris Thorne and the unveiling of several groundbreaking startups. Attendees enjoyed an evening of networking, demonstrations, and discussions about the future of technology.",
@@ -135,8 +137,10 @@ function renderContent() {
 
         // Clear other specific elements that might hold old data or set to default
         const bannerTitleElement = document.querySelector('#newspaper-banner h1');
-        if (bannerTitleElement) bannerTitleElement.textContent = 'CraicGPT.ie'; // Default banner title
-        updateElement('current-date', 'No date selected', false); // Default date message
+        if (bannerTitleElement) {
+            bannerTitleElement.textContent = newspaperPlaceholders.bannerTitle;
+        }
+        updateElement('current-date', newspaperPlaceholders.currentDateText, false);
         // The line below is removed as per instructions, placeholders are shown instead.
         // mainContent.innerHTML = '<p class="error-message">Content is currently unavailable. Please select a date.</p>';
         return;
@@ -324,18 +328,8 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
                 // and setting a generic message for the date display like "No date selected" or "Date not available".
                 renderContent();
 
-                // The following lines are commented out to allow renderContent() to manage the display of placeholders.
-                // const mainContent = document.getElementById('main-content');
-                // if (mainContent) {
-                //     mainContent.innerHTML = `<p class="error-message">Sorry, content for ${originalDateStringForAlert} and the previous ${MAX_FALLBACK_ATTEMPTS} days is unavailable. Please try a different date range.</p>`;
-                // }
-
-                // The specific error message for 'current-date' is also removed.
-                // renderContent() will set a generic one like "No date selected" or "Date not available".
-                // const dateElement = document.getElementById('current-date');
-                // if (dateElement) {
-                //     dateElement.textContent = `Failed to load content for ${originalDateStringForAlert}`;
-                // }
+                // Problematic lines that directly set innerHTML or textContent for error messages have been deleted.
+                // renderContent() is now solely responsible for updating the UI in this failure case.
 
                 const datePickerElement = document.getElementById('date-picker');
                 if (datePickerElement && datePickerElement.datepicker && originalDateStringForAlert) {
