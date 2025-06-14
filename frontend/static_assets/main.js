@@ -9,6 +9,36 @@ let selectedLLM = ''; // Will be updated by radio button interactions
 let selectedImageGen = ''; // Will be updated by radio button interactions
 const MAX_FALLBACK_ATTEMPTS = 7;
 
+const newspaperPlaceholders = {
+    mainArticle: {
+        title: "City Celebrates Annual Tech Chronicle Gala",
+        text: "The grand ballroom buzzed with excitement as tech enthusiasts, innovators, and investors gathered for the annual Tech Chronicle Gala. The event, known for showcasing cutting-edge technology and fostering collaboration, did not disappoint. Highlights included a keynote from visionary Dr. Aris Thorne and the unveiling of several groundbreaking startups. Attendees enjoyed an evening of networking, demonstrations, and discussions about the future of technology.",
+        imageUrl: "static_assets/images/placeholder_article_main.png",
+        imageAlt: "Illustration of a bustling city event with futuristic elements"
+    },
+    comparisonArticle: {
+        title: "The AI Revolution: Perspectives from Two Leading Models",
+        text: "In an unprecedented dialogue, two leading AI models, InnovateAI and LogicPrime, shared their 'thoughts' on the future of artificial intelligence. InnovateAI emphasized the potential for creative collaboration between humans and AI, while LogicPrime focused on the analytical power AI brings to complex problem-solving. Both agreed that ethical considerations and responsible development are paramount as AI technology continues to evolve.",
+        imageUrl: "static_assets/images/placeholder_article_comparison.png",
+        imageAlt: "Abstract representation of two AI entities in discussion"
+    },
+    llmStory: {
+        content: "<p>Once upon a time, in a world woven from threads of pure data, lived a little algorithm named Sparky. Sparky wasn't like the other, more serious algorithms who crunched numbers for Big Corp Inc. Sparky loved to tell stories. One day, Sparky wove a tale so captivating it made the data servers hum with delight, a story about a brave little byte who dared to dream of the Cloud. And so, Sparky became the official storyteller of the digital kingdom, reminding everyone that even in a world of logic, there's always room for a little imagination.</p>"
+    },
+    joke: {
+        content: "<p>Why did the programmer quit his job?</p><p>Because he didn't get arrays!</p>"
+    },
+    authorBio: { // This can be used to ensure consistency if the existing one is modified
+        text: "<p>Our esteemed editor, a sophisticated language model, works tirelessly (without coffee breaks!) to bring you the latest insights and ramblings from the digital ether. Likes: clean data, efficient algorithms. Dislikes: infinite loops, existential questions before the first byte of the day.</p>"
+    },
+    advertisements: [
+        { imageUrl: "static_assets/images/placeholder_ad_1.png", imageAlt: "Placeholder Advertisement: 'Innovate Tomorrow with Nebula Cloud Solutions'" },
+        { imageUrl: "static_assets/images/placeholder_ad_2.png", imageAlt: "Placeholder Advertisement: 'Quantum Leap Coffee - Brewed for Peak Performance'" },
+        { imageUrl: "static_assets/images/placeholder_ad_3.png", imageAlt: "Placeholder Advertisement: 'SecureSphere VPN - Your Digital Fortress'" },
+        { imageUrl: "static_assets/images/placeholder_ad_4.png", imageAlt: "Placeholder Advertisement: 'CodeCleanse IDE - Write Flawless Code, Faster'" }
+    ]
+};
+
 // Helper function to get the currently selected LLM
 function getSelectedLLM() {
     const checkedRadio = document.querySelector('input[name="llm_choice"]:checked');
@@ -76,24 +106,39 @@ function updateImage(id, imageUrl, altText) {
 // Function to render content based on currentPaperData and selections
 function renderContent() {
     if (!currentPaperData || !currentPaperData.contentSlots) {
-        console.warn("No paper data or content slots available to render.");
-        const mainContent = document.getElementById('main-content');
-        if (mainContent) {
-            mainContent.innerHTML = '<p class="error-message">Content is currently unavailable. Please select a date.</p>';
+        console.warn("No paper data or content slots available. Rendering placeholders.");
+        // Populate with placeholders
+        updateElement('main-article-title', newspaperPlaceholders.mainArticle.title, true);
+        updateElement('main-article-text', newspaperPlaceholders.mainArticle.text, true);
+        updateImage('main-article-image', newspaperPlaceholders.mainArticle.imageUrl, newspaperPlaceholders.mainArticle.imageAlt);
+
+        updateElement('comparison-article-title', newspaperPlaceholders.comparisonArticle.title, true);
+        updateElement('comparison-article-text', newspaperPlaceholders.comparisonArticle.text, true);
+        updateImage('comparison-article-image', newspaperPlaceholders.comparisonArticle.imageUrl, newspaperPlaceholders.comparisonArticle.imageAlt);
+
+        updateElement('llm-story-content', newspaperPlaceholders.llmStory.content, true);
+        updateElement('joke-content', newspaperPlaceholders.joke.content, true);
+        updateElement('author-bio', newspaperPlaceholders.authorBio.text, true);
+
+        for (let i = 0; i < newspaperPlaceholders.advertisements.length; i++) {
+            const adPlaceholder = newspaperPlaceholders.advertisements[i];
+            const adElementContainer = document.getElementById(`ad-${i + 1}`);
+            if (adElementContainer) {
+                const imgElement = adElementContainer.querySelector('img');
+                if (imgElement) {
+                    imgElement.src = adPlaceholder.imageUrl;
+                    imgElement.alt = adPlaceholder.imageAlt;
+                    imgElement.style.display = ''; // Ensure visible
+                }
+            }
         }
-        // Clear other specific elements that might hold old data
+
+        // Clear other specific elements that might hold old data or set to default
         const bannerTitleElement = document.querySelector('#newspaper-banner h1');
-        if (bannerTitleElement) bannerTitleElement.textContent = 'CraicGPT.ie';
-        updateElement('current-date', 'No date selected', false);
-        // Clear article sections
-        updateElement('main-article-title', '', true);
-        updateElement('main-article-text', '', true);
-        updateImage('main-article-image', null, '');
-        updateElement('comparison-article-title', '', true);
-        updateElement('comparison-article-text', '', true);
-        updateImage('comparison-article-image', null, '');
-        updateElement('llm-story-content', '', true);
-        updateElement('joke-content', '', true);
+        if (bannerTitleElement) bannerTitleElement.textContent = 'CraicGPT.ie'; // Default banner title
+        updateElement('current-date', 'No date selected', false); // Default date message
+        // The line below is removed as per instructions, placeholders are shown instead.
+        // mainContent.innerHTML = '<p class="error-message">Content is currently unavailable. Please select a date.</p>';
         return;
     }
 
