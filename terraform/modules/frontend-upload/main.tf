@@ -1,0 +1,48 @@
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      # Version constraint inherited from root module
+    }
+  }
+  required_version = ">= 1.12.1" # Ensures Terraform version is new enough
+}
+
+# Author: Graham Land & AI
+# Date: 2024-07-30
+# Filename and Path: terraform/modules/frontend-upload/main.tf
+# Description: Manages the upload of frontend assets to an S3 bucket.
+
+locals {
+  content_types = {
+    ".html" : "text/html",
+    ".css"  : "text/css",
+    ".js"   : "application/javascript",
+    ".json" : "application/json",
+    ".png"  : "image/png",
+    ".jpg"  : "image/jpeg",
+    ".jpeg" : "image/jpeg",
+    ".gif"  : "image/gif",
+    ".svg"  : "image/svg+xml",
+    ".ico"  : "image/x-icon",
+    ".txt"  : "text/plain",
+    ".xml"  : "application/xml",
+    # Add more as needed
+  }
+}
+
+# Uploads files from the specified frontend_directory to the S3 bucket.
+resource "aws_s3_object" "website_files" {
+  # Only process if enable_upload is true and frontend_directory is provided and not empty.
+  for_each = var.enable_upload && var.frontend_directory != null && var.frontend_directory != "" ? fileset(var.frontend_directory, "**/*") : toset([])
+
+  bucket = var.s3_bucket_id
+  key    = each.value # fileset returns paths relative to the source directory, which is suitable for S3 keys.
+
+  source = "${var.frontend_directory}/${each.value}"
+  etag   = filemd5("${var.frontend_directory}/${each.value}") # Used to detect changes in file content
+
+  # Set the content type based on the file extension
+  content_type = lookup(local.content_types, regex("\\.[^.]+$", each.value), "binary/octet-stream")
+  # ACL is not set as BucketOwnerEnforced is used on the bucket, making objects private by default.
+}
