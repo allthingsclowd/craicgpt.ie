@@ -1,255 +1,78 @@
-/*
-  Author: graham land
-  Date: 2023-10-27
-  Purpose: Defines the visual styling for the CraicGPT.ie website, aiming for a newspaper look and feel.
-*/
-
-/* Basic body styling */
+/* General body and page container styles (assuming some might exist) */
 body {
-    font-family: 'Roboto', sans-serif; /* A neutral, readable sans-serif for base text */
-    margin: 0; /* Remove default browser margin */
-    padding: 0; /* Remove default browser padding */
-    background-color: #f4f4f0; /* Off-white, paper-like background for the entire page */
-    color: #333; /* Default text color */
-    line-height: 1.6; /* Default line spacing for readability */
-}
-
-/* Overall container for the page content */
-.page-container {
-    max-width: 1600px; /* Maximum width for very large screens, prevents content from becoming too wide */
-    margin: 0 auto; /* Center the container on the page */
-    padding: 10px; /* Padding around the content within the container */
-    background-color: #fff; /* White "page" background, contrasting with the body background */
-    box-shadow: 0 0 10px rgba(0,0,0,0.1); /* Subtle shadow to give the page a lifted appearance */
-}
-
-/* Newspaper banner/header section styling */
-.newspaper-banner {
-    display: flex; /* Use flexbox for layout */
-    align-items: center; /* Vertically align logo and text */
-    justify-content: flex-start; /* Align items to the start (left) */
-    padding: 20px 10px; /* Padding above/below and left/right */
-    border-bottom: 3px double #333; /* Double line border at the bottom, classic newspaper style */
-    margin-bottom: 20px; /* Space below the banner */
-}
-
-/* Styling for the banner logo */
-#banner-logo {
-    width: 500px; /* Set logo width */
-    height: 250px; /* Set logo height */
-    margin-right: 20px; /* Space between logo and title */
-}
-
-/* Styling for the main title in the newspaper banner */
-.newspaper-banner h1 {
-    font-family: 'Playfair Display', serif; /* Classic, somewhat ornate serif font for the main title */
-    font-size: 3.5em; /* Large font size for the title */
-    margin: 0; /* Remove default margin for h1 */
-    color: #1a1a1a; /* Dark color for the title text */
-    text-align: left; /* Align text to the left, following the logo */
-}
-
-/* Styling for the tagline in the newspaper banner */
-.newspaper-banner .tagline { /* Note: Corrected selector, assuming tagline is a class *within* newspaper-banner or on its own */
-    font-family: 'Merriweather', serif; /* Serif font for the tagline, complementing the title */
-    font-size: 1.2em; /* Font size for the tagline */
-    color: #555; /* Slightly lighter color for the tagline */
-    margin-top: 5px; /* Space above the tagline */
-    text-align: left; /* Align text to the left, following the logo */
-}
-
-/* Styling for the current date section */
-.date-section {
-    text-align: center; /* Center the date text */
-    font-family: 'Merriweather', serif; /* Serif font for the date */
-    font-size: 1em; /* Font size for the date */
-    color: #666; /* Grey color for the date text */
-    margin-bottom: 20px; /* Space below the date section */
-    border-bottom: 1px solid #ccc; /* Single line border below the date */
-    padding-bottom: 10px; /* Padding below the date text, above the border */
-}
-
-/* Main content grid container styling */
-.main-content-grid {
-    display: grid; /* Enable CSS Grid layout */
-    gap: 20px; /* Space between grid items */
-    /* Define grid areas for a classic newspaper layout structure */
-    grid-template-areas:
-        "main-story   main-story   author-bio"       /* Row 1: Main story spans two columns, author bio in the third */
-        "main-story   main-story   comparison-story" /* Row 2: Main story continues, comparison story below author bio */
-        "llm-feature  daily-joke   advertisements"   /* Row 3: LLM feature, daily joke, and advertisements */
-        "llm-feature  daily-joke   advertisements";  /* Row 4: Content continues in the same layout */
-    grid-template-columns: 2fr 2fr 1fr; /* Column proportions: Two wider columns for main content, one narrower for sidebar/ads */
-}
-
-/* Assigning grid areas to specific elements */
-.main-story { grid-area: main-story; } /* Main article content */
-.author-bio { grid-area: author-bio; } /* Author biography section */
-.comparison-story { grid-area: comparison-story; } /* Comparison article section */
-.llm-feature { grid-area: llm-feature; } /* LLM feature section */
-.daily-joke { grid-area: daily-joke; } /* Daily joke section */
-.advertisements { grid-area: advertisements; } /* Advertisements column */
-
-/* General styling for items within the grid */
-.grid-item {
-    padding: 15px; /* Padding inside each grid item */
-    border: 1px solid #e0e0e0; /* Light border around grid items */
-    background-color: #fdfdfd; /* Slightly off-white background for grid items */
-}
-
-/* Styling for headings (h2, h3) within grid items */
-.grid-item h2, .grid-item h3 {
-    font-family: 'Merriweather', serif; /* Strong serif font for article and section titles */
-    color: #2c3e50; /* Dark blue/grey color for headings */
-    margin-top: 0; /* Remove default top margin */
-    border-bottom: 1px solid #eee; /* Light border below headings */
-    padding-bottom: 5px; /* Padding below headings, above the border */
-}
-
-/* Styling for article images */
-.article-image {
-    width: 100%; /* Make images take the full width of their container */
-    max-height: 300px; /* Limit the maximum height of images */
-    object-fit: cover; /* Ensure the image covers the area nicely, cropping if necessary */
-    margin-bottom: 15px; /* Space below images */
-    border: 1px solid #ddd; /* Light border around images */
-}
-
-/* Styling for paragraphs within article text */
-.article-text p {
-    font-family: 'Roboto', sans-serif; /* Readable sans-serif font for body copy */
-    font-size: 0.95em; /* Slightly smaller font size for article text */
-    line-height: 1.7; /* Increased line height for better readability */
-    margin-bottom: 1em; /* Space below paragraphs */
-}
-
-/* Styling for the heading in the advertisements section */
-.advertisements h3 {
-    text-align: center; /* Center the "Sponsored Messages" heading */
-}
-
-/* Styling for individual advertisement blocks */
-.advertisement {
-    background-color: #e9ecef; /* Light grey background for ads */
-    padding: 10px; /* Padding inside ad blocks */
-    margin-bottom: 10px; /* Space between ad blocks */
-    text-align: center; /* Center ad text */
-    font-size: 0.9em; /* Smaller font size for ad text */
-    border: 1px dashed #ccc; /* Dashed border for ads, differentiating them */
-    min-height: 80px; /* Minimum height for ad blocks */
-    display: flex; /* Use flexbox for centering content vertically */
-    align-items: center; /* Center content vertically */
-    justify-content: center; /* Center content horizontally */
-}
-
-/* Styling for the page footer */
-.page-footer {
-    text-align: center; /* Center footer text */
-    padding: 20px 10px; /* Padding above/below and left/right */
-    border-top: 1px solid #ccc; /* Single line border above the footer */
-    margin-top: 30px; /* Space above the footer */
-    font-size: 0.9em; /* Smaller font size for footer text */
-    color: #777; /* Grey color for footer text */
-}
-
-/* Styling for the new controls container and date picker */
-.controls-container {
-    display: flex;
-    flex-wrap: wrap; /* Allow wrapping if controls don't fit */
-    align-items: center;
-    justify-content: flex-start; /* Align items to the start */
-    padding: 10px;
-    margin-bottom: 15px;
-    border-bottom: 1px solid #ccc;
-    gap: 15px; /* Spacing between control groups */
-}
-
-#date-picker {
-    padding: 8px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 0.9em;
-}
-
-.control-group {
-    border: 1px solid #ddd;
-    padding: 5px 10px 10px 10px; /* top, right, bottom, left */
-    border-radius: 4px;
-    margin: 0; /* Reset fieldset default margin */
-}
-
-.control-group legend {
-    font-size: 0.9em;
-    font-weight: bold;
-    padding: 0 5px; /* Add some horizontal padding to the legend */
+    margin: 0;
+    font-family: 'Roboto', sans-serif; /* Default body font */
+    line-height: 1.6;
+    background-color: #f0f0f0; /* Light grey background for the page */
     color: #333;
 }
 
-.control-group div { /* Container for each radio button and its label */
-    display: inline-block; /* Arrange radio options horizontally */
-    margin-right: 10px;
+.page-container {
+    max-width: 1200px; /* Or your preferred max width */
+    margin: 0 auto;
+    background-color: #fff; /* White background for content area */
+    padding: 0 10px; /* Padding for the overall container */
 }
 
-.control-group div:last-child {
-    margin-right: 0; /* No margin for the last item in a group */
+/* Newspaper Banner Styles */
+.newspaper-banner {
+    display: flex;
+    align-items: center; /* Vertically align items in the banner */
+    justify-content: space-between; /* Distribute space, pushing logos to edges */
+    padding: 15px 20px; /* Padding around the banner content */
+    border-bottom: 3px solid #000; /* Classic newspaper header underline */
+    background-color: #fdfdfd; /* Slightly off-white for the banner */
+    width: 100%;
+    box-sizing: border-box;
 }
 
-.control-group input[type="radio"] {
-    margin-right: 3px;
-    vertical-align: middle;
+.newspaper-banner h1 {
+    font-family: 'Playfair Display', serif; /* Traditional, stately font for the title */
+    font-size: 2.8em; /* Base font size for the main title */
+    color: #1a1a1a; /* Dark, classic newspaper ink color */
+    margin: 0 20px; /* Space between the title and the logos */
+    text-align: center;
+    flex-grow: 1; /* Allows the title to take available space, helping center it */
+    min-width: 0; /* Prevents text overflow issues in flex items */
+    line-height: 1.2;
 }
 
-.control-group label {
-    font-size: 0.9em;
-    vertical-align: middle;
-    cursor: pointer;
+.newspaper-banner img {
+    max-height: 60px; /* Control the maximum height of the logos */
+    width: auto;      /* Maintain aspect ratio */
+    object-fit: contain; /* Ensures the image scales nicely within its bounds */
+    flex-shrink: 0; /* Prevent logos from shrinking too much if title is long */
 }
 
-/* Responsive adjustments for different screen sizes */
-
-/* For screens up to 1200px wide (e.g., smaller desktops, large tablets) */
-@media (max-width: 1200px) {
-   .main-content-grid {
-        /* Adjust grid layout for medium screens */
-        grid-template-areas:
-            "main-story   main-story"        /* Main story still spans two columns */
-            "comparison-story author-bio"     /* Comparison and author bio side-by-side */
-            "llm-feature  daily-joke"        /* LLM feature and joke side-by-side */
-            "advertisements advertisements"; /* Ads span two columns at the bottom */
-        grid-template-columns: 1fr 1fr; /* Two equal columns */
+/* Responsive adjustments for the header */
+@media (max-width: 992px) { /* Medium devices (tablets, smaller desktops) */
+    .newspaper-banner h1 {
+        font-size: 2.2em;
+        margin: 0 15px;
     }
-   .newspaper-banner h1 {
-        font-size: 3em; /* Slightly smaller title font size */
+    .newspaper-banner img {
+        max-height: 50px;
     }
-}
-
-/* For screens up to 768px wide (e.g., tablets) */
-@media (max-width: 768px) {
-   .main-content-grid {
-        /* Stack grid items into a single column for smaller screens */
-        grid-template-areas:
-            "main-story"
-            "comparison-story"
-            "author-bio"
-            "llm-feature"
-            "daily-joke"
-            "advertisements";
-        grid-template-columns: 1fr; /* Single column layout */
-    }
-   .newspaper-banner h1 {
-        font-size: 2.5em; /* Further reduce title font size */
-    }
-   .newspaper-banner .tagline { /* Targeting the tagline class */
-        font-size: 1em; /* Adjust tagline font size */
+    .newspaper-banner {
+        padding: 12px 15px;
     }
 }
 
-/* For screens up to 480px wide (e.g., mobile phones) */
-@media (max-width: 480px) {
-   .newspaper-banner h1 {
-        font-size: 2em; /* Even smaller title font size for small screens */
+@media (max-width: 768px) { /* Small devices (landscape phones, large portrait phones) */
+    .newspaper-banner h1 {
+        font-size: 1.8em;
+        margin: 0 10px;
     }
-   .article-text p {
-        font-size: 0.9em; /* Adjust article text font size for readability on small screens */
+    .newspaper-banner img {
+        max-height: 40px;
+    }
+    .newspaper-banner {
+        padding: 10px;
+        /* Optional: If space is very tight, you might consider stacking.
+           flex-direction: column;
+           align-items: center;
+        */
     }
 }
+
+/* Add other existing styles or new styles below */
