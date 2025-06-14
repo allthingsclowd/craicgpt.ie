@@ -319,17 +319,23 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
             } else {
                 console.error(`All fallback attempts failed. No content found for ${originalDateStringForAlert} or nearby dates.`);
                 currentPaperData = null;
+                // Call renderContent to display placeholders.
+                // renderContent() will handle updating the main content area with placeholders
+                // and setting a generic message for the date display like "No date selected" or "Date not available".
                 renderContent();
 
-                const mainContent = document.getElementById('main-content');
-                if (mainContent) {
-                    mainContent.innerHTML = `<p class="error-message">Sorry, content for ${originalDateStringForAlert} and the previous ${MAX_FALLBACK_ATTEMPTS} days is unavailable. Please try a different date range.</p>`;
-                }
+                // The following lines are commented out to allow renderContent() to manage the display of placeholders.
+                // const mainContent = document.getElementById('main-content');
+                // if (mainContent) {
+                //     mainContent.innerHTML = `<p class="error-message">Sorry, content for ${originalDateStringForAlert} and the previous ${MAX_FALLBACK_ATTEMPTS} days is unavailable. Please try a different date range.</p>`;
+                // }
 
-                const dateElement = document.getElementById('current-date');
-                if (dateElement) {
-                    dateElement.textContent = `Failed to load content for ${originalDateStringForAlert}`;
-                }
+                // The specific error message for 'current-date' is also removed.
+                // renderContent() will set a generic one like "No date selected" or "Date not available".
+                // const dateElement = document.getElementById('current-date');
+                // if (dateElement) {
+                //     dateElement.textContent = `Failed to load content for ${originalDateStringForAlert}`;
+                // }
 
                 const datePickerElement = document.getElementById('date-picker');
                 if (datePickerElement && datePickerElement.datepicker && originalDateStringForAlert) {

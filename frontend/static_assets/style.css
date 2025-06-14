@@ -44,6 +44,18 @@ body {
     flex-shrink: 0; /* Prevent logos from shrinking too much if title is long */
 }
 
+#banner-logo-right {
+    display: inline-block !important; /* Force display */
+    max-height: 60px !important;     /* Reiterate from general rule */
+    width: auto !important;          /* Reiterate */
+    height: auto;                   /* Explicitly set height to auto */
+    object-fit: contain !important;  /* Reiterate */
+    flex-shrink: 0 !important;       /* Reiterate */
+    border: 2px solid red !important; /* Add a visible border for debugging */
+    visibility: visible !important; /* Force visibility */
+    background-color: lightblue; /* Added for debugging visibility of the element's box */
+}
+
 /* Responsive adjustments for the header */
 @media (max-width: 992px) { /* Medium devices (tablets, smaller desktops) */
     .newspaper-banner h1 {
