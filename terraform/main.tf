@@ -74,6 +74,24 @@ module "cloudfront" {
   # root var.enable_cloudfront controls if the module is instantiated via count.
 }
 
+# DNS Records for CloudFront Distribution
+resource "aws_route53_record" "cloudfront_aliases" {
+  count = var.enable_cloudfront ? length(var.cloudfront_aliases) : 0
+
+  zone_id = data.aws_route53_zone.primary[0].zone_id
+  name    = var.cloudfront_aliases[count.index]
+  type    = "A" # Use A record for Alias to CloudFront
+
+  alias {
+    name                   = module.cloudfront[0].distribution_domain_name
+    zone_id                = module.cloudfront[0].distribution_hosted_zone_id # CloudFront's hosted zone ID for Alias records
+    evaluate_target_health = false
+  }
+
+  # Ensure CloudFront distribution is created before DNS records
+  depends_on = [module.cloudfront]
+}
+
 # Frontend Upload Module for S3 content
 module "frontend_upload" {
   source = "./modules/frontend-upload"
