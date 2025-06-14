@@ -18,21 +18,21 @@ variable "domain_name" {
 variable "cloudfront_aliases" {
   description = "A list of CNAME aliases (e.g., domain names) for the CloudFront distribution."
   type        = list(string)
-  # No default, site-specific
+  default = ["www.craicgpt.ie", "craicgpt.ie", "eddie.craicgpt.ie"]
 }
 
 variable "llm_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret containing the LLM API key."
   type        = string
   sensitive   = true
-  # No default, must be provided
+  default = "value"
 }
 
 variable "image_gen_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret containing the Image Generator API key."
   type        = string
   sensitive   = true
-  # No default, must be provided
+  default = "value"
 }
 
 # Variables to control module enablement

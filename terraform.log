@@ -18,3 +18,7 @@
 2025-06-04T17:43:01.407+0100 [INFO]  Go runtime version: go1.24.2
 2025-06-04T17:43:01.407+0100 [INFO]  CLI args: []string{"terraform", "-version"}
 2025-06-04T17:43:01.407+0100 [INFO]  CLI command args: []string{"version", "-version"}
+2025-06-14T11:21:55.446+0100 [INFO]  Terraform version: 1.12.1
+2025-06-14T11:21:55.446+0100 [INFO]  Go runtime version: go1.24.2
+2025-06-14T11:21:55.446+0100 [INFO]  CLI args: []string{"terraform", "init"}
+2025-06-14T11:21:55.447+0100 [INFO]  CLI command args: []string{"init"}

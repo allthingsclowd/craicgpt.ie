@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 14/06/2025
+# Filename and Path: terraform/modules/acm/main.tf
+# Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain.
+
+
 terraform {
   required_providers {
     aws = {
@@ -7,11 +13,6 @@ terraform {
     }
   }
 }
-
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/acm/main.tf
-# Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain.
 
 locals {
   // domain_name is now var.domain_name

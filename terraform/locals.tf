@@ -9,6 +9,6 @@ locals {
     Environment = "production"
     Project     = local.project_name
     ManagedBy   = "Terraform"
-    Author      = "Graham Land & AI"
+    Author      = "Graham Land"
   }
 }
