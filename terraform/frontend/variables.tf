@@ -100,7 +100,7 @@ variable "s3_website_error_document" {
 variable "s3_frontend_content_path" {
   description = "Path to the local /frontend directory whose contents will be uploaded to S3. Relative to the root module."
   type        = string
-  default     = "../frontend" # Assuming 'frontend' is one level up from 'terraform' directory
+  default     = "../../frontend" # Assuming 'frontend' is one level up from 'terraform' directory
 }
 
 # Lambda Module specific variables
