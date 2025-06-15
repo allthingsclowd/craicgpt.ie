@@ -50,6 +50,22 @@ variable "gemini_api_key_secret_arn" {
   nullable    = true
   default     = null
 }
+
+variable "stability_api_key_secret_arn" {
+  description = "ARN of the AWS Secrets Manager secret for the Stability AI API key. Used if accessing Stability AI directly."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
+
+variable "anthropic_api_key_secret_arn" {
+  description = "ARN of the AWS Secrets Manager secret for the Anthropic Claude API key. Used if accessing Anthropic API directly."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
 # Add other specific API key secret ARNs if needed, e.g., for other third-party services
 
 # Lambda Configurations

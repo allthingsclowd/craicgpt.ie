@@ -6,8 +6,10 @@ locals {
 
   # Helper to get actual secret ARN from the variable name string defined in this module's variables.tf
   secret_arn_map = {
-    "openai_api_key_secret_arn" = var.openai_api_key_secret_arn,
-    "gemini_api_key_secret_arn" = var.gemini_api_key_secret_arn
+    "openai_api_key_secret_arn"    = var.openai_api_key_secret_arn,
+    "gemini_api_key_secret_arn"    = var.gemini_api_key_secret_arn,
+    "stability_api_key_secret_arn" = var.stability_api_key_secret_arn, # New
+    "anthropic_api_key_secret_arn" = var.anthropic_api_key_secret_arn  # New
     # Add other mappings here if more module-level secret ARN variables are added
   }
 }
