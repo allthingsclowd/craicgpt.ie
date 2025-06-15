@@ -120,6 +120,4 @@ resource "aws_scheduler_schedule" "daily_content_orchestrator_trigger" {
   depends_on = [
     aws_iam_role_policy_attachment.scheduler_invoke_content_orchestrator_lambda_attach
   ]
-
-  tags = local.scheduler_tags # Added tags argument using the new local.scheduler_tags
 }

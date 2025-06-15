@@ -12,56 +12,7 @@ provider "aws" {
   region = var.aws_region
 }
 
-data "aws_caller_identity" "current" {}
-
-# Remote state to get outputs from the frontend deployment
-data "terraform_remote_state" "frontend" {
-  backend = "s3"
-  config = {
-    bucket = var.frontend_terraform_state_bucket
-    key    = var.frontend_terraform_state_key
-    region = var.frontend_terraform_state_region
-  }
-}
-
-# IAM Module for Backend Lambdas
-module "backend_iam" {
-  source = "./modules/iam"
-
-  aws_region           = var.aws_region
-  project_name         = var.project_name
-  common_tags          = var.common_tags
-
-  frontend_s3_bucket_arn = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
-
-  api_key_secret_arns = compact([
-    var.openai_api_key_secret_arn,
-    var.gemini_api_key_secret_arn,
-    var.stability_api_key_secret_arn, # Included for IAM policy if direct API is used
-    var.anthropic_api_key_secret_arn  # Included for IAM policy if direct API is used
-  ])
-  # bedrock_foundation_models_enabled is true by default in the IAM module, granting Bedrock access.
-}
-
-# Lambda Functions Module
-module "backend_lambda" {
-  source = "./modules/lambda"
-
-  project_name              = var.project_name
-  aws_region                = var.aws_region
-  common_tags               = var.common_tags
-  lambda_code_base_path     = var.lambda_code_root_path
-
-  lambda_execution_role_arn = module.backend_iam.lambda_execution_role_arn
-  s3_target_bucket_arn      = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
-
-  # Pass through root API key ARN variables for the lambda module to map
-  # These must be defined in backend_lambda/variables.tf and mapped in backend_lambda/main.tf's local.secret_arn_map
-  openai_api_key_secret_arn    = var.openai_api_key_secret_arn
-  gemini_api_key_secret_arn    = var.gemini_api_key_secret_arn
-  stability_api_key_secret_arn = var.stability_api_key_secret_arn
-  anthropic_api_key_secret_arn = var.anthropic_api_key_secret_arn
-
+locals {
   llm_lambdas_config = merge(
     var.enable_bedrock_lambdas ? {
       "titan-llm" = {
@@ -149,6 +100,60 @@ module "backend_lambda" {
   )
 }
 
+data "aws_caller_identity" "current" {}
+
+# Remote state to get outputs from the frontend deployment
+data "terraform_remote_state" "frontend" {
+  backend = "s3"
+  config = {
+    bucket = var.frontend_terraform_state_bucket
+    key    = var.frontend_terraform_state_key
+    region = var.frontend_terraform_state_region
+  }
+}
+
+# IAM Module for Backend Lambdas
+module "backend_iam" {
+  source = "./modules/iam"
+
+  aws_region           = var.aws_region
+  project_name         = var.project_name
+  common_tags          = var.common_tags
+
+  frontend_s3_bucket_arn = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
+
+  api_key_secret_arns = compact([
+    var.openai_api_key_secret_arn,
+    var.gemini_api_key_secret_arn,
+    var.stability_api_key_secret_arn, # Included for IAM policy if direct API is used
+    var.anthropic_api_key_secret_arn  # Included for IAM policy if direct API is used
+  ])
+  # bedrock_foundation_models_enabled is true by default in the IAM module, granting Bedrock access.
+}
+
+# Lambda Functions Module
+module "backend_lambda" {
+  source = "./modules/lambda"
+
+  project_name              = var.project_name
+  aws_region                = var.aws_region
+  common_tags               = var.common_tags
+  lambda_code_base_path     = var.lambda_code_root_path
+
+  lambda_execution_role_arn = module.backend_iam.lambda_execution_role_arn
+  s3_target_bucket_arn      = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
+
+  # Pass through root API key ARN variables for the lambda module to map
+  # These must be defined in backend_lambda/variables.tf and mapped in backend_lambda/main.tf's local.secret_arn_map
+  openai_api_key_secret_arn    = var.openai_api_key_secret_arn
+  gemini_api_key_secret_arn    = var.gemini_api_key_secret_arn
+  stability_api_key_secret_arn = var.stability_api_key_secret_arn
+  anthropic_api_key_secret_arn = var.anthropic_api_key_secret_arn
+
+  llm_lambdas_config       = local.llm_lambdas_config
+  image_gen_lambdas_config = local.image_gen_lambdas_config
+}
+
 # Scheduler Module
 module "backend_scheduler" {
   source = "./modules/scheduler"
@@ -160,7 +165,7 @@ module "backend_scheduler" {
 
   schedules_config = merge(
     { # Schedules for LLM Lambdas
-      for k, cfg in module.backend_lambda.llm_lambdas_config : k => {
+      for k, cfg in local.llm_lambdas_config : k => {
         lambda_identifier = k # Uses the key from llm_lambdas_config (e.g., "titan-llm")
         description       = "Daily 6 AM trigger for ${lookup(cfg, "description", "LLM Lambda")}"
         # enabled field in scheduler module defaults to true, cron expression also defaults
@@ -173,7 +178,7 @@ module "backend_scheduler" {
       )
     },
     { # Schedules for Image Gen Lambdas
-      for k, cfg in module.backend_lambda.image_gen_lambdas_config : k => {
+      for k, cfg in local.image_gen_lambdas_config : k => {
         lambda_identifier = k
         description       = "Daily 6 AM trigger for ${lookup(cfg, "description", "Image Gen Lambda")}"
       } if(
