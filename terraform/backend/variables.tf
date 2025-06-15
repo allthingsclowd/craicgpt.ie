@@ -113,3 +113,21 @@ variable "enable_stability_lambdas" {
   type        = bool
   default     = true
 }
+
+variable "enable_backend_iam_module" {
+  description = "Controls whether the backend IAM module is enabled and its resources are created."
+  type        = bool
+  default     = true
+}
+
+variable "enable_backend_lambda_module" {
+  description = "Controls whether the backend Lambda module is enabled and its resources are created."
+  type        = bool
+  default     = true
+}
+
+variable "enable_backend_scheduler_module" {
+  description = "Controls whether the backend Scheduler module is enabled and its resources are created."
+  type        = bool
+  default     = true
+}

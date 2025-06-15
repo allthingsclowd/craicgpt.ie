@@ -114,6 +114,8 @@ data "terraform_remote_state" "frontend" {
 
 # IAM Module for Backend Lambdas
 module "backend_iam" {
+  count = var.enable_backend_iam_module ? 1 : 0
+
   source = "./modules/iam"
 
   aws_region           = var.aws_region
@@ -133,6 +135,8 @@ module "backend_iam" {
 
 # Lambda Functions Module
 module "backend_lambda" {
+  count = var.enable_backend_lambda_module && var.enable_backend_iam_module ? 1 : 0
+
   source = "./modules/lambda"
 
   project_name              = var.project_name
@@ -140,7 +144,7 @@ module "backend_lambda" {
   common_tags               = var.common_tags
   lambda_code_base_path     = var.lambda_code_root_path
 
-  lambda_execution_role_arn = module.backend_iam.lambda_execution_role_arn
+  lambda_execution_role_arn = module.backend_iam[0].lambda_execution_role_arn
   s3_target_bucket_arn      = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
 
   # Pass through root API key ARN variables for the lambda module to map
@@ -156,12 +160,14 @@ module "backend_lambda" {
 
 # Scheduler Module
 module "backend_scheduler" {
+  count = var.enable_backend_scheduler_module && var.enable_backend_lambda_module && var.enable_backend_iam_module ? 1 : 0
+
   source = "./modules/scheduler"
 
   project_name         = var.project_name
   aws_region           = var.aws_region
   common_tags          = var.common_tags
-  lambda_functions_map = module.backend_lambda.lambda_functions # Output from the lambda module
+  lambda_functions_map = module.backend_lambda[0].lambda_functions # Output from the lambda module
 
   schedules_config = merge(
     { # Schedules for LLM Lambdas

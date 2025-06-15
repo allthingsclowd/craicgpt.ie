@@ -1,22 +1,22 @@
 output "backend_lambda_execution_role_arn" {
   description = "ARN of the IAM role used by the backend Lambda functions."
-  value       = module.backend_iam.lambda_execution_role_arn
+  value       = var.enable_backend_iam_module ? module.backend_iam[0].lambda_execution_role_arn : null
 }
 
 output "backend_lambda_execution_role_name" {
   description = "Name of the IAM role used by the backend Lambda functions."
-  value       = module.backend_iam.lambda_execution_role_name
+  value       = var.enable_backend_iam_module ? module.backend_iam[0].lambda_execution_role_name : null
 }
 
 output "backend_lambda_functions" {
   description = "Details of all deployed backend Lambda functions."
-  value       = module.backend_lambda.lambda_function_details
+  value       = var.enable_backend_lambda_module && var.enable_backend_iam_module ? module.backend_lambda[0].lambda_function_details : {}
   # This will output the entire map from the lambda module's "lambda_function_details"
 }
 
 output "backend_schedules" {
   description = "Details of all configured EventBridge schedules for the backend Lambdas."
-  value       = module.backend_scheduler.schedule_details
+  value       = var.enable_backend_scheduler_module && var.enable_backend_lambda_module && var.enable_backend_iam_module ? module.backend_scheduler[0].schedule_details : {}
   # This will output the entire map from the scheduler module's "schedule_details"
 }
 
