@@ -123,11 +123,11 @@ variable "enable_backend_iam_module" {
 variable "enable_backend_lambda_module" {
   description = "Controls whether the backend Lambda module is enabled and its resources are created."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "enable_backend_scheduler_module" {
   description = "Controls whether the backend Scheduler module is enabled and its resources are created."
   type        = bool
-  default     = true
+  default     = false
 }
