@@ -40,10 +40,6 @@ module "acm" {
   domain_name     = var.domain_name # e.g., "craicgpt.ie"
   subject_alternative_names_list = var.cloudfront_aliases # Pass all required aliases to the ACM module
   common_tags     = local.merged_common_tags
-  # The acm module's internal provider reference will use 'aws.us_east_1_acm' via var.aws_provider_alias_us_east_1
-  # This ensures the module knows which provider configuration to pick up if multiple are passed or available.
-  # However, the `providers` meta-argument below is the more direct way to assign it.
-
 
   providers = {
     aws = aws.us_east_1_acm # Pass the aliased provider configuration to be used as the default 'aws' provider within this module

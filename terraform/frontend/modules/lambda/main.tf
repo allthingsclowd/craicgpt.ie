@@ -36,7 +36,7 @@ locals {
 module "content_orchestrator_lambda" {
   source = "terraform-aws-modules/lambda/aws"
   # It's recommended to pin to a specific version of the module for stability.
-  # version = "~> 7.0" # Example: Check module documentation for the latest appropriate version.
+  version = "~> 7.0" # Example: Check module documentation for the latest appropriate version.
 
   create_function = var.enable_lambda
 
@@ -59,38 +59,42 @@ module "content_orchestrator_lambda" {
   # Defines IAM policy statements that will be attached to the Lambda function's execution role.
   # The module automatically creates the IAM role and attaches these policy statements. [Ref: 19]
   attach_policy_statements = true # Instructs the module to manage policy attachments.
-  policy_statements = {
-    # Permissions for CloudWatch Logs, allowing the Lambda function to write logs.
-    CloudWatchLogs = {
-      effect    = "Allow"
-      actions   = [
-        "logs:CreateLogGroup",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents"
-      ]
-      resources = ["arn:aws:logs:*:*:*"] # Allows logging to any log group (standard practice).
+  policy_statements = merge(
+    {
+      # Permissions for CloudWatch Logs, allowing the Lambda function to write logs.
+      CloudWatchLogs = {
+        effect    = "Allow"
+        actions   = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ]
+        resources = ["arn:aws:logs:*:*:*"] # Allows logging to any log group (standard practice).
+      },
+      # Permissions to put objects into the specified S3 bucket, under the "/content/" path.
+      S3PutContent = {
+        effect    = "Allow"
+        actions   = ["s3:PutObject"]
+        # Scoped down to the '/content/' prefix within the specific S3 bucket used for website assets.
+        resources = ["${var.s3_bucket_website_assets_arn}/content/*"]
+      }
     },
-    # Permissions to put objects into the specified S3 bucket, under the "/content/" path.
-    S3PutContent = {
-      effect    = "Allow"
-      actions   = ["s3:PutObject"]
-      # Scoped down to the '/content/' prefix within the specific S3 bucket used for website assets.
-      resources = ["${var.s3_bucket_website_assets_arn}/content/*"]
-    },
-    # Permissions to retrieve the LLM API key from AWS Secrets Manager.
-    SecretsManagerGetLLMKey = {
-      effect    = "Allow"
-      actions   = ["secretsmanager:GetSecretValue"]
-      # Scoped down to the specific ARN of the LLM API key secret.
-      resources = [var.llm_api_key_secret_arn]
-    },
-    # Permissions to retrieve the Image Generator API key from AWS Secrets Manager.
-    SecretsManagerGetImageGenKey = {
-      effect    = "Allow"
-      actions   = ["secretsmanager:GetSecretValue"]
-      # Scoped down to the specific ARN of the Image Generator API key secret.
-      resources = [var.image_gen_api_key_secret_arn]
-    }
+    var.llm_api_key_secret_arn != null ? {
+      SecretsManagerGetLLMKey = {
+        effect    = "Allow"
+        actions   = ["secretsmanager:GetSecretValue"]
+        # Scoped down to the specific ARN of the LLM API key secret.
+        resources = [var.llm_api_key_secret_arn]
+      }
+    } : {},
+    var.image_gen_api_key_secret_arn != null ? {
+      SecretsManagerGetImageGenKey = {
+        effect    = "Allow"
+        actions   = ["secretsmanager:GetSecretValue"]
+        # Scoped down to the specific ARN of the Image Generator API key secret.
+        resources = [var.image_gen_api_key_secret_arn]
+      }
+    } : {}
     # Example: Add other permissions if the orchestrator needs to invoke other Lambda functions,
     # interact with other AWS services, etc.
     # InvokeLLMHandler = {
@@ -98,7 +102,7 @@ module "content_orchestrator_lambda" {
     #   actions   = ["lambda:InvokeFunction"]
     #   resources = [module.llm_handler_lambda.lambda_function_arn] # Assuming another Lambda module
     # }
-  }
+  )
 
   # Optional: VPC configuration if the Lambda function needs to access resources within a VPC
   # (e.g., RDS databases, ElastiCache clusters).
