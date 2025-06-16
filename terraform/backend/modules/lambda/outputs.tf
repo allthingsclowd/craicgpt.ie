@@ -5,12 +5,12 @@
 # Purpose: Declares outputs from the backend Lambda submodule.
 
 output "lambda_functions" {
-  description = "Map of created Lambda functions, keyed by their identifier."
+  description = "Map of created Lambda functions, keyed by their identifier, providing key details like ARN, name, and invoke ARN."
   value = {
     for k, lambda_instance in module.individual_lambda : k => {
-      arn      = lambda_instance.lambda_function_arn # Corrected to match terraform-aws-modules/lambda output
-      name     = lambda_instance.lambda_function_name # Corrected
-      invoke_arn = lambda_instance.lambda_function_invoke_arn # Corrected
+      arn      = lambda_instance.lambda_function_arn
+      name     = lambda_instance.lambda_function_name
+      invoke_arn = lambda_instance.lambda_function_invoke_arn
     }
   }
 }

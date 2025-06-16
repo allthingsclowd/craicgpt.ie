@@ -11,7 +11,7 @@ terraform {
       # Version constraint inherited from root module
     }
   }
-  required_version = ">= 1.12.1" # Ensures Terraform version is new enough
+  required_version = ">= 1.8.0" # Ensures Terraform version is new enough
 }
 
 locals {

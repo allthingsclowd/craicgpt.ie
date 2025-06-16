@@ -39,6 +39,12 @@ variable "lambda_code_base_path" {
   type        = string
 }
 
+variable "s3_bucket_website_assets_name" {
+  description = "Name of the S3 bucket for website assets (e.g., from frontend output), potentially used for environment variables in individual lambdas."
+  type        = string
+  # No default, to be provided by the calling root module.
+}
+
 # API Key Secret ARNs - to be referenced in lambda configurations
 variable "openai_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret for the OpenAI API key."

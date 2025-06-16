@@ -40,6 +40,8 @@ module "individual_lambda" {
 
   # IAM Role - Pass the externally created role ARN to lambda_template
   existing_lambda_role_arn = var.lambda_execution_role_arn
+  enable_lambda            = true # Assuming if configured here, it should be enabled
+  s3_bucket_website_assets_name = var.s3_bucket_website_assets_name
 
   # The following policy-related variables for lambda_template will NOT be used by it
   # for policy creation if existing_lambda_role_arn is provided (which is the case here).

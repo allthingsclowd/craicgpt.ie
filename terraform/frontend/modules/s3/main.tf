@@ -12,7 +12,7 @@ terraform {
       # version = "~> 5.0" # Optionally, mirror the root or make it more flexible
     }
   }
-  required_version = ">= 1.12.1" # Ensures Terraform version is new enough
+  required_version = ">= 1.8.0" # Ensures Terraform version is new enough
 }
 
 locals {

@@ -8,9 +8,7 @@ output "schedules" {
   description = "Map of created EventBridge schedules, keyed by their identifier from schedules_config."
   value = {
     for k, schedule_instance in module.individual_schedule : k => {
-      # Assuming scheduler_template outputs these. Need to verify its actual outputs.
-      # Common outputs from terraform-aws-modules/scheduler/aws include schedule_arn, schedule_name.
-      # The iam_role_arn is also typically output.
+      # Values sourced from the scheduler_template module outputs (schedule_arn, schedule_name, iam_role_arn).
       arn          = schedule_instance.schedule_arn
       name         = schedule_instance.schedule_name
       iam_role_arn = schedule_instance.iam_role_arn

@@ -19,6 +19,16 @@ provider "aws" {
 }
 
 locals {
+  merged_common_tags = merge(
+    {
+      Project     = var.project_name
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+      Author      = "Graham Land"
+    },
+    var.common_tags
+  )
+
   llm_lambdas_config = merge(
     var.enable_bedrock_lambdas ? {
       "titan-llm" = {
@@ -126,7 +136,10 @@ module "backend_iam" {
 
   aws_region           = var.aws_region
   project_name         = var.project_name
-  common_tags          = var.common_tags
+  common_tags          = local.merged_common_tags
+  s3_object_key_prefix_for_lambda_output = "dynamic_content/"
+  bedrock_foundation_models_enabled = true
+  additional_iam_policies = {}
 
   frontend_s3_bucket_arn = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
 
@@ -147,8 +160,10 @@ module "backend_lambda" {
 
   project_name              = var.project_name
   aws_region                = var.aws_region
-  common_tags               = var.common_tags
+  common_tags               = local.merged_common_tags
   lambda_code_base_path     = var.lambda_code_root_path
+  s3_output_object_key_prefix = "content/"
+  s3_bucket_website_assets_name = data.terraform_remote_state.frontend.outputs.s3_bucket_name
 
   lambda_execution_role_arn = module.backend_iam[0].lambda_execution_role_arn
   s3_target_bucket_arn      = data.terraform_remote_state.frontend.outputs.s3_bucket_website_assets_arn
@@ -172,7 +187,7 @@ module "backend_scheduler" {
 
   project_name         = var.project_name
   aws_region           = var.aws_region
-  common_tags          = var.common_tags
+  common_tags          = local.merged_common_tags
   lambda_functions_map = module.backend_lambda[0].lambda_functions # Output from the lambda module
 
   schedules_config = merge(
