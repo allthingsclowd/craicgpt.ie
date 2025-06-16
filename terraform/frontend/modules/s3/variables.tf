@@ -12,23 +12,19 @@ variable "bucket_name" {
 variable "common_tags" {
   description = "Common tags to apply to all resources."
   type        = map(string)
-  default     = {}
 }
 
 variable "enable_versioning" {
   description = "Set to true to enable versioning for the S3 bucket."
   type        = bool
-  default     = true
 }
 
 variable "index_document" {
   description = "The S3 website configuration index document suffix."
   type        = string
-  default     = "index.html"
 }
 
 variable "error_document" {
   description = "The S3 website configuration error document key."
   type        = string
-  default     = "error.html"
 }

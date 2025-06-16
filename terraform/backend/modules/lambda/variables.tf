@@ -17,7 +17,6 @@ variable "aws_region" {
 variable "common_tags" {
   description = "Common tags to apply to all resources."
   type        = map(string)
-  default     = {}
 }
 
 variable "lambda_execution_role_arn" {
@@ -33,44 +32,36 @@ variable "s3_target_bucket_arn" {
 variable "s3_output_object_key_prefix" {
   description = "Base S3 object key prefix for outputs from these Lambdas (e.g., 'content/'). Each Lambda will get its own sub-prefix."
   type        = string
-  default     = "content/"
 }
 
 variable "lambda_code_base_path" {
   description = "Base path to the Lambda function code packages (e.g., '../../../lambda_code/backend')."
   type        = string
-  default     = "../../../lambda_code/backend" # Adjust if lambda_code is elsewhere relative to this module's root
 }
 
 # API Key Secret ARNs - to be referenced in lambda configurations
 variable "openai_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret for the OpenAI API key."
   type        = string
-  nullable    = true # Allow null if not all lambdas need it
-  default     = null
+  sensitive   = true
 }
 
 variable "gemini_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret for the Gemini API key."
   type        = string
-  nullable    = true
-  default     = null
+  sensitive   = true
 }
 
 variable "stability_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret for the Stability AI API key. Used if accessing Stability AI directly."
   type        = string
   sensitive   = true
-  nullable    = true
-  default     = null
 }
 
 variable "anthropic_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret for the Anthropic Claude API key. Used if accessing Anthropic API directly."
   type        = string
   sensitive   = true
-  nullable    = true
-  default     = null
 }
 # Add other specific API key secret ARNs if needed, e.g., for other third-party services
 
@@ -91,7 +82,6 @@ variable "llm_lambdas_config" {
     # The main.tf will use this string to pick the correct var.
     api_key_secret_var_name_ref = optional(string)
   }))
-  default = {}
 }
 
 variable "image_gen_lambdas_config" {
@@ -107,5 +97,4 @@ variable "image_gen_lambdas_config" {
     bedrock_model_id  = optional(string) # e.g., "stability.stable-diffusion-xl-v1"
     api_key_secret_var_name_ref = optional(string)
   }))
-  default = {}
 }

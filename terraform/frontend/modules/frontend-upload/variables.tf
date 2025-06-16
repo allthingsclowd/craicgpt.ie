@@ -17,11 +17,9 @@ variable "frontend_directory" {
 variable "common_tags" {
   description = "Common tags to apply to S3 objects, if any. Currently not used for objects."
   type        = map(string)
-  default     = {}
 }
 
 variable "enable_upload" {
   description = "Set to false to disable the frontend content upload."
   type        = bool
-  default     = true
 }

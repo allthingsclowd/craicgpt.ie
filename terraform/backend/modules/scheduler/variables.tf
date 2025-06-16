@@ -17,7 +17,6 @@ variable "aws_region" {
 variable "common_tags" {
   description = "Common tags to apply to all resources."
   type        = map(string)
-  default     = {}
 }
 
 variable "lambda_functions_map" {
@@ -27,7 +26,6 @@ variable "lambda_functions_map" {
     name = string
     # Potentially other details from the lambda module's output if needed
   }))
-  default = {}
 }
 
 variable "schedules_config" {
@@ -39,5 +37,4 @@ variable "schedules_config" {
     description         = optional(string, "Daily trigger for Lambda function")
     enabled             = optional(bool, true)
   }))
-  default = {}
 }
