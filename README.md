@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="docs/images/logo1.png" alt="CraicGPT Logo" width="150"/>
-  <img src="docs/images/logo2.png" alt="AWS Logo" width="150"/>
+  <img src="frontend/static_assets/images/CraicGPT_240h.png" alt="CraicGPT Logo" width="350"/>
+  <img src="frontend/static_assets/images/GeekwiththePeak.png" alt="Geek with the Peak Logo" width="150"/>
 </p>
 
 # CraicGPT.ie Infrastructure
