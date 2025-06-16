@@ -37,10 +37,6 @@ locals {
 data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
-  origin_access_control_origin_type = "s3"     # Specifies the origin type as S3. [Ref: 11]
-  signing_behavior                  = "always" # CloudFront will always sign requests to the origin. [Ref: 11]
-  signing_protocol                  = "sigv4"  # Uses AWS Signature Version 4 for signing requests. [Ref: 11]
-}
 
 # Defines a custom cache policy specifically for content that is expected to update daily,
 # such as dynamically generated articles or data. This policy sets a Time-To-Live (TTL) of 24 hours.
