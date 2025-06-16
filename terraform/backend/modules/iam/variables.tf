@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/iam/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the backend IAM submodule.
+
 variable "aws_region" {
   description = "The AWS region for resources."
   type        = string

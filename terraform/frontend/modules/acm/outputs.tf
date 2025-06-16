@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/acm/outputs.tf
-# Description: Defines outputs for the ACM submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/acm/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the ACM submodule.
 
 output "certificate_arn" {
   description = "The ARN of the ACM certificate."

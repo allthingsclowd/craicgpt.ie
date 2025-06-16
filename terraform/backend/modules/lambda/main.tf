@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/lambda/main.tf
+# Version: 0.0.9
+# Purpose: Defines AWS Lambda functions for the backend Lambda submodule.
+
 locals {
   all_lambdas = merge(
     var.llm_lambdas_config,

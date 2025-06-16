@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/modules/s3/outputs.tf
-# Description: Defines outputs for the S3 submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/s3/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the frontend S3 submodule.
 
 output "bucket_id" {
   description = "The ID of the S3 bucket."

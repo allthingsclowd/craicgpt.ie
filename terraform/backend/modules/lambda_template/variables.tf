@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/backend/modules/lambda_template/variables.tf
-# Description: Defines input variables for the generic Lambda submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/lambda_template/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the backend Lambda Template submodule.
 
 variable "project_name" {
   description = "The name of the project. Used for deriving resource names or tags."

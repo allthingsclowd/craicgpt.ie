@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/cloudfront/main.tf
+# Version: 0.0.9
+# Purpose: Defines AWS CloudFront distribution resources for the CloudFront submodule.
+
 terraform {
   required_providers {
     aws = {
@@ -8,11 +14,6 @@ terraform {
   }
   required_version = ">= 1.12.1" # Ensures Terraform version is new enough
 }
-
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/cloudfront/main.tf
-# Description: Manages the CloudFront distribution, OAC, and S3 bucket policy for CloudFront access.
 
 locals {
   // project_name is now var.project_name

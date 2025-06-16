@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/locals.tf
-# Description: Defines common local variables used across the Terraform configuration.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/locals.tf
+# Version: 0.0.9
+# Purpose: Defines local variables for the frontend root module.
 
 locals {
   project_name = "CraicGPT.ie"

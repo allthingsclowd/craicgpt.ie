@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/lambda_template/main.tf
+# Version: 0.0.9
+# Purpose: Defines a generic AWS Lambda function template for the backend Lambda Template submodule.
+
 terraform {
   required_providers {
     aws = {
@@ -9,11 +15,6 @@ terraform {
 
 data "aws_region" "current" {}
 data "aws_caller_identity" "current" {} # Useful for constructing ARNs if needed, e.g. for default S3 bucket policies
-
-# Author: Graham Land & AI (Modified for generic use)
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/backend/modules/lambda_template/main.tf
-# Description: Manages a generic Lambda function. Can create an IAM role or use an existing one.
 
 locals {
   lambda_function_name = var.lambda_function_name_override

@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/scheduler/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the backend Scheduler submodule.
+
 variable "project_name" {
   description = "The name of the project, used for naming and tagging resources."
   type        = string

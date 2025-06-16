@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/cloudfront/variables.tf
-# Description: Defines input variables for the CloudFront submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/cloudfront/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the CloudFront submodule.
 
 variable "project_name" {
   description = "The name of the project."
@@ -31,13 +32,11 @@ variable "acm_certificate_validation_arn" {
 variable "cloudfront_aliases" {
   description = "A list of CNAME aliases for the CloudFront distribution."
   type        = list(string)
-  default     = []
 }
 
 variable "common_tags" {
   description = "Common tags to apply to all resources."
   type        = map(string)
-  default     = {}
 }
 
 variable "aws_account_id" {
@@ -48,17 +47,14 @@ variable "aws_account_id" {
 variable "enable_distribution" {
   description = "Set to false to disable the CloudFront distribution."
   type        = bool
-  default     = true
 }
 
 variable "default_root_object" {
   description = "The default object to serve when the root URL is requested."
   type        = string
-  default     = "index.html"
 }
 
 variable "price_class" {
   description = "CloudFront price class (e.g., PriceClass_100, PriceClass_200, PriceClass_All)."
   type        = string
-  default     = "PriceClass_100"
 }

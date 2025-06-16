@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/main.tf
-# Description: Root module to deploy the CraicGPT.ie infrastructure by orchestrating submodules.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/main.tf
+# Version: 0.0.9
+# Purpose: Defines the main infrastructure resources for the frontend root module.
 
 terraform {
   required_providers {

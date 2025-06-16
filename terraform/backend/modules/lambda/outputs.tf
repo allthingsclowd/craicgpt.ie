@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/lambda/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the backend Lambda submodule.
+
 output "lambda_functions" {
   description = "Map of created Lambda functions, keyed by their identifier."
   value = {

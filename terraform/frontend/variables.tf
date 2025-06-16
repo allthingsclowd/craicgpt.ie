@@ -1,12 +1,32 @@
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/variables.tf
-# Description: Declares input variables for the root Terraform configuration.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the frontend root module.
 
 variable "aws_region" {
   description = "The primary AWS region for deploying resources."
   type        = string
   default     = "eu-west-1"
+}
+
+variable "project_name" {
+  description = "A short name for the project (e.g., 'craicgpt-frontend'). Used for naming resources and in tags."
+  type        = string
+  default     = "craicgpt-frontend"
+}
+
+variable "environment" {
+  description = "The deployment environment (e.g., 'dev', 'staging', 'prod'). Used for tagging and resource naming."
+  type        = string
+  default     = "dev"
+}
+
+variable "common_tags" {
+  description = "Common tags to apply to all resources that support tagging."
+  type        = map(string)
+  default     = {}
+  # Example in tfvars: common_tags = { Terraformed = "true", SourceRepo = "github.com/your-repo" }
 }
 
 variable "domain_name" {
@@ -25,14 +45,14 @@ variable "llm_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret containing the LLM API key."
   type        = string
   sensitive   = true
-  default = "value"
+  default     = null
 }
 
 variable "image_gen_api_key_secret_arn" {
   description = "ARN of the AWS Secrets Manager secret containing the Image Generator API key."
   type        = string
   sensitive   = true
-  default = "value"
+  default     = null
 }
 
 # Variables to control module enablement
@@ -74,7 +94,7 @@ variable "enable_scheduler" {
 
 # S3 Module specific variables
 variable "s3_bucket_name_override" {
-  description = "Optional: Override the default S3 bucket name. If empty, a name based on project_name is used."
+  description = "Optional: Override the S3 bucket name. If not set, a name will be derived using the project_name and environment variables by the S3 submodule."
   type        = string
   default     = "craicgpt-ie-development"
 }
@@ -98,7 +118,7 @@ variable "s3_website_error_document" {
 }
 
 variable "s3_frontend_content_path" {
-  description = "Path to the local /frontend directory whose contents will be uploaded to S3. Relative to the root module."
+  description = "Path to the local /frontend directory whose contents will be uploaded to S3. Relative to the root module. Default assumes execution from `terraform/frontend` directory."
   type        = string
   default     = "../../frontend" # Assuming 'frontend' is one level up from 'terraform' directory
 }

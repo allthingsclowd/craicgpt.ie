@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/modules/s3/variables.tf
-# Description: Defines input variables for the S3 submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/s3/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the frontend S3 submodule.
 
 variable "bucket_name" {
   description = "The name for the S3 bucket. Must be globally unique."

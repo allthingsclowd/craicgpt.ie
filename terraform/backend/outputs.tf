@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the backend root module.
+
 output "backend_lambda_execution_role_arn" {
   description = "ARN of the IAM role used by the backend Lambda functions."
   value       = var.enable_backend_iam_module ? module.backend_iam[0].lambda_execution_role_arn : null

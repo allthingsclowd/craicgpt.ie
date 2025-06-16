@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/scheduler/outputs.tf
-# Description: Defines outputs for the Scheduler submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/scheduler_template/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the backend Scheduler Template submodule.
 
 output "schedule_name" {
   description = "The name of the EventBridge Scheduler rule."

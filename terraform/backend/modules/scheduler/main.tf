@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/scheduler/main.tf
+# Version: 0.0.9
+# Purpose: Defines AWS EventBridge Scheduler resources for the backend Scheduler submodule.
+
 module "individual_schedule" {
   for_each = var.schedules_config
 

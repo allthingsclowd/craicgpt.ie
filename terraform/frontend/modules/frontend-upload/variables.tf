@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/modules/frontend-upload/variables.tf
-# Description: Defines input variables for the frontend-upload module.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/frontend-upload/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the frontend-upload submodule.
 
 variable "s3_bucket_id" {
   description = "The ID of the S3 bucket to upload files to."

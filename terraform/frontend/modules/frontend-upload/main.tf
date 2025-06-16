@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/frontend-upload/main.tf
+# Version: 0.0.9
+# Purpose: Defines resources for uploading frontend assets to S3 for the frontend-upload submodule.
+
 terraform {
   required_providers {
     aws = {
@@ -7,11 +13,6 @@ terraform {
   }
   required_version = ">= 1.12.1" # Ensures Terraform version is new enough
 }
-
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/modules/frontend-upload/main.tf
-# Description: Manages the upload of frontend assets to an S3 bucket.
 
 locals {
   content_types = {

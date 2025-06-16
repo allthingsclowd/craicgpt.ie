@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/main.tf
+# Version: 0.0.9
+# Purpose: Defines the primary resources and module calls for the backend deployment.
+
 terraform {
   required_providers {
     aws = {

@@ -1,8 +1,8 @@
 # Author: Graham Land
-# Date: 2024-07-30
-# Filename and Path: terraform/modules/acm/main.tf
-# Description: Manages SSL/TLS certificate via AWS Certificate Manager for the domain.
-
+# Date: 16th June 2025
+# File: terraform/frontend/modules/acm/main.tf
+# Version: 0.0.9
+# Purpose: Defines the AWS Certificate Manager (ACM) resources for the ACM submodule.
 
 terraform {
   required_providers {

@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/iam/main.tf
+# Version: 0.0.9
+# Purpose: Defines IAM resources for the backend IAM submodule.
+
 data "aws_caller_identity" "current" {}
 
 resource "aws_iam_role" "backend_lambda_execution_role" {

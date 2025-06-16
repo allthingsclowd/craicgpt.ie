@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/lambda/outputs.tf
-# Description: Defines outputs for the Lambda submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/lambda_template/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the backend Lambda Template submodule.
 
 output "function_name" {
   description = "The name of the Lambda function."

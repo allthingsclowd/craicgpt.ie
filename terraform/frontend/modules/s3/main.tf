@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/s3/main.tf
+# Version: 0.0.9
+# Purpose: Defines AWS S3 bucket and related resources for the frontend S3 submodule.
+
 terraform {
   required_providers {
     aws = {
@@ -8,11 +14,6 @@ terraform {
   }
   required_version = ">= 1.12.1" # Ensures Terraform version is new enough
 }
-
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/modules/s3/main.tf
-# Description: Manages the S3 bucket for website assets.
 
 locals {
   // bucket_name is now var.bucket_name

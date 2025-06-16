@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/scheduler_template/main.tf
+# Version: 0.0.9
+# Purpose: Defines a generic AWS EventBridge Scheduler template for the backend Scheduler Template submodule.
+
 terraform {
   required_providers {
     aws = {
@@ -7,11 +13,6 @@ terraform {
     }
   }
 }
-
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/scheduler/main.tf
-# Description: Manages the EventBridge Scheduler rule for triggering the Lambda function.
 
 locals {
   // project_name is now var.project_name

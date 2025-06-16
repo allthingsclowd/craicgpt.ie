@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/modules/scheduler/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the backend Scheduler submodule.
+
 output "schedules" {
   description = "Map of created EventBridge schedules, keyed by their identifier from schedules_config."
   value = {

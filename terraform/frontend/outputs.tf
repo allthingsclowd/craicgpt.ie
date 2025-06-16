@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: 2024-07-30
-# Filename and Path: terraform/outputs.tf
-# Description: Declares root outputs from the Terraform configuration, referencing submodule outputs.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the frontend root module.
 
 output "acm_certificate_arn" {
   description = "The ARN of the ACM certificate (from ACM module)."

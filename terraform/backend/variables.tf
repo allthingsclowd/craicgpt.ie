@@ -1,3 +1,9 @@
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/backend/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the backend root module.
+
 variable "aws_region" {
   description = "The AWS region for deploying backend resources."
   type        = string
@@ -5,24 +11,26 @@ variable "aws_region" {
 }
 
 variable "project_name" {
-  description = "The name of the project (e.g., 'craicgpt'). Used for naming and tagging."
+  description = "A short name for the project (e.g., 'craicgpt-backend'). Used for naming resources and in tags."
   type        = string
-  default     = "craicgpt"
+  default     = "craicgpt-backend"
+}
+
+variable "environment" {
+  description = "The deployment environment (e.g., 'dev', 'staging', 'prod'). Used for tagging and resource naming."
+  type        = string
+  default     = "dev"
 }
 
 variable "common_tags" {
-  description = "Common tags to apply to all resources created by this backend configuration."
+  description = "Additional common tags to apply to all resources. `Project` and `Environment` tags will be automatically added based on `var.project_name` and `var.environment`."
   type        = map(string)
-  default = {
-    Terraform   = "true"
-    Environment = "dev"
-    Project     = "CraicGPT-Backend"
-  }
+  default     = {}
 }
 
 # Variables for Frontend Terraform Remote State
 variable "frontend_terraform_state_bucket" {
-  description = "The name of the S3 bucket where the frontend Terraform state file is stored."
+  description = "The name of the S3 bucket where the frontend Terraform state file is stored. This variable is mandatory."
   type        = string
   # No default, this must be provided
 }
@@ -39,16 +47,16 @@ variable "frontend_terraform_state_region" {
   default     = "eu-west-1" # Assume same region, but can be different
 }
 
-# API Key Secret ARNs from AWS Secrets Manager
+# API Key Management
 variable "openai_api_key_secret_arn" {
-  description = "ARN of the AWS Secrets Manager secret for the OpenAI API key."
+  description = "ARN of the AWS Secrets Manager secret for the OpenAI API key. This variable is mandatory if `enable_openai_lambdas` is true."
   type        = string
   sensitive   = true
   # No default, must be provided if OpenAI Lambdas are used
 }
 
 variable "gemini_api_key_secret_arn" {
-  description = "ARN of the AWS Secrets Manager secret for the Google Gemini API key."
+  description = "ARN of the AWS Secrets Manager secret for the Google Gemini API key. This variable is mandatory if `enable_gemini_lambdas` is true."
   type        = string
   sensitive   = true
   # No default, must be provided if Gemini Lambdas are used
@@ -71,25 +79,17 @@ variable "anthropic_api_key_secret_arn" {
   default     = null
 }
 
-# Configuration for Lambda functions
-# These will be used to populate the llm_lambdas_config and image_gen_lambdas_config
-# in the main.tf when calling the backend lambda module.
-
+# Lambda Function Configuration
 variable "lambda_code_root_path" {
-  description = "Defines the root directory for all backend lambda function code. Passed to the backend lambda module."
+  description = "Defines the root directory for all backend lambda function code. Passed to the backend lambda module. Default assumes execution from `terraform/backend` directory."
   type        = string
   default     = "../lambda_code/backend" # Relative to terraform/backend directory
 }
 
-# Placeholder for actual Lambda code zip files if pre-built.
-# For now, the lambda module expects source_code_path to be a directory.
-# variable "titan_llm_lambda_zip_path" {
-#   description = "Path to the pre-built ZIP file for the Titan LLM Lambda."
-#   type        = string
-#   default     = "" # Example: "lambda_zips/titan_llm.zip"
-# }
+# These will be used to populate the llm_lambdas_config and image_gen_lambdas_config
+# in the main.tf when calling the backend lambda module.
 
-# Control flags for enabling/disabling groups of Lambdas if needed
+# Module Enablement Flags
 variable "enable_bedrock_lambdas" {
   description = "Enable Titan and Claude (Bedrock) Lambda functions and schedules."
   type        = bool

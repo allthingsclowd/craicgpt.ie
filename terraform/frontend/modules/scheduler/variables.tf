@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/scheduler/variables.tf
-# Description: Defines input variables for the Scheduler submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/scheduler/variables.tf
+# Version: 0.0.9
+# Purpose: Defines input variables for the frontend scheduler submodule.
 
 variable "project_name" {
   description = "The name of the project."

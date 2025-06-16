@@ -1,7 +1,8 @@
-# Author: Graham Land & AI
-# Date: YYYY-MM-DD
-# Filename and Path: terraform/modules/cloudfront/outputs.tf
-# Description: Defines outputs for the CloudFront submodule.
+# Author: Graham Land
+# Date: 16th June 2025
+# File: terraform/frontend/modules/cloudfront/outputs.tf
+# Version: 0.0.9
+# Purpose: Declares outputs from the CloudFront submodule.
 
 output "distribution_id" {
   description = "The ID of the CloudFront distribution."
