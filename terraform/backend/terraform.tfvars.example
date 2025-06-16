@@ -1,0 +1,84 @@
+# Example variable definitions for the backend deployment.
+# Copy this file to terraform.tfvars and update the values as needed.
+
+# The AWS region for deploying backend resources.
+# aws_region = "eu-west-1"
+
+# A short name for the project (e.g., 'craicgpt-backend'). Used for naming resources and in tags.
+# project_name = "craicgpt-backend"
+
+# The deployment environment (e.g., 'dev', 'staging', 'prod'). Used for tagging and resource naming.
+# environment = "dev"
+
+# Additional common tags to apply to all resources.
+# `Project` and `Environment` tags will be automatically added based on `var.project_name` and `var.environment`.
+# Example: common_tags = { Owner = "TeamFoo", CostCenter = "12345" }
+# common_tags = {}
+
+# Variables for Frontend Terraform Remote State
+# ---------------------------------------------
+# These variables are used to configure the terraform_remote_state data source
+# to fetch outputs from your frontend deployment.
+
+# The name of the S3 bucket where the frontend Terraform state file is stored. This variable is mandatory.
+# frontend_terraform_state_bucket = "your-frontend-tfstate-bucket-name"
+
+# The S3 key for the frontend Terraform state file (e.g., 'env:/app/terraform.tfstate').
+# frontend_terraform_state_key = "terraform.tfstate"
+
+# The AWS region where the frontend Terraform state S3 bucket is located.
+# frontend_terraform_state_region = "eu-west-1"
+
+
+# API Key Management
+# ------------------
+# ARNs for AWS Secrets Manager secrets that store API keys for various services.
+# These are mandatory if the corresponding Lambda functions are enabled.
+
+# ARN of the AWS Secrets Manager secret for the OpenAI API key.
+# This variable is mandatory if `enable_openai_lambdas` is true.
+# openai_api_key_secret_arn = "arn:aws:secretsmanager:your-region:123456789012:secret:your-openai-secret-XXXXXX" # Or null
+
+# ARN of the AWS Secrets Manager secret for the Google Gemini API key.
+# This variable is mandatory if `enable_gemini_lambdas` is true.
+# gemini_api_key_secret_arn = "arn:aws:secretsmanager:your-region:123456789012:secret:your-gemini-secret-XXXXXX" # Or null
+
+# ARN of the AWS Secrets Manager secret for the Stability AI API key (if used for image generation).
+# stability_api_key_secret_arn = null # Or "arn:aws:secretsmanager:your-region:123456789012:secret:your-stability-secret-XXXXXX"
+
+# ARN of the AWS Secrets Manager secret for the Anthropic Claude API key (if used directly, not via Bedrock).
+# anthropic_api_key_secret_arn = null # Or "arn:aws:secretsmanager:your-region:123456789012:secret:your-anthropic-secret-XXXXXX"
+
+
+# Lambda Function Configuration
+# -----------------------------
+
+# Defines the root directory for all backend lambda function code. Passed to the backend lambda module.
+# Default assumes execution from `terraform/backend` directory.
+# lambda_code_root_path = "../lambda_code/backend"
+
+
+# Module Enablement Flags
+# -----------------------
+# These flags control whether specific sets of resources or Lambda functions are deployed.
+
+# Enable Titan and Claude (Bedrock) Lambda functions and schedules.
+# enable_bedrock_lambdas = true
+
+# Enable ChatGPT LLM and Image Gen Lambda functions and schedules.
+# enable_openai_lambdas = true
+
+# Enable Gemini LLM and Image Gen Lambda functions and schedules.
+# enable_gemini_lambdas = true
+
+# Enable Stability AI Image Gen Lambda function and schedule (if replacing Claude Image Gen).
+# enable_stability_lambdas = true
+
+# Controls whether the backend IAM module is enabled and its resources are created.
+# enable_backend_iam_module = true
+
+# Controls whether the backend Lambda module is enabled and its resources are created.
+# enable_backend_lambda_module = false
+
+# Controls whether the backend Scheduler module is enabled and its resources are created.
+# enable_backend_scheduler_module = false

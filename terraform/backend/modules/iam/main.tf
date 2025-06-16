@@ -4,8 +4,10 @@
 # Version: 0.0.9
 # Purpose: Defines IAM resources for the backend IAM submodule.
 
-data "aws_caller_identity" "current" {}
-
+# Lambda Execution Role
+# ---------------------
+# Defines the primary IAM role assumed by all backend Lambda functions.
+# It includes a trust policy allowing the Lambda service to assume this role.
 resource "aws_iam_role" "backend_lambda_execution_role" {
   name = "${var.project_name}-backend-lambda-role"
 
@@ -26,6 +28,12 @@ resource "aws_iam_role" "backend_lambda_execution_role" {
     Name = "${var.project_name}-backend-lambda-role"
   })
 }
+
+# Essential IAM Policies
+# ----------------------
+# Attaches fundamental permissions required by Lambda functions:
+# - CloudWatch Logs: For writing logs.
+# - S3 PutObject: For writing output to the designated S3 bucket and prefix.
 
 # Inline policy for essential permissions
 resource "aws_iam_role_policy" "lambda_essential_permissions" {
@@ -52,6 +60,13 @@ resource "aws_iam_role_policy" "lambda_essential_permissions" {
     ]
   })
 }
+
+# Conditional IAM Policies
+# ------------------------
+# These policies are attached based on whether specific features are enabled
+# or configurations are provided:
+# - Bedrock: Grants permission to invoke Bedrock foundation models if enabled.
+# - Secrets Manager: Grants permission to read specified API key secrets if ARNs are provided.
 
 # Conditional policy for Bedrock
 resource "aws_iam_role_policy" "lambda_bedrock_permissions" {
@@ -91,7 +106,11 @@ resource "aws_iam_role_policy" "lambda_secrets_manager_permissions" {
   })
 }
 
-# Attach additional policies
+# Additional IAM Policies
+# -----------------------
+# Allows for attaching arbitrary additional IAM policies to the Lambda execution role
+# by providing a map of policy names to policy JSON strings via `var.additional_iam_policies`.
+# This provides flexibility for extending Lambda permissions without modifying the module's core logic.
 resource "aws_iam_role_policy" "additional_policies" {
   for_each = var.additional_iam_policies
 

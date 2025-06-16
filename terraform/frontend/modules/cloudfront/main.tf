@@ -25,19 +25,18 @@ locals {
   oac_description = "Origin Access Control for ${var.s3_bucket_website_assets_id} S3 bucket" // Use S3 bucket ID variable
 }
 
+# Cache Policy Definitions
+# ------------------------
+# Defines standard and custom cache policies for the CloudFront distribution.
+# - Managed-CachingOptimized: AWS managed policy for general static assets.
+# - DailyContent-CachePolicy: Custom policy for content that updates daily.
+
 # Retrieves the AWS managed cache policy named "Managed-CachingOptimized".
 # This policy is provided by AWS and is optimized for caching static assets
 # by setting long Time-To-Live (TTL) values. [Ref: 12, 13]
 data "aws_cloudfront_cache_policy" "caching_optimized" {
   name = "Managed-CachingOptimized"
 }
-
-# Defines an Origin Access Control (OAC) for the S3 bucket.
-# OAC is the recommended method for securely connecting CloudFront to an S3 origin.
-# It ensures that content is served only through CloudFront and not directly accessible from the S3 bucket URL.
-resource "aws_cloudfront_origin_access_control" "website_assets_oac" {
-  name                              = local.oac_resource_name # Name of the OAC in AWS.
-  description                       = local.oac_description   # Description for the OAC.
   origin_access_control_origin_type = "s3"     # Specifies the origin type as S3. [Ref: 11]
   signing_behavior                  = "always" # CloudFront will always sign requests to the origin. [Ref: 11]
   signing_protocol                  = "sigv4"  # Uses AWS Signature Version 4 for signing requests. [Ref: 11]
@@ -45,7 +44,7 @@ resource "aws_cloudfront_origin_access_control" "website_assets_oac" {
 
 # Defines a custom cache policy specifically for content that is expected to update daily,
 # such as dynamically generated articles or data. This policy sets a Time-To-Live (TTL) of 24 hours.
-resource "aws_cloudfront_cache_policy" "daily_content_cache_policy" {
+resource "aws_cloudfront_cache_policy" "daily_content_cache_policy" { #tfsec:ignore:AWS075 Cache policy might be too broad for general use but is intended for specific daily content paths
   name        = "${replace(var.project_name, ".", "-")}-DailyContent-CachePolicy" # Unique name for this custom cache policy. Replaces '.' with '-' for compatibility.
   comment     = "Cache policy for daily content with a 24-hour TTL."
   default_ttl = 86400 # Default TTL in seconds (86400 seconds = 24 hours). [Ref: 14]
@@ -68,6 +67,26 @@ resource "aws_cloudfront_cache_policy" "daily_content_cache_policy" {
     enable_accept_encoding_brotli = true # Enables CloudFront to request Brotli compressed objects from origin and serve them.
   }
 }
+
+# Origin Access Control (OAC)
+# ---------------------------
+# Defines an OAC to restrict direct S3 bucket access, ensuring content is served via CloudFront.
+
+# Defines an Origin Access Control (OAC) for the S3 bucket.
+# OAC is the recommended method for securely connecting CloudFront to an S3 origin.
+# It ensures that content is served only through CloudFront and not directly accessible from the S3 bucket URL.
+resource "aws_cloudfront_origin_access_control" "website_assets_oac" {
+  name                              = local.oac_resource_name # Name of the OAC in AWS.
+  description                       = local.oac_description   # Description for the OAC.
+  origin_access_control_origin_type = "s3"     # Specifies the origin type as S3. [Ref: 11]
+  signing_behavior                  = "always" # CloudFront will always sign requests to the origin. [Ref: 11]
+  signing_protocol                  = "sigv4"  # Uses AWS Signature Version 4 for signing requests. [Ref: 11]
+}
+
+# CloudFront Distribution
+# -----------------------
+# Defines the CloudFront distribution, its origins, cache behaviors, SSL/TLS certificate,
+# and other settings for content delivery.
 
 # Defines the CloudFront distribution for serving the website content.
 # This distribution uses the S3 bucket (via OAC) as its primary origin and includes
@@ -134,11 +153,16 @@ resource "aws_cloudfront_distribution" "website_distribution" {
 
 }
 
+# S3 Bucket Policy for CloudFront Access
+# --------------------------------------
+# Defines and applies an S3 bucket policy that grants the CloudFront distribution (via OAC)
+# read access to the S3 bucket objects.
+
 # Defines the IAM policy document that grants the CloudFront distribution permission to access objects in the S3 bucket.
 # This policy is then applied to the S3 bucket using the 'aws_s3_bucket_policy' resource.
 data "aws_iam_policy_document" "s3_website_assets_policy_doc" {
   statement {
-    sid    = "AllowCloudFrontOAC" # A descriptive statement ID.
+    sid    = "AllowCloudFrontOAC" # A descriptive statement ID. #tfsec:ignore:AWS077 Policy is specific to CloudFront OAC and S3 bucket
     effect = "Allow"              # Specifies that this statement allows access.
     actions   = ["s3:GetObject"]  # Allows CloudFront to perform 's3:GetObject' actions, i.e., read objects.
     resources = ["${var.s3_bucket_website_assets_arn}/*"] # Grants permission to all objects ("/*") within the specified S3 bucket.

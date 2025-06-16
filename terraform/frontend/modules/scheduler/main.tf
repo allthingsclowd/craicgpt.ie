@@ -14,6 +14,10 @@ terraform {
   }
 }
 
+# Local Variables
+# ---------------
+# Defines local names for IAM roles, policies, and the schedule itself,
+# along with specific tags for these resources.
 locals {
   // project_name is now var.project_name
   // common_tags is now var.common_tags
@@ -33,6 +37,11 @@ locals {
     Purpose = "DailyContentOrchestration"
   })
 }
+
+# IAM for Scheduler
+# -----------------
+# Creates the necessary IAM role and policy that EventBridge Scheduler
+# will assume to get permissions to invoke the target Lambda function.
 
 # Creates an IAM (Identity and Access Management) role that EventBridge Scheduler will assume
 # to gain permissions to invoke the target Lambda function.
@@ -83,6 +92,11 @@ resource "aws_iam_role_policy_attachment" "scheduler_invoke_content_orchestrator
   role       = aws_iam_role.scheduler_invoke_content_orchestrator_lambda_role.name # Name of the role to attach the policy to.
   policy_arn = aws_iam_policy.scheduler_invoke_content_orchestrator_lambda_policy.arn # ARN of the policy to attach.
 }
+
+# EventBridge Schedule Definition
+# -------------------------------
+# Defines the EventBridge Scheduler rule that triggers the specified Lambda function
+# based on the provided cron expression and timezone.
 
 # Creates an EventBridge Scheduler rule (schedule) that triggers the Content Orchestrator Lambda function
 # on a daily basis.

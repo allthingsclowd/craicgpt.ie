@@ -14,6 +14,9 @@ terraform {
   required_version = ">= 1.8.0" # Ensures Terraform version is new enough
 }
 
+# Local Variables
+# ---------------
+# Defines a map of file extensions to MIME types for setting the Content-Type of uploaded S3 objects.
 locals {
   content_types = {
     ".html" : "text/html",
@@ -32,7 +35,13 @@ locals {
   }
 }
 
-# Uploads files from the specified frontend_directory to the S3 bucket.
+# S3 Object Upload
+# ----------------
+# This resource block iterates over files found in the specified local directory
+# (var.frontend_directory) and uploads them to the target S3 bucket (var.s3_bucket_id).
+# The upload process is conditional on var.enable_upload being true and var.frontend_directory being set.
+# It sets the Content-Type for each object based on its file extension using the local.content_types map
+# and uses the MD5 hash of the file for the ETag to ensure objects are updated only if their content changes.
 resource "aws_s3_object" "website_files" {
   # Only process if enable_upload is true and frontend_directory is provided and not empty.
   for_each = var.enable_upload && var.frontend_directory != null && var.frontend_directory != "" ? fileset(var.frontend_directory, "**/*") : toset([])

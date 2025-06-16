@@ -14,8 +14,16 @@ terraform {
 }
 
 data "aws_region" "current" {}
-data "aws_caller_identity" "current" {} # Useful for constructing ARNs if needed, e.g. for default S3 bucket policies
 
+# Local Variables
+# ---------------
+# Prepares variables for the Lambda function, including its name, handler, runtime, source path, and tags.
+# Crucially, it defines `final_policy_statements` which are conditionally constructed based on
+# input variables (like `var.s3_target_bucket_arn`, `var.secret_arns_to_access`, etc.).
+# These policies are only applied if the module is tasked with creating a new IAM role
+# (i.e., `var.existing_lambda_role_arn` is null).
+# The `filtered_final_policy_statements` local then removes any null policies before passing
+# them to the underlying community Lambda module.
 locals {
   lambda_function_name = var.lambda_function_name_override
   lambda_handler       = var.lambda_handler_override
@@ -112,6 +120,19 @@ locals {
   }
 }
 
+# AWS Lambda Function Resource (via Community Module)
+# ---------------------------------------------------
+# This block instantiates the core Lambda function using the `terraform-aws-modules/lambda/aws`
+# community module. It's configured with common parameters like name, handler, runtime, and source code.
+#
+# IAM Role Handling:
+# - If `var.existing_lambda_role_arn` is provided, that role is used.
+# - Otherwise (`var.existing_lambda_role_arn` is null), this module creates a new IAM role
+#   and attaches the policies defined in `local.filtered_final_policy_statements`.
+#
+# Conditional Creation:
+# - The `create_function` argument controls whether the Lambda function is created,
+#   allowing for disabling the function via the `var.enable_lambda` input variable.
 module "generic_lambda" {
   source  = "terraform-aws-modules/lambda/aws"
   version = "~> 7.2"

@@ -14,6 +14,10 @@ terraform {
   }
 }
 
+# Local Variables
+# ---------------
+# Defines local variables for constructing Lambda function names, descriptions,
+# and tags, primarily derived from input variables.
 locals {
   // project_name is now var.project_name
   // common_tags is now var.common_tags

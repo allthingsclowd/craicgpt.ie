@@ -18,6 +18,13 @@ provider "aws" {
   region = var.aws_region
 }
 
+# Local Variables
+# ---------------
+# Defines merged common tags and configurations for different types of Lambda functions.
+# Lambda configurations (llm_lambdas_config, image_gen_lambdas_config) are built by conditionally
+# merging blocks based on enablement variables (e.g., var.enable_bedrock_lambdas) and
+# the presence of necessary API key secret ARNs. This allows for a flexible deployment
+# of only the required Lambda functions.
 locals {
   merged_common_tags = merge(
     {
@@ -29,6 +36,9 @@ locals {
     var.common_tags
   )
 
+  # Configuration map for various LLM Lambda functions.
+  # Each key (e.g., "titan-llm") represents a specific Lambda.
+  # Details include handler, runtime, source code path, description, and model-specific info.
   llm_lambdas_config = merge(
     var.enable_bedrock_lambdas ? {
       "titan-llm" = {
@@ -116,9 +126,10 @@ locals {
   )
 }
 
-data "aws_caller_identity" "current" {}
-
-# Remote state to get outputs from the frontend deployment
+# Data Sources
+# ------------
+# Retrieves outputs from the frontend deployment, such as S3 bucket details,
+# which are required by backend resources (e.g., for Lambda to write to S3).
 data "terraform_remote_state" "frontend" {
   backend = "s3"
   config = {
@@ -149,10 +160,13 @@ module "backend_iam" {
     var.stability_api_key_secret_arn, # Included for IAM policy if direct API is used
     var.anthropic_api_key_secret_arn  # Included for IAM policy if direct API is used
   ])
-  # bedrock_foundation_models_enabled is true by default in the IAM module, granting Bedrock access.
 }
 
-# Lambda Functions Module
+# Backend Lambda Functions Module
+# -------------------------------
+# Deploys various backend Lambda functions based on the configurations defined in locals.
+# It uses the generic lambda module (./modules/lambda) which in turn uses lambda_template.
+# This module receives the consolidated configurations for LLM and image generation lambdas.
 module "backend_lambda" {
   count = var.enable_backend_lambda_module && var.enable_backend_iam_module ? 1 : 0
 
@@ -179,7 +193,11 @@ module "backend_lambda" {
   image_gen_lambdas_config = local.image_gen_lambdas_config
 }
 
-# Scheduler Module
+# Backend Scheduler Module
+# ------------------------
+# Configures EventBridge schedules to trigger the deployed backend Lambda functions.
+# The schedules_config local variable dynamically constructs the necessary schedule
+# configurations based on which Lambdas are enabled.
 module "backend_scheduler" {
   count = var.enable_backend_scheduler_module && var.enable_backend_lambda_module && var.enable_backend_iam_module ? 1 : 0
 

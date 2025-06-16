@@ -4,6 +4,11 @@
 # Version: 0.0.9
 # Purpose: Defines the main infrastructure resources for the frontend root module.
 
+# Terraform and Provider Configuration
+# ------------------------------------
+# Defines required providers and versions, and configures the AWS provider.
+# An aliased provider is configured for us-east-1, specifically for ACM certificate creation,
+# as CloudFront certificates must reside in this region.
 terraform {
   required_providers {
     aws = {
@@ -31,7 +36,15 @@ data "aws_route53_zone" "primary" {
   name  = var.domain_name # e.g., "craicgpt.ie"
 }
 
+# Core Infrastructure Modules
+# ---------------------------
+# These modules set up the foundational components of the frontend infrastructure:
+# ACM for SSL/TLS certificates, S3 for static website asset storage,
+# CloudFront for content delivery, and Route 53 for DNS.
+
 # ACM Module for SSL/TLS Certificate
+# Provisions an ACM certificate and validates it using DNS records in the specified Route 53 zone.
+# The certificate is intended for use with the CloudFront distribution.
 module "acm" {
   source = "./modules/acm"
   count  = var.enable_acm ? 1 : 0
@@ -78,6 +91,9 @@ module "cloudfront" {
 }
 
 # DNS Records for CloudFront Distribution
+# Creates A records for the CloudFront distribution's aliases (CNAMEs)
+# within the specified Route 53 hosted zone. This points the custom domain(s)
+# to the CloudFront distribution.
 resource "aws_route53_record" "cloudfront_aliases" {
   count = var.enable_cloudfront ? length(var.cloudfront_aliases) : 0
 
@@ -106,7 +122,15 @@ module "frontend_upload" {
   enable_upload      = var.enable_frontend_upload # Internal enable flag, root control is via count
 }
 
+# Optional Application Logic Modules
+# ----------------------------------
+# These modules deploy application-specific logic:
+# - A Lambda function for content orchestration (e.g., dynamic content generation).
+# - An EventBridge Scheduler rule to trigger the Lambda function periodically.
+
 # Lambda Module for Content Orchestration
+# Deploys the main Lambda function responsible for any backend logic or content generation
+# required by the frontend. It's configured with necessary IAM permissions and environment variables.
 module "lambda" {
   source = "./modules/lambda"
   count  = var.enable_lambda ? 1 : 0

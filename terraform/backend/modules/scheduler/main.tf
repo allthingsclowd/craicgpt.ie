@@ -4,6 +4,13 @@
 # Version: 0.0.9
 # Purpose: Defines AWS EventBridge Scheduler resources for the backend Scheduler submodule.
 
+# EventBridge Schedule Instantiation
+# ----------------------------------
+# Iterates over the `var.schedules_config` map to create multiple EventBridge schedules.
+# Each schedule targets a specific Lambda function (details sourced from `var.lambda_functions_map`)
+# and is configured using the `scheduler_template` submodule.
+# The `tags` argument includes a `ScheduleIdentifier` based on the key from `var.schedules_config`
+# for better traceability, assuming the scheduler_template module can merge these with common_tags.
 module "individual_schedule" {
   for_each = var.schedules_config
 

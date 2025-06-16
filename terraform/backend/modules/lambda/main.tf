@@ -4,6 +4,13 @@
 # Version: 0.0.9
 # Purpose: Defines AWS Lambda functions for the backend Lambda submodule.
 
+# Local Variables
+# ---------------
+# Consolidates all LLM and Image Generation Lambda configurations into a single map `all_lambdas`.
+# This map is then iterated over to create individual Lambda function instances.
+# It also creates `secret_arn_map` to dynamically look up the correct secret ARN variable
+# based on a string reference from the lambda configurations. This avoids passing all
+# secret ARNs into every lambda_template instance.
 locals {
   all_lambdas = merge(
     var.llm_lambdas_config,
@@ -20,6 +27,12 @@ locals {
   }
 }
 
+# Lambda Function Instantiation
+# -----------------------------
+# Iterates over the `local.all_lambdas` map (which contains both LLM and image generation configs)
+# and creates an instance of the `lambda_template` submodule for each.
+# This approach allows for managing multiple Lambda functions with varying configurations
+# through a centralized and DRY (Don't Repeat Yourself) pattern.
 module "individual_lambda" {
   for_each = local.all_lambdas
 

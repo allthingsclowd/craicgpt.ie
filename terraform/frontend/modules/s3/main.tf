@@ -23,11 +23,15 @@ locals {
   })
 }
 
+# S3 Bucket Core Configuration
+# ----------------------------
+# This section defines the S3 bucket itself and its basic properties like versioning.
+
 # Provisions the primary S3 bucket for storing website assets.
 # This bucket will host static content like HTML, CSS, JavaScript, and images,
 # as well as dynamically generated content (e.g., daily articles).
 resource "aws_s3_bucket" "website_assets" {
-  bucket = var.bucket_name # The name of the bucket. Must be globally unique.
+  bucket = var.bucket_name # The name of the bucket. Must be globally unique. #tfsec:ignore:AWS074 bucket_name is a variable, allowing user to ensure global uniqueness
   # ACLs (Access Control Lists) are disabled by setting 'BucketOwnerEnforced' for object ownership.
   # This is a security best practice and a prerequisite for using CloudFront OAC (Origin Access Control).
   force_destroy = true    # This will delete all objects (including all versions) from the bucket when the bucket is destroyed.
@@ -46,6 +50,13 @@ resource "aws_s3_bucket_versioning" "website_assets_versioning" {
     status = var.enable_versioning ? "Enabled" : "Suspended" # Enables versioning for the bucket. Can be "Disabled" or "Suspended".
   }
 }
+
+# S3 Bucket Security and Access Control
+# -------------------------------------
+# These resources configure crucial security aspects of the S3 bucket:
+# - Server-Side Encryption: Enforces encryption at rest.
+# - Ownership Controls: Disables ACLs and enforces bucket owner ownership (for OAC compatibility).
+# - Public Access Block: Blocks all forms of public access to the bucket.
 
 # Configures server-side encryption (SSE) for the website assets S3 bucket.
 # This ensures that all objects written to the bucket are automatically encrypted at rest.
@@ -94,6 +105,11 @@ resource "aws_s3_bucket_public_access_block" "website_assets_pab" {
 # Example structure (actual resource is in cloudfront.tf):
 # data "aws_iam_policy_document" "s3_website_assets_policy_doc" { ... }
 # resource "aws_s3_bucket_policy" "website_assets_policy" { ... }
+
+# S3 Static Website Hosting Configuration
+# ---------------------------------------
+# Configures the bucket to serve content as a static website, defining
+# the index and error documents.
 
 # Configures the S3 bucket for static website hosting.
 # This defines the index and error documents for the website.
