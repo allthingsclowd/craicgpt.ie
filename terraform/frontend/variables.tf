@@ -32,13 +32,13 @@ variable "common_tags" {
 variable "domain_name" {
   description = "The primary domain name for the project (e.g., 'craicgpt.ie'). Used for ACM."
   type        = string
-  default     = "craicgpt.ie"
+  default     = "development.craicgpt.ie"
 }
 
 variable "cloudfront_aliases" {
   description = "A list of CNAME aliases (e.g., domain names) for the CloudFront distribution."
   type        = list(string)
-  default = ["www.craicgpt.ie", "craicgpt.ie", "eddie.craicgpt.ie"]
+  default = ["development.craicgpt.ie"]
 }
 
 variable "llm_api_key_secret_arn" {

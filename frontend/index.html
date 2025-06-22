@@ -50,18 +50,19 @@
       <fieldset id="llm-selection-group" class="control-group">
         <legend>Choose&nbsp;LLM:</legend>
 
-        <label><input type="radio" name="llm_choice" value="chatgpt" id="llm-chatgpt" checked> ChatGPT</label>
-        <label><input type="radio" name="llm_choice" value="gemini"  id="llm-gemini">        Gemini</label>
-        <label><input type="radio" name="llm_choice" value="claude"  id="llm-claude">        Claude</label>
+        <!-- LLM choices -->
+        <label><input type="radio" name="llm_choice" value="anthropic.claude-3-sonnet-20240229-v1" checked> Claude Sonnet</label>
+        <label><input type="radio" name="llm_choice" value="amazon.titan-text-express-v1"> Titan Express</label>
+        <label><input type="radio" name="llm_choice" value="anthropic.claude-3-haiku-20240307-v1"> Claude Haiku</label>
       </fieldset>
 
       <!-- Image-gen radio group -->
       <fieldset id="imagegen-selection-group" class="control-group">
         <legend>Choose&nbsp;Image&nbsp;Gen:</legend>
 
-        <label><input type="radio" name="imagegen_choice" value="imagen"          id="imagegen-imagen"          checked> Imagen</label>
-        <label><input type="radio" name="imagegen_choice" value="stablediffusion" id="imagegen-stablediffusion"> Stable&nbsp;Diffusion</label>
-        <label><input type="radio" name="imagegen_choice" value="dalle"           id="imagegen-dalle">           DALL-E</label>
+        <!-- Image-gen choices -->
+        <label><input type="radio" name="imagegen_choice" value="amazon.titan-image-generator-v1"  checked> Titan Image</label>
+        <label><input type="radio" name="imagegen_choice" value="amazon.nova-canvas-v1"> Nova Canvas</label>
       </fieldset>
     </div>
 

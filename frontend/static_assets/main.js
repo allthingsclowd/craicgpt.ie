@@ -5,8 +5,8 @@
 
 // Global variables to store fetched data and current selections
 let currentPaperData = null;
-let selectedLLM = ''; // Will be updated by radio button interactions
-let selectedImageGen = ''; // Will be updated by radio button interactions
+let selectedLLM      = 'anthropic.claude-3-sonnet-20240229-v1';
+let selectedImageGen = 'amazon.titan-image-generator-v1';
 const MAX_FALLBACK_ATTEMPTS = 7;
 
 const newspaperPlaceholders = {
@@ -45,14 +45,14 @@ const newspaperPlaceholders = {
 function getSelectedLLM() {
     const checkedRadio = document.querySelector('input[name="llm_choice"]:checked');
     // Fallback to defaultLLM from data, or 'chatgpt' if nothing is available
-    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultLLM || 'chatgpt');
+    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultLLM || selectedLLM);
 }
 
 // Helper function to get the currently selected Image Generator
 function getSelectedImageGen() {
     const checkedRadio = document.querySelector('input[name="imagegen_choice"]:checked');
     // Fallback to defaultImageGen from data, or 'imagen' if nothing is available
-    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultImageGen || 'imagen');
+    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultImageGen || selectedImageGen);
 }
 
 // Function to update the content of an HTML element
@@ -260,7 +260,8 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
     const day = parseInt(dayStr, 10);
 
     // const contentUrl = `/content/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
-    const contentUrl = `static_assets/sample_data/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
+    //const contentUrl = `static_assets/sample_data/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
+    const contentUrl = `static_assets/content/website/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
 
     fetch(contentUrl)
         .then(response => {
