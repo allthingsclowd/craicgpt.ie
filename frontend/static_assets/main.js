@@ -99,7 +99,7 @@ function updateImage(id, imageUrl, altText) {
             imgElement.style.display = ''; // Ensure image is visible
         } else {
             // If no image URL, clear src, alt, and hide the image or set a placeholder
-            imgElement.src = 'placeholder.jpg'; // Default placeholder
+            imgElement.src = 'static_assets/images/placeholder.jpg'; // Default placeholder
             imgElement.alt = 'Content unavailable';
             // console.warn(`Image URL for element ID '${id}' was undefined or null. Image reset to placeholder.`);
         }
@@ -117,10 +117,13 @@ function renderContent() {
 
     function withBase(url) {
         if (!url) return url;
-        return /^(https?:)?\/\//.test(url)   // already absolute?
-            ? url
-            : basePath + url;
+        // Already absolute? (http/https), site-root (“/…”) or starts with “static_assets/”
+        if (/^(https?:)?\/\//.test(url) || url.startsWith('/') || url.startsWith('static_assets/')) {
+            return url;
+        }
+        return basePath + url;           // relative filename → prepend JSON folder
     }
+
 
     if (!currentPaperData || !currentPaperData.contentSlots) {
         console.warn("No paper data or content slots available. Rendering placeholders.");
@@ -391,9 +394,8 @@ window.addEventListener('load', () => {
                     console.log("Date selected via js-datepicker:", dateStr);
                     fetchContentForDate(dateStr);
                 } else {
-                    console.log("Date cleared or selection invalid via js-datepicker.");
-                    currentPaperData = null;
-                    renderContent();
+                    // Ignore spurious null callbacks from the picker.
+                    return;
                 }
             },
             dateSelected: new Date() // Set default date to today
