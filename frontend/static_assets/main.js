@@ -112,11 +112,11 @@ function renderContent() {
         // Populate with placeholders
         updateElement('main-article-title', newspaperPlaceholders.mainArticle.title, true);
         updateElement('main-article-text', newspaperPlaceholders.mainArticle.text, true);
-        updateImage('main-article-image', newspaperPlaceholders.mainArticle.imageUrl, newspaperPlaceholders.mainArticle.imageAlt);
+        updateImage('main-article-image', withBase(newspaperPlaceholders.mainArticle.imageUrl), newspaperPlaceholders.mainArticle.imageAlt);
 
         updateElement('comparison-article-title', newspaperPlaceholders.comparisonArticle.title, true);
         updateElement('comparison-article-text', newspaperPlaceholders.comparisonArticle.text, true);
-        updateImage('comparison-article-image', newspaperPlaceholders.comparisonArticle.imageUrl, newspaperPlaceholders.comparisonArticle.imageAlt);
+        updateImage('comparison-article-image', withBase(newspaperPlaceholders.comparisonArticle.imageUrl), newspaperPlaceholders.comparisonArticle.imageAlt);
 
         updateElement('llm-story-content', newspaperPlaceholders.llmStory.content, true);
         updateElement('joke-content', newspaperPlaceholders.joke.content, true);
@@ -150,6 +150,15 @@ function renderContent() {
     selectedImageGen = getSelectedImageGen();
     console.log(`Rendering with LLM: ${selectedLLM}, ImageGen: ${selectedImageGen}`);
 
+    // Determine the folder that today's JSON was loaded from
+    const basePath = contentUrl.replace(/todays_paper\.json$/, '');
+
+    // Wrap a tiny util so every image URL gets the prefix unless it’s already absolute
+    function withBase(url) {
+    return (url && !url.match(/^https?:\/\//)) ? basePath + url : url;
+}
+
+
     const slots = currentPaperData.contentSlots;
 
     // Main Article
@@ -157,14 +166,14 @@ function renderContent() {
     updateElement('main-article-title', mainArticleLlmData?.title, true);
     updateElement('main-article-text', mainArticleLlmData?.text, true);
     const mainArticleImageData = slots.mainArticle?.imageOutputs?.[selectedImageGen];
-    updateImage('main-article-image', mainArticleImageData?.imageUrl, mainArticleImageData?.imageAlt);
+    updateImage('main-article-image', withBase(mainArticleImageData?.imageUrl), mainArticleImageData?.imageAlt);
 
     // Comparison Article
     const comparisonArticleLlmData = slots.comparisonArticle?.llmOutputs?.[selectedLLM];
     updateElement('comparison-article-title', comparisonArticleLlmData?.title, true);
     updateElement('comparison-article-text', comparisonArticleLlmData?.text, true);
     const comparisonArticleImageData = slots.comparisonArticle?.imageOutputs?.[selectedImageGen];
-    updateImage('comparison-article-image', comparisonArticleImageData?.imageUrl, comparisonArticleImageData?.imageAlt);
+    updateImage('comparison-article-image', withBase(comparisonArticleImageData?.imageUrl), comparisonArticleImageData?.imageAlt);
 
     // LLM Story
     const llmStoryData = slots.llmStory?.llmOutputs?.[selectedLLM];
