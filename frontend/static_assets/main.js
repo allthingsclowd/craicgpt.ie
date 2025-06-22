@@ -7,6 +7,9 @@
 let currentPaperData = null;
 let selectedLLM      = 'anthropic.claude-3-sonnet-20240229-v1';
 let selectedImageGen = 'amazon.titan-image-generator-v1';
+// ─── track which JSON file we just fetched ───────────────────────────────
+let currentContentUrl = null;      // e.g. ".../2025/06/22/todays_paper.json"
+
 const MAX_FALLBACK_ATTEMPTS = 7;
 
 const newspaperPlaceholders = {
@@ -107,6 +110,18 @@ function updateImage(id, imageUrl, altText) {
 
 // Function to render content based on currentPaperData and selections
 function renderContent() {
+    /* ---------- resolve relative <img src> paths ---------- */
+    const basePath = currentContentUrl
+        ? currentContentUrl.replace(/todays_paper\.json$/i, '')
+        : '';                                // blank until JSON is fetched
+
+    function withBase(url) {
+        if (!url) return url;
+        return /^(https?:)?\/\//.test(url)   // already absolute?
+            ? url
+            : basePath + url;
+    }
+
     if (!currentPaperData || !currentPaperData.contentSlots) {
         console.warn("No paper data or content slots available. Rendering placeholders.");
         // Populate with placeholders
@@ -150,15 +165,6 @@ function renderContent() {
     selectedImageGen = getSelectedImageGen();
     console.log(`Rendering with LLM: ${selectedLLM}, ImageGen: ${selectedImageGen}`);
 
-    // Determine the folder that today's JSON was loaded from
-    const basePath = contentUrl.replace(/todays_paper\.json$/, '');
-
-    // Wrap a tiny util so every image URL gets the prefix unless it’s already absolute
-    function withBase(url) {
-    return (url && !url.match(/^https?:\/\//)) ? basePath + url : url;
-}
-
-
     const slots = currentPaperData.contentSlots;
 
     // Main Article
@@ -200,7 +206,7 @@ function renderContent() {
                 const imgElement = adElementContainer.querySelector('img'); // Gets the <img> tag within the div
                 if (imgElement) {
                     if (adData && adData.imageUrl) {
-                        imgElement.src = adData.imageUrl;
+                        imgElement.src = withBase(adData.imageUrl);
                         imgElement.alt = adData.imageAlt || 'Advertisement';
                         imgElement.style.display = ''; // Ensure image is visible if previously hidden
                     } else {
@@ -271,6 +277,7 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
     // const contentUrl = `/content/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
     //const contentUrl = `static_assets/sample_data/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
     const contentUrl = `static_assets/content/website/${yearStr}/${monthStr}/${dayStr}/todays_paper.json`;
+    currentContentUrl = contentUrl;          // ★ save for renderContent()
 
     fetch(contentUrl)
         .then(response => {
