@@ -19,7 +19,7 @@ variable "project_name" {
 variable "environment" {
   description = "The deployment environment (e.g., 'dev', 'staging', 'prod'). Used for tagging and resource naming."
   type        = string
-  default     = "dev"
+  default     = "prod"
 }
 
 variable "common_tags" {
@@ -32,13 +32,13 @@ variable "common_tags" {
 variable "domain_name" {
   description = "The primary domain name for the project (e.g., 'craicgpt.ie'). Used for ACM."
   type        = string
-  default     = "development.craicgpt.ie"
+  default     = "craicgpt.ie"
 }
 
 variable "cloudfront_aliases" {
   description = "A list of CNAME aliases (e.g., domain names) for the CloudFront distribution."
   type        = list(string)
-  default = ["development.craicgpt.ie"]
+  default = ["craicgpt.ie"]
 }
 
 variable "llm_api_key_secret_arn" {
@@ -96,7 +96,7 @@ variable "enable_scheduler" {
 variable "s3_bucket_name_override" {
   description = "Optional: Override the S3 bucket name. If not set, a name will be derived using the project_name and environment variables by the S3 submodule."
   type        = string
-  default     = "craicgpt-ie-development"
+  default     = "craicgpt-ie-production"
 }
 
 variable "s3_enable_versioning" {
