@@ -96,7 +96,16 @@ log = logging.getLogger("image_runner")
 today_iso = lambda: datetime.now(ZoneInfo("Europe/London")).date().isoformat()
 
 def s3_read(key: str) -> str:
-    return s3.get_object(Bucket=PROMPT_BUCKET, Key=key)["Body"].read().decode()
+    try:
+        response = s3.get_object(Bucket=PROMPT_BUCKET, Key=key)
+        log.info(f"S3_READ_SUCCESS: Successfully read S3 key: '{key}' from bucket: '{PROMPT_BUCKET}'")
+        return response["Body"].read().decode()
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            log.error(f"S3_READ_FAIL (NoSuchKey): Key: '{key}' not found in bucket: '{PROMPT_BUCKET}'")
+        else:
+            log.error(f"S3_READ_FAIL (ClientError): Error reading key '{key}' from bucket '{PROMPT_BUCKET}': {e}")
+        raise # Re-raise the exception to be handled by the caller
 
 def s3_put(key: str, data: bytes, ct="image/png"):
     s3.put_object(Bucket=PROMPT_BUCKET, Key=key, Body=data, ContentType=ct)
