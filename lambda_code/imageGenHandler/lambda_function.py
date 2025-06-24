@@ -283,25 +283,14 @@ def lambda_handler(event, _ctx):
                         })
                         continue # Skip to next model or prompt_id
 
-
-                # if Bedrock blocked the request outright …
-                if blocked or resp is None:
-                    if blocked:
-                # No longer needed due to earlier check and continue
-                # if blocked or resp is None:
-                #     if blocked:
-                #         entry = {
-                #             "blocked": True,
-                #             "reason":  reason[:120] if reason else ""
-                #         }
-                #         if is_ad:
-                #             model_ad_images[ad_idx] = entry
-                #         else:
-                #             model_slot_output.update(entry)
-                #     # either way: skip to next PID / model
-                #     continue
+                # Redundant block removed as this condition (blocked or resp is None)
+                # is already handled by the logic from lines 262-279 which includes a `continue`.
+                # The original syntax error was caused by the `if blocked:` within this
+                # (now removed) block not having an indented executable statement after
+                # its own contents were commented out.
 
                 # ─── parse Bedrock response ───────────────────────────────
+                # This part is now only reached if `resp` is not None and `blocked` is False.
                 raw = resp["body"].read()
                 try:
                     payload = json.loads(raw)
