@@ -9,7 +9,7 @@
 #           – automatic fallback to minimal single-prompt schema on
 #             ValidationException
 #      3. Save raw output ➜ `results/<date>/<prompt>/<model>.txt`
-#      4. Merge output into    `static_assets/sample_data/YYYY/MM/DD/todays_paper.json`
+#      4. Merge output into    `static_assets/content/website/YYYY/MM/DD/paper_content.json`
 #      5. **NEW:** Log total **output-tokens per rolling minute** so you
 #         can compare with Bedrock token-per-minute quotas.
 #
@@ -47,8 +47,8 @@ from zoneinfo import ZoneInfo
 # ─── Environment & AWS clients ──────────────────────────────────────────
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
 
-PROMPT_ROOT   = "static_assets/content/prompts"
-WEBSITE_ROOT  = "static_assets/content/website"
+PROMPT_ROOT         = "static_assets/content/prompts"
+PAPER_CONTENT_DIR = "static_assets/content/website" # Renamed from WEBSITE_ROOT
 
 DEFAULT_MODELS = [
     m.strip() for m in os.getenv(
@@ -82,7 +82,7 @@ def s3_put(key: str, data, ct="text/plain; charset=utf-8"):
 
 # ─── Newspaper JSON skeleton & helpers ──────────────────────────────────
 def load_paper_json(y, m, d):
-    key = f"{WEBSITE_ROOT}/{y}/{m}/{d}/todays_paper.json"
+    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json" # Changed filename and variable
     try:
         return key, json.loads(s3_read(key))
     except s3.exceptions.NoSuchKey:
@@ -95,8 +95,8 @@ def load_paper_json(y, m, d):
                 "mainArticle":       { "llmOutputs": {}, "imageOutputs": {} },
                 "authorBio":         { "text": "<p>Editor bio not generated yet.</p>" },
                 "comparisonArticle": { "llmOutputs": {}, "imageOutputs": {} },
-                "llmStory":          { "llmOutputs": {} },
-                "joke":              { "llmOutputs": {} },
+                "llmStory":          { "llmOutputs": {}, "imageOutputs": {} }, # Added imageOutputs
+                "joke":              { "llmOutputs": {}, "imageOutputs": {} }, # Added imageOutputs
                 "advertisements":    { "imageOutputs": {} }
             }
         }

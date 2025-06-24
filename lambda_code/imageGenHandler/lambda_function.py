@@ -7,17 +7,19 @@
 #      2. Call the model twice (512² & 1024²)
 #         – automatic **exponential back-off** on *ThrottlingException*
 #         – skip on *ValidationException* (blocked by model content filters)
-#      3. Save raw bytes ➜ `static_assets/sample_data/YYYY/MM/DD/<file>.png`
-#      4. Merge results into `todays_paper.json › contentSlots[*].imageOutputs`
+#      3. Save raw bytes ➜ `static_assets/content/website/YYYY/MM/DD/<file>.png`
+#      4. Merge results into `paper_content.json › contentSlots[*].imageOutputs`
 #      5. Log rolling request count per minute  (debug capacity tracking)
 #
 #  IMAGE-PROMPT → NEWSPAPER SLOT MAP
 #      img_01 → mainArticle        (hero)
 #      img_02 → comparisonArticle  (hero)
-#      img_03 → llmStory           (spot)
-#      img_04 → joke               (spot)
-#      img_05 → advertisements     (ad-block 1)
-#      img_06 → advertisements     (ad-block 2)
+#      img_03 → advertisements     (ad-block 1) # Corrected mapping based on code
+#      img_04 → advertisements     (ad-block 2) # Corrected mapping based on code
+#      img_05 → advertisements     (ad-block 3)
+#      img_06 → advertisements     (ad-block 4)
+#      img_07 → llmStory           (spot) # Added for new functionality
+#      img_08 → joke               (spot) # Added for new functionality
 #
 #  MODEL SUPPORT  (GA 2025-06)
 #      • amazon.titan-image-generator-v1   – text → image
@@ -58,8 +60,8 @@ from zoneinfo import ZoneInfo
 # ─── Environment & AWS clients ──────────────────────────────────────────
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
 
-PROMPT_ROOT  = "static_assets/content/prompts"
-WEBSITE_ROOT = "static_assets/content/website"
+PROMPT_ROOT       = "static_assets/content/prompts"
+PAPER_CONTENT_DIR = "static_assets/content/website" # Renamed from WEBSITE_ROOT
 
 DEFAULT_MODELS = [
     m.strip() for m in os.getenv(
@@ -101,11 +103,14 @@ def s3_put(key: str, data: bytes, ct="image/png"):
 
 # ─── Newspaper JSON skeleton & helpers ──────────────────────────────────
 def load_paper_json(y, m, d):
-    key = f"{WEBSITE_ROOT}/{y}/{m}/{d}/todays_paper.json"
+    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json" # Changed filename and variable
     try:
         return key, json.loads(s3_read(key))
     except s3.exceptions.NoSuchKey:
-        raise RuntimeError("todays_paper.json must exist before image pass")
+        # If llmHandler hasn't created it yet, this is an issue.
+        # However, for robustness, we could create a minimal shell, though it might hide upstream errors.
+        # For now, maintaining original behavior of raising error.
+        raise RuntimeError("paper_content.json must exist before image pass. Run llmHandler first.")
 
 def save_paper_json(key, obj):
     s3_put(key, json.dumps(obj, indent=2).encode(), "application/json")
@@ -114,11 +119,17 @@ def save_paper_json(key, obj):
 PROMPT_TO_SLOT = {
     "img_01": "mainArticle",
     "img_02": "comparisonArticle",
-    "img_03": "advertisements",
-    "img_04": "advertisements",
-    "img_05": "advertisements",
-    "img_06": "advertisements"
+    "img_03": "advertisements", # Keeps ad_idx logic simple: img_03 -> ad 0
+    "img_04": "advertisements", # img_04 -> ad 1
+    "img_05": "advertisements", # img_05 -> ad 2
+    "img_06": "advertisements", # img_06 -> ad 3
+    "img_07": "llmStory",
+    "img_08": "joke"
 }
+ALT_SLOT_TEXT.update({ # Add alt text for new slots
+    "llmStory": "LLM story illustration",
+    "joke": "Joke illustration"
+})
 
 # ─── REQUEST BODY builder (Titan & Nova share schema) ───────────────────
 def build_body(model_id: str, prompt: str, *, size: int) -> str:
@@ -217,13 +228,14 @@ def extract_base64(payload, model_id):
 # ─── Lambda entry-point ─────────────────────────────────────────────────
 def lambda_handler(event, _ctx):
     """
-    • For every requested date → read prompts img_01 … img_06  
+    • For every requested date → read prompts img_01 … img_08 (now includes llmStory & joke)
     • Call each Bedrock image model at 512 px & 1024 px  
     • Persist the PNGs under static_assets/…  
-    • Merge their filenames (or block flags) into todays_paper.json
+    • Merge their filenames (or block flags) into paper_content.json
     """
     dates      = event.get("dates")      or [event.get("date", today_iso())]
-    prompt_ids = event.get("prompt_ids") or [f"img_{i:02}" for i in range(1, 7)]
+    # Updated to include img_07 and img_08 for llmStory and joke images
+    prompt_ids = event.get("prompt_ids") or [f"img_{i:02}" for i in range(1, 9)]
     model_ids  = event.get("model_ids")  or DEFAULT_MODELS
 
     for day in dates:
@@ -241,39 +253,53 @@ def lambda_handler(event, _ctx):
 
             for model_id in model_ids:
                 mdl_slug  = model_id.split(":")[0].split("/")[-1]
-                # slot_dict = paper["contentSlots"][slot]["imageOutputs"] \
-                #                 .setdefault(mdl_slug, {})
-
-                px = 512
+                px = 512 # Only generating 512px for now, can be parameterized later if needed
                 tag  = f"{pid}-{px}"
                 body = build_body(model_id, prompt_txt, size=px)
 
                 resp, blocked, reason = safe_invoke(model_id, body, tag)
-                # ───────────────────────── NEW STORAGE LOGIC ──────────────────────
-                is_ad = (slot == "advertisements")          # ads need 4-item array
 
-                # choose / create container for this model
+                # Ensure the imageOutputs dictionary exists for the slot and model slug
+                slot_image_outputs = paper["contentSlots"][slot].setdefault("imageOutputs", {})
+
+                is_ad = (slot == "advertisements")
+
                 if is_ad:
-                    ad_idx   = int(pid.split("_")[1]) - 3      # img_03 → 0 … img_06 → 3
-                    container = paper["contentSlots"][slot]["imageOutputs"] \
-                                   .setdefault(mdl_slug, [None] * 4)
-                else:
-                    container = paper["contentSlots"][slot]["imageOutputs"] \
-                                   .setdefault(mdl_slug, {})
+                    # Ensure the list for ad images for this model_slug exists and has 4 slots
+                    model_ad_images = slot_image_outputs.setdefault(mdl_slug, [None] * 4)
+                    ad_idx = int(pid.split("_")[1]) - 3  # img_03 -> 0, ..., img_06 -> 3
+
+                    if blocked or resp is None:
+                        entry = {"blocked": True, "reason": reason[:120] if reason else ""}
+                        model_ad_images[ad_idx] = entry
+                        continue # Skip to next model or prompt_id
+
+                else: # For non-ad slots like mainArticle, llmStory, joke
+                    model_slot_output = slot_image_outputs.setdefault(mdl_slug, {})
+                    if blocked or resp is None:
+                        model_slot_output.update({
+                            "blocked": True,
+                            "reason":  reason[:120] if reason else ""
+                        })
+                        continue # Skip to next model or prompt_id
+
 
                 # if Bedrock blocked the request outright …
                 if blocked or resp is None:
                     if blocked:
-                        entry = {
-                            "blocked": True,
-                            "reason":  reason[:120] if reason else ""
-                        }
-                        if is_ad:
-                            container[ad_idx] = entry
-                        else:
-                            container.update(entry)
-                    # either way: skip to next PID / model
-                    continue
+                # No longer needed due to earlier check and continue
+                # if blocked or resp is None:
+                #     if blocked:
+                #         entry = {
+                #             "blocked": True,
+                #             "reason":  reason[:120] if reason else ""
+                #         }
+                #         if is_ad:
+                #             model_ad_images[ad_idx] = entry
+                #         else:
+                #             model_slot_output.update(entry)
+                #     # either way: skip to next PID / model
+                #     continue
 
                 # ─── parse Bedrock response ───────────────────────────────
                 raw = resp["body"].read()
@@ -293,27 +319,32 @@ def lambda_handler(event, _ctx):
                     continue
 
                 b64_img = extract_base64(payload, model_id)
-                if not b64_img:                       # 200 OK but no image
-                    log.warning("❔ %s returned 200 OK with no image. Full payload: %s",
-                                model_id, payload)
+                if not b64_img: # 200 OK but no image
+                    log.warning("❔ %s returned 200 OK with no image for %s. Full payload: %s", model_id, pid, payload)
+                    # Create a "blocked" entry to signify missing image data
+                    entry = {"blocked": True, "reason": "No image data in response"}
+                    if is_ad:
+                        model_ad_images[ad_idx] = entry
+                    else:
+                        model_slot_output.update(entry)
                     continue
 
                 # ─── successful image ────────────────────────────────────
                 img_bytes = base64.b64decode(b64_img)
                 fname = f"{pid}_{mdl_slug}_{px}.png"
-                key   = f"{WEBSITE_ROOT}/{y}/{m}/{d}/{fname}"
+                key   = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/{fname}" # Use new variable name
                 s3_put(key, img_bytes)
 
                 entry = (
                     {"imageUrl": fname, "imageAlt": ad_alt(ad_idx)}
                     if is_ad else
-                    {"imageUrl": fname, "imageAlt": ALT_SLOT_TEXT[slot]}
+                    {"imageUrl": fname, "imageAlt": ALT_SLOT_TEXT.get(slot, "Illustration")} # Use .get for safety
                 )
 
                 if is_ad:
-                    container[ad_idx] = entry
+                    model_ad_images[ad_idx] = entry
                 else:
-                    container.update(entry)
+                    model_slot_output.update(entry)
 
 
 
