@@ -208,22 +208,26 @@ def tech_tip_prompt(hl):
     )
 
 
-def _prompt(hl):
+def _prompt(hl): # This function seems unused. Consider removing if confirmed.
     block = "\n".join(f"- {s}: {h}" for s, h in hl)
     return (
         "Provide a ≤150-word bulleted digest of today’s tech headlines, grouped by "
         "source, highlighting any cybersecurity angles.\n\nHEADLINES:\n" + block
     )
 
-def img_prompts(wx):
-    return [
-        "Main Article - in the vibrant, multi-panel pop-art style of the 1960s, featuring a poodle-spaniel mix dog",
-        "Second Article - in the geometric 1980s pop style of an iconic female singer, featuring a curly-haired poodle mix dog",
-        "Ad1 - A high-quality food advertisement for a premium grocery store, featuring a poodle-spaniel mix dog",
-        "Ad2 - A colourful advertisement for a family supermarket, featuring a happy poodle-spaniel mix dog",
-        "Ad3 - In the neon and pastel style of a 1980s new wave music video, featuring a poodle-spaniel mix dog",
-        "Ad4 - In the style of a DIY and home improvement store ad, featuring a dog in a beautifully decorated garden",
-    ]
+# Clearly defined image prompts mapped by their intended img_id
+# Note: wx (weather) argument was passed to the old img_prompts function but not used by the prompts.
+# If future image prompts need weather, this structure can be adapted (e.g., make this a function).
+STATIC_IMAGE_PROMPT_DEFINITIONS = {
+    "img_01": "Main Article - in the vibrant, multi-panel pop-art style of the 1960s, featuring a poodle-spaniel mix dog",
+    "img_02": "Second Article - in the geometric 1980s pop style of an iconic female singer, featuring a curly-haired poodle mix dog",
+    "img_03": "Ad1 - A high-quality food advertisement for a premium grocery store, featuring a poodle-spaniel mix dog", # Corresponds to ad slot 1
+    "img_04": "Ad2 - A colourful advertisement for a family supermarket, featuring a happy poodle-spaniel mix dog", # Corresponds to ad slot 2
+    "img_05": "Ad3 - In the neon and pastel style of a 1980s new wave music video, featuring a poodle-spaniel mix dog", # Corresponds to ad slot 3
+    "img_06": "Ad4 - In the style of a DIY and home improvement store ad, featuring a dog in a beautifully decorated garden", # Corresponds to ad slot 4
+    "img_07": "A whimsical illustration for a creative short story, perhaps featuring abstract elements or a stylized character.", # For llmStory
+    "img_08": "A lighthearted and humorous cartoon depiction related to a simple, clever joke."  # For joke
+}
 
 # ─────────────────────────  MAIN HANDLER  ────────────────────────────────
 def lambda_handler(event, _):
@@ -253,9 +257,19 @@ def lambda_handler(event, _):
             "prompt": text,
         })
 
-    # 6 × image prompts
-    for i, ptxt in enumerate(img_prompts(wx), 1):
-        pid = f"img_{i:02}"
+    # Image prompts from the new dictionary structure
+    # The wx argument is not used by current static prompts, so not passed here.
+    # If IMAGE_PROMPT_DEFINITIONS becomes a function needing wx, this call would change.
+
+    EXPECTED_IMAGE_PROMPT_IDS = [f"img_{i:02}" for i in range(1, 9)] # img_01 to img_08
+    GENERIC_IMAGE_PROMPT_FALLBACK = "A generic placeholder image prompt, please review and update."
+
+    for pid in EXPECTED_IMAGE_PROMPT_IDS:
+        ptxt = STATIC_IMAGE_PROMPT_DEFINITIONS.get(pid)
+        if ptxt is None:
+            ptxt = GENERIC_IMAGE_PROMPT_FALLBACK
+            log.warning(f"Image prompt ID '{pid}' not found in STATIC_IMAGE_PROMPT_DEFINITIONS. Using generic fallback.")
+
         put_json(prefix + f"{pid}.json", {
             "type":   "image",
             "id":     pid,
@@ -264,9 +278,11 @@ def lambda_handler(event, _):
             "prompt": ptxt,
         })
 
+    # Note: The original code generated 10 prompts (4 LLM, 6 Image).
+    # Now generating 4 LLM + 8 Image prompts = 12 total.
     return {
         "status": "OK",
-        "saved_prompts": 10,
+        "saved_prompts": 12, # Updated count: 4 LLM + 8 Image
         "date": today_iso,
         "prefix": prefix
     }
