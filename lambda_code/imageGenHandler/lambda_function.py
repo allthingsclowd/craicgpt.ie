@@ -248,7 +248,12 @@ def lambda_handler(event, _ctx):
                 log.warning("Unknown img_id %s – skipped", pid)
                 continue
 
-            prompt_json = s3_read(f"{PROMPT_ROOT}/{y}/{m}/{d}/{pid}.json")
+            s3_key_for_prompt = f"{PROMPT_ROOT}/{y}/{m}/{d}/{pid}.json"
+            log.info(f"Attempting to read prompt from S3 Bucket: {PROMPT_BUCKET}")
+            log.info(f"Constructed S3 Key: {s3_key_for_prompt}")
+            log.info(f"Key components: PROMPT_ROOT='{PROMPT_ROOT}', y='{y}', m='{m}', d='{d}', pid='{pid}'")
+
+            prompt_json = s3_read(s3_key_for_prompt)
             prompt_txt  = json.loads(prompt_json)["prompt"]
 
             for model_id in model_ids:
