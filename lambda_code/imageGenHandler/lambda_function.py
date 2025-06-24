@@ -275,12 +275,15 @@ def lambda_handler(event, _ctx):
                         continue # Skip to next model or prompt_id
 
                 else: # For non-ad slots like mainArticle, llmStory, joke
-                    model_slot_output = slot_image_outputs.setdefault(mdl_slug, {})
+                    # model_specific_outputs will be the dictionary under the model_slug
+                    # e.g., paper.contentSlots.mainArticle.imageOutputs["amazon-titan-image-generator-v1"]
+                    model_specific_outputs = slot_image_outputs.setdefault(mdl_slug, {})
+
                     if blocked or resp is None:
-                        model_slot_output.update({
+                        model_specific_outputs[pid] = { # Store under the specific prompt_id (img_01, img_07, etc.)
                             "blocked": True,
                             "reason":  reason[:120] if reason else ""
-                        })
+                        }
                         continue # Skip to next model or prompt_id
 
                 # Redundant block removed as this condition (blocked or resp is None)
@@ -333,8 +336,9 @@ def lambda_handler(event, _ctx):
                 if is_ad:
                     model_ad_images[ad_idx] = entry
                 else:
-                    model_slot_output.update(entry)
-
+                        # For non-ad slots, entry is stored under the specific prompt_id (pid)
+                        # model_specific_outputs was already retrieved/created earlier
+                        model_specific_outputs[pid] = entry
 
 
         save_paper_json(paper_key, paper)
