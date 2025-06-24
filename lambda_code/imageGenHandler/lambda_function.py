@@ -319,9 +319,13 @@ def lambda_handler(event, _ctx):
                     reason = payload.get("filteredReason", "Image blocked by AWS filters")
                     entry = {"blocked": True, "reason": reason}
                     if is_ad:
-                        container[ad_idx] = entry
+                        # 'container' here refers to 'model_ad_images' if is_ad was true when it was set up.
+                        # This assumes 'model_ad_images' is the intended variable if is_ad path was taken.
+                        # However, 'container' is not explicitly passed or re-assigned here, relying on prior scope.
+                        # For safety and clarity, explicitly use the variables defined in the respective scopes.
+                        model_ad_images[ad_idx] = entry
                     else:
-                        container.update(entry)
+                        model_specific_outputs[pid] = entry # Corrected: Use model_specific_outputs
                     continue
 
                 b64_img = extract_base64(payload, model_id)
@@ -332,7 +336,7 @@ def lambda_handler(event, _ctx):
                     if is_ad:
                         model_ad_images[ad_idx] = entry
                     else:
-                        model_slot_output.update(entry)
+                        model_specific_outputs[pid] = entry # Corrected: Use model_specific_outputs
                     continue
 
                 # ─── successful image ────────────────────────────────────
