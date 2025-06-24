@@ -60,7 +60,7 @@ from zoneinfo import ZoneInfo
 # ─── Environment & AWS clients ──────────────────────────────────────────
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
 
-PROMPT_ROOT       = "static_assets/content/prompts"
+PROMPT_ROOT       = "prompts" # Corrected path: remove static_assets/content/ prefix
 PAPER_CONTENT_DIR = "static_assets/content/website" # Renamed from WEBSITE_ROOT
 
 DEFAULT_MODELS = [
