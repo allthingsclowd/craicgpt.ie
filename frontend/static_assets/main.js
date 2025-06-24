@@ -8,7 +8,7 @@
 // Example: "https://your-bucket-name.s3.your-region.amazonaws.com"
 //      OR "https://d123abcdef8gh.cloudfront.net"
 // Ensure it does NOT end with a trailing slash.
-const S3_BUCKET_BASE_URL = "https://eu-west-1.console.aws.amazon.com/s3/buckets/craicgpt-ie-production"; // FIXME: USER CONFIGURATION REQUIRED
+const S3_BUCKET_BASE_URL = "https://YOUR_S3_BUCKET_OR_CLOUDFRONT_URL_HERE"; // FIXME: USER CONFIGURATION REQUIRED
 
 // Global variables to store fetched data and current selections
 let currentPaperData = null;
@@ -298,10 +298,12 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
 
     currentContentUrl = fullS3Url; // Store the full S3 URL
 
+    console.log("Attempting to fetch paper_content.json from:", fullS3Url); // Added for debugging
     fetch(fullS3Url) // Fetch from the full S3 URL
         .then(response => {
             if (!response.ok) {
-                throw new Error(`Network response was not ok: ${response.statusText} (Status: ${response.status}) for URL: ${contentUrl}`);
+                // Use fullS3Url in error message for clarity, as contentUrl is not defined in this scope anymore
+                throw new Error(`Network response was not ok: ${response.statusText} (Status: ${response.status}) for URL: ${fullS3Url}`);
             }
             return response.json();
         })
