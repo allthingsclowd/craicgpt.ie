@@ -1,0 +1,9 @@
+{
+  "type": "llm",
+  "id": "llm_02",
+  "date": "2025-06-24",
+  "models": [
+    "anthropic.claude-3-sonnet-20240229-v1:0"
+  ],
+  "prompt": "Provide a ≤150-word bulleted digest of today’s tech headlines, grouped by source, highlighting any cybersecurity angles.\n\nHEADLINES:\n- TheRegister: Huawei’s latest notebook shows China is still generations behind in chipmaking\n- TheRegister: The AIpocalypse is here for websites as search referrals plunge\n- TheRegister: Techie went home rather than fix mistake that caused a massive meltdown\n- TheRegister: Breaking the nerd internet: Three overlapping generations of tech history – in one selfie\n- TheRegister: Google faces UK clampdown as watchdog floats market power rules\n- TheRegister: Datacenter market offers us captive customer base, say investors\n- TheRegister: Tiling terminal multiplexers for the console connoisseur\n- TheRegister: China’s trying to slim down, which will fatten the smartwatch market\n- TheRegister: Lenovo shows what a Chromebook packing a MediaTek Kompanio Ultra can do\n- TheRegister: 'Psylo' browser tries to obscure digital fingerprints by giving every tab its own IP address"
+}

@@ -1,0 +1,9 @@
+{
+  "type": "image",
+  "id": "img_04",
+  "date": "2025-06-24",
+  "models": [
+    "stability.stable-diffusion-xl-v1"
+  ],
+  "prompt": "Ad2 - A colourful advertisement for a family supermarket, featuring a happy poodle-spaniel mix dog"
+}

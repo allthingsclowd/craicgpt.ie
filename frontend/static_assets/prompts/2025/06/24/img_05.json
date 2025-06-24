@@ -1,0 +1,9 @@
+{
+  "type": "image",
+  "id": "img_05",
+  "date": "2025-06-24",
+  "models": [
+    "stability.stable-diffusion-xl-v1"
+  ],
+  "prompt": "Ad3 - In the neon and pastel style of a 1980s new wave music video, featuring a poodle-spaniel mix dog"
+}

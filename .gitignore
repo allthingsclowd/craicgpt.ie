@@ -265,3 +265,5 @@ amplify/backend/node_modules/
 *.tfstate.backup
 
 # Add more as needed based on your specific tools and frameworks
+
+*.png

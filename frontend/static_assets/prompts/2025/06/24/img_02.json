@@ -1,0 +1,9 @@
+{
+  "type": "image",
+  "id": "img_02",
+  "date": "2025-06-24",
+  "models": [
+    "stability.stable-diffusion-xl-v1"
+  ],
+  "prompt": "Second Article - in the geometric 1980s pop style of an iconic female singer, featuring a curly-haired poodle mix dog"
+}

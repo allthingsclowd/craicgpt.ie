@@ -1,0 +1,9 @@
+{
+  "type": "llm",
+  "id": "llm_03",
+  "date": "2025-06-24",
+  "models": [
+    "anthropic.claude-3-sonnet-20240229-v1:0"
+  ],
+  "prompt": "Write a 300-word feel-good local article blending:\n • The most uplifting headline below (or invent one)\n • Today’s weather summary\n • Tonight’s farmers’ market at The Square\n\nWEATHER:\n  • Today: 3-day forecast for Pontesbury from BBC Weather, including weather, temperature and wind information\n  • Tonight: Maximum Temperature: 19°C (67°F), Minimum Temperature: 15°C (60°F), Wind Direction: Westerly, Wind Speed: 18mph, Visibility: Good, Pressure: 1010mb, Humidity: 74%, UV Risk: 4, Pollution: Low, Sunrise: 04:48 BST, Sunset: 21:39 BST\n\nHEADLINES:\n- ShropshireStar: 'We are heartbroken' - Shropshire woman who battled rare disease and had nearly 100 surgeries has died aged 26\n- ShropshireStar: Shrewsbury Town: Salop leading the race to land Wrexham defender\n- ShropshireStar: Radnorshire churches took centre stage at a Women's Institute meeting"
+}

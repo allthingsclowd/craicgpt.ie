@@ -1,0 +1,9 @@
+{
+  "type": "image",
+  "id": "img_01",
+  "date": "2025-06-24",
+  "models": [
+    "stability.stable-diffusion-xl-v1"
+  ],
+  "prompt": "Main Article - in the vibrant, multi-panel pop-art style of the 1960s, featuring a poodle-spaniel mix dog"
+}

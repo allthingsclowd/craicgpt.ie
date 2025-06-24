@@ -1,0 +1,9 @@
+{
+  "type": "llm",
+  "id": "llm_04",
+  "date": "2025-06-24",
+  "models": [
+    "anthropic.claude-3-sonnet-20240229-v1:0"
+  ],
+  "prompt": "Draft a 250-word ‘Tech Tip of the Day’ covering:\n • Why a CNAPP beats siloed tools\n • Detecting secrets in container images\n • A Terraform least-privilege IAM guardrail snippet\nReference a headline below if relevant.\n\nHEADLINES:\n- AquaBlog: What Gartner Wants Every CTO to Know About Kubernetes Security\n- AquaBlog: Expert insight, best practices and advice on cloud native security, trends, threat intelligence and compliance."
+}
