@@ -3,6 +3,13 @@
 // Date: 2023-10-27
 // Purpose: Handles dynamic content loading and updates for the CraicGPT.ie website.
 
+// IMPORTANT: Configure this URL to point to the root of your S3 bucket or CloudFront distribution
+// where the 'static_assets/content/website/' directory is located.
+// Example: "https://your-bucket-name.s3.your-region.amazonaws.com"
+//      OR "https://d123abcdef8gh.cloudfront.net"
+// Ensure it does NOT end with a trailing slash.
+const S3_BUCKET_BASE_URL = "https://YOUR_S3_BUCKET_OR_CLOUDFRONT_URL_HERE"; // FIXME: USER CONFIGURATION REQUIRED
+
 // Global variables to store fetched data and current selections
 let currentPaperData = null;
 let selectedLLM      = 'anthropic.claude-3-sonnet-20240229-v1';
@@ -285,10 +292,13 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
     }
 
     const [yearStr, monthStr, dayStr] = dateString.split('-');
-    const contentUrl = `static_assets/content/website/${yearStr}/${monthStr}/${dayStr}/paper_content.json`; // Updated filename
-    currentContentUrl = contentUrl;
+    // Construct the full URL using the S3_BUCKET_BASE_URL
+    const relativePath = `static_assets/content/website/${yearStr}/${monthStr}/${dayStr}/paper_content.json`;
+    const fullS3Url = `${S3_BUCKET_BASE_URL}/${relativePath}`;
 
-    fetch(contentUrl)
+    currentContentUrl = fullS3Url; // Store the full S3 URL
+
+    fetch(fullS3Url) // Fetch from the full S3 URL
         .then(response => {
             if (!response.ok) {
                 throw new Error(`Network response was not ok: ${response.statusText} (Status: ${response.status}) for URL: ${contentUrl}`);
