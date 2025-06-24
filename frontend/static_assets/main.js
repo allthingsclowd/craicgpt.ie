@@ -8,7 +8,7 @@
 // Example: "https://your-bucket-name.s3.your-region.amazonaws.com"
 //      OR "https://d123abcdef8gh.cloudfront.net"
 // Ensure it does NOT end with a trailing slash.
-const S3_BUCKET_BASE_URL = "https://YOUR_S3_BUCKET_OR_CLOUDFRONT_URL_HERE"; // FIXME: USER CONFIGURATION REQUIRED
+const S3_BUCKET_BASE_URL = "https://eu-west-1.console.aws.amazon.com/s3/buckets/craicgpt-ie-production"; // FIXME: USER CONFIGURATION REQUIRED
 
 // Global variables to store fetched data and current selections
 let currentPaperData = null;
