@@ -144,8 +144,9 @@ function renderContent() {
         if (typeof imageData === 'string') {
             url = imageData;
         } else if (typeof imageData === 'object') {
-            url = imageData.url;
-            alt = imageData.alt || alt;
+            // Handle both old format {url, alt, blocked} and new format {imageUrl, imageAlt, blocked}
+            url = imageData.url || imageData.imageUrl;
+            alt = imageData.alt || imageData.imageAlt || alt;
             blocked = imageData.blocked || false;
         }
 
@@ -326,7 +327,15 @@ function renderContent() {
 
             // Use specific placeholder for this ad if processedAdImage is null/invalid
             const placeholderAd = newspaperPlaceholders.advertisements[i] || { imageUrl: 'static_assets/images/placeholder_ad.png', imageAlt: 'Advertisement space unavailable' };
-            updateImage(adImgElement.id, processedAdImage, `Advertisement ${i + 1}`, placeholderAd.imageUrl, placeholderAd.imageAlt);
+            
+            if (processedAdImage && processedAdImage.url) {
+                adImgElement.src = processedAdImage.url;
+                adImgElement.alt = processedAdImage.alt || `Advertisement ${i + 1}`;
+            } else {
+                adImgElement.src = placeholderAd.imageUrl;
+                adImgElement.alt = placeholderAd.imageAlt;
+            }
+            adImgElement.style.display = '';
         }
     }
 
