@@ -90,28 +90,38 @@ function updateElement(id, content, isHtml = false) {
 // Function to update the source and alt text of an image element
 // Now handles image data object which might include {url, alt, blocked}
 function updateImage(id, imageData, defaultAltText, placeholderUrl = 'static_assets/images/placeholder_article.png', placeholderAlt = 'Content unavailable') {
+    console.log(`updateImage called: id="${id}", imageData=`, imageData, `defaultAltText="${defaultAltText}"`);
+    
     const imgElement = document.getElementById(id);
+    console.log(`updateImage: imgElement=`, imgElement);
+    
     if (imgElement) {
         if (imageData && (imageData.url || imageData.blocked)) {
             if (imageData.blocked) {
+                console.log(`updateImage: Setting blocked image for ${id}`);
                 imgElement.src = 'static_assets/images/placeholder_article.png';
                 imgElement.alt = imageData.alt || "Image generation blocked due to safety policy";
                 imgElement.style.display = '';
             } else {
+                console.log(`updateImage: Setting image URL for ${id}: ${imageData.url}`);
                 imgElement.src = imageData.url;
                 imgElement.alt = imageData.alt || defaultAltText || 'Dynamic image content';
                 imgElement.style.display = '';
             }
         } else if (typeof imageData === 'string' && imageData) { // Backward compatibility for direct URL string
+            console.log(`updateImage: Setting direct URL string for ${id}: ${imageData}`);
             imgElement.src = imageData;
             imgElement.alt = defaultAltText || 'Dynamic image content';
             imgElement.style.display = '';
         }
         else { // Fallback to placeholder
+            console.log(`updateImage: Setting placeholder for ${id}: ${placeholderUrl}`);
             imgElement.src = placeholderUrl;
             imgElement.alt = placeholderAlt;
             imgElement.style.display = ''; // Ensure placeholder is visible
         }
+    } else {
+        console.error(`updateImage: Element with id "${id}" not found`);
     }
 }
 
@@ -205,22 +215,41 @@ function renderContent() {
     // Helper to get specific image data (e.g., img_01, img_07) for a slot
     const getImageDataForSlotKey = (slotName, imageKey) => {
         const slotData = slots[slotName];
-        if (!slotData?.imageOutputs) return null;
+        console.log(`getImageDataForSlotKey: slotName="${slotName}", imageKey="${imageKey}"`);
+        console.log(`getImageDataForSlotKey: slotData=`, slotData);
+        
+        if (!slotData?.imageOutputs) {
+            console.log(`getImageDataForSlotKey: No imageOutputs found for slot "${slotName}"`);
+            return null;
+        }
         
         // Use the full model ID instead of extracting slug
         const modelId = selectedImageGen;
+        console.log(`getImageDataForSlotKey: selectedImageGen="${selectedImageGen}", modelId="${modelId}"`);
+        console.log(`getImageDataForSlotKey: imageOutputs=`, slotData.imageOutputs);
         
         // For advertisements, the data is stored as an array under the model ID
         if (slotName === 'advertisements') {
             const adImages = slotData.imageOutputs[modelId];
-            if (!adImages || !Array.isArray(adImages)) return null;
+            console.log(`getImageDataForSlotKey: adImages=`, adImages);
+            if (!adImages || !Array.isArray(adImages)) {
+                console.log(`getImageDataForSlotKey: No valid adImages array found for model "${modelId}"`);
+                return null;
+            }
             
             // Convert imageKey (img_03, img_04, etc.) to array index (0, 1, etc.)
             const adIndex = parseInt(imageKey.split('_')[1]) - 3; // img_03 -> 0, img_04 -> 1, etc.
-            return adImages[adIndex] || null;
+            console.log(`getImageDataForSlotKey: adIndex=${adIndex} for imageKey="${imageKey}"`);
+            const result = adImages[adIndex] || null;
+            console.log(`getImageDataForSlotKey: result=`, result);
+            return result;
         } else {
             // For non-ad slots, the data is stored as an object with prompt IDs as keys
-            return slotData.imageOutputs[modelId]?.[imageKey] || null;
+            const modelOutputs = slotData.imageOutputs[modelId];
+            console.log(`getImageDataForSlotKey: modelOutputs=`, modelOutputs);
+            const result = modelOutputs?.[imageKey] || null;
+            console.log(`getImageDataForSlotKey: result=`, result);
+            return result;
         }
     };
 
@@ -238,7 +267,10 @@ function renderContent() {
     const mainArticleLlmData = getLlmDataForSlot('mainArticle');
     updateElement('main-article-title', mainArticleLlmData?.title, true);
     updateElement('main-article-text', mainArticleLlmData?.text, true);
-    const mainArticleImageProcessed = processImageData(getImageDataForSlotKey('mainArticle', 'img_01'));
+    const mainArticleImageData = getImageDataForSlotKey('mainArticle', 'img_01');
+    console.log('Main article image data:', mainArticleImageData);
+    const mainArticleImageProcessed = processImageData(mainArticleImageData);
+    console.log('Main article image processed:', mainArticleImageProcessed);
     updateImage('main-article-image', mainArticleImageProcessed, 'Lead story illustration');
 
 
@@ -246,20 +278,29 @@ function renderContent() {
     const comparisonArticleLlmData = getLlmDataForSlot('comparisonArticle');
     updateElement('comparison-article-title', comparisonArticleLlmData?.title, true);
     updateElement('comparison-article-text', comparisonArticleLlmData?.text, true);
-    const comparisonArticleImageProcessed = processImageData(getImageDataForSlotKey('comparisonArticle', 'img_02'));
+    const comparisonArticleImageData = getImageDataForSlotKey('comparisonArticle', 'img_02');
+    console.log('Comparison article image data:', comparisonArticleImageData);
+    const comparisonArticleImageProcessed = processImageData(comparisonArticleImageData);
+    console.log('Comparison article image processed:', comparisonArticleImageProcessed);
     updateImage('comparison-article-image', comparisonArticleImageProcessed, 'Comparison story illustration');
 
     // LLM Story (mapped to img_07)
     const llmStoryLlmData = getLlmDataForSlot('llmStory');
     updateElement('llm-story-content', llmStoryLlmData?.content, true);
-    const llmStoryImageProcessed = processImageData(getImageDataForSlotKey('llmStory', 'img_07'));
+    const llmStoryImageData = getImageDataForSlotKey('llmStory', 'img_07');
+    console.log('LLM story image data:', llmStoryImageData);
+    const llmStoryImageProcessed = processImageData(llmStoryImageData);
+    console.log('LLM story image processed:', llmStoryImageProcessed);
     updateImage('llm-story-image', llmStoryImageProcessed, 'LLM generated story illustration', newspaperPlaceholders.llmStory.imageUrl, newspaperPlaceholders.llmStory.imageAlt);
 
 
     // Joke (mapped to img_08)
     const jokeLlmData = getLlmDataForSlot('joke');
     updateElement('joke-content', jokeLlmData?.content, true);
-    const jokeImageProcessed = processImageData(getImageDataForSlotKey('joke', 'img_08'));
+    const jokeImageData = getImageDataForSlotKey('joke', 'img_08');
+    console.log('Joke image data:', jokeImageData);
+    const jokeImageProcessed = processImageData(jokeImageData);
+    console.log('Joke image processed:', jokeImageProcessed);
     updateImage('joke-image', jokeImageProcessed, 'Joke illustration', newspaperPlaceholders.joke.imageUrl, newspaperPlaceholders.joke.imageAlt);
 
 
@@ -279,7 +320,9 @@ function renderContent() {
 
         if (adImgElement) {
             const adImageData = getImageDataForSlotKey('advertisements', adKey);
+            console.log(`Ad ${i + 1} image data:`, adImageData);
             const processedAdImage = processImageData(adImageData);
+            console.log(`Ad ${i + 1} image processed:`, processedAdImage);
 
             // Use specific placeholder for this ad if processedAdImage is null/invalid
             const placeholderAd = newspaperPlaceholders.advertisements[i] || { imageUrl: 'static_assets/images/placeholder_ad.png', imageAlt: 'Advertisement space unavailable' };
