@@ -176,7 +176,7 @@ def diary_prompt(hl, wx):
         " 6. Include antics from Lizzy, Noreen, Saoirse, Terry, Eddie & Puddle.\n"
         " 7. Include a ridiculous tech snafu.\n"
         " 8. Keep it funny; no politics/violence/death.\n"
-        " 9. End with: _"Right. That's enough public disclosure for one day."_\n\n"
+        " 9. End with: 'Right. That's enough public disclosure for one day.'\n\n"
         "HEADLINES:\n" + block + "\n--- END RULES ---"
     )
 
