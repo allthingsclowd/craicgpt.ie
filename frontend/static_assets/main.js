@@ -8,7 +8,7 @@
 // Example: "https://your-bucket-name.s3.your-region.amazonaws.com"
 //      OR "https://d123abcdef8gh.cloudfront.net"
 // Ensure it does NOT end with a trailing slash.
-const S3_BUCKET_BASE_URL = "https://eu-west-1.console.aws.amazon.com/s3/buckets/craicgpt-ie-production"; // FIXME: USER CONFIGURATION REQUIRED
+const S3_BUCKET_BASE_URL = "https://craicgpt.ie"; // Fixed: Use the actual domain instead of AWS console URL
 
 // Global variables to store fetched data and current selections
 let currentPaperData = null;
@@ -25,33 +25,33 @@ const newspaperPlaceholders = {
     mainArticle: {
         title: "City Celebrates Annual Tech Chronicle Gala",
         text: "The grand ballroom buzzed with excitement as tech enthusiasts, innovators, and investors gathered for the annual Tech Chronicle Gala...",
-        imageUrl: "static_assets/images/placeholder_article_main.png",
+        imageUrl: "static_assets/images/placeholder_article.png",
         imageAlt: "Illustration of a bustling city event with futuristic elements"
     },
     comparisonArticle: {
         title: "The AI Revolution: Perspectives from Two Leading Models",
         text: "In an unprecedented dialogue, two leading AI models, InnovateAI and LogicPrime, shared their 'thoughts' on the future of artificial intelligence...",
-        imageUrl: "static_assets/images/placeholder_article_comparison.png",
+        imageUrl: "static_assets/images/placeholder_article.png",
         imageAlt: "Abstract representation of two AI entities in discussion"
     },
     llmStory: {
         content: "<p>Once upon a time, in a world woven from threads of pure data... Sparky became the official storyteller...</p>",
-        imageUrl: "static_assets/images/placeholder_article_llm.png", // Added placeholder
+        imageUrl: "static_assets/images/placeholder_article.png", // Fixed: Use existing placeholder
         imageAlt: "Abstract representation of an LLM's story" // Added placeholder
     },
     joke: {
         content: "<p>Why did the programmer quit his job?...Because he didn't get arrays!</p>",
-        imageUrl: "static_assets/images/placeholder_article_joke.png", // Added placeholder
+        imageUrl: "static_assets/images/placeholder_article.png", // Fixed: Use existing placeholder
         imageAlt: "Visual representation of a joke" // Added placeholder
     },
     authorBio: {
         text: "<p>Our esteemed editor, a sophisticated language model... Likes: clean data... Dislikes: infinite loops...</p>"
     },
     advertisements: [
-        { imageUrl: "static_assets/images/placeholder_ad_1.png", imageAlt: "Placeholder Advertisement 1" },
-        { imageUrl: "static_assets/images/placeholder_ad_2.png", imageAlt: "Placeholder Advertisement 2" },
-        { imageUrl: "static_assets/images/placeholder_ad_3.png", imageAlt: "Placeholder Advertisement 3" },
-        { imageUrl: "static_assets/images/placeholder_ad_4.png", imageAlt: "Placeholder Advertisement 4" }
+        { imageUrl: "static_assets/images/placeholder_ad.png", imageAlt: "Placeholder Advertisement 1" },
+        { imageUrl: "static_assets/images/placeholder_ad.png", imageAlt: "Placeholder Advertisement 2" },
+        { imageUrl: "static_assets/images/placeholder_ad.png", imageAlt: "Placeholder Advertisement 3" },
+        { imageUrl: "static_assets/images/placeholder_ad.png", imageAlt: "Placeholder Advertisement 4" }
     ]
 };
 
@@ -94,7 +94,7 @@ function updateImage(id, imageData, defaultAltText, placeholderUrl = 'static_ass
     if (imgElement) {
         if (imageData && (imageData.url || imageData.blocked)) {
             if (imageData.blocked) {
-                imgElement.src = 'static_assets/images/blocked_image.png'; // Specific placeholder for blocked content
+                imgElement.src = 'static_assets/images/placeholder_article.png';
                 imgElement.alt = imageData.alt || "Image generation blocked due to safety policy";
                 imgElement.style.display = '';
             } else {
@@ -140,7 +140,7 @@ function renderContent() {
         }
 
         if (blocked) {
-            return { url: 'static_assets/images/blocked_image.png', alt: alt, blocked: true };
+            return { url: 'static_assets/images/placeholder_article.png', alt: alt, blocked: true };
         }
         if (!url) return { url: null, alt: alt };
 
@@ -163,10 +163,10 @@ function renderContent() {
         updateImage('comparison-article-image', processImageData(newspaperPlaceholders.comparisonArticle.imageUrl), newspaperPlaceholders.comparisonArticle.imageAlt);
 
         updateElement('llm-story-content', newspaperPlaceholders.llmStory.content, true);
-        updateImage('llm-story-image', processImageData(newspaperPlaceholders.llmStory.imageUrl), newspaperPlaceholders.llmStory.imageAlt, 'static_assets/images/placeholder_article_llm.png', newspaperPlaceholders.llmStory.imageAlt);
+        updateImage('llm-story-image', processImageData(newspaperPlaceholders.llmStory.imageUrl), newspaperPlaceholders.llmStory.imageAlt, 'static_assets/images/placeholder_article.png', newspaperPlaceholders.llmStory.imageAlt);
 
         updateElement('joke-content', newspaperPlaceholders.joke.content, true);
-        updateImage('joke-image', processImageData(newspaperPlaceholders.joke.imageUrl), newspaperPlaceholders.joke.imageAlt, 'static_assets/images/placeholder_article_joke.png', newspaperPlaceholders.joke.imageAlt);
+        updateImage('joke-image', processImageData(newspaperPlaceholders.joke.imageUrl), newspaperPlaceholders.joke.imageAlt, 'static_assets/images/placeholder_article.png', newspaperPlaceholders.joke.imageAlt);
 
         updateElement('author-bio', newspaperPlaceholders.authorBio.text, true);
 
@@ -201,12 +201,37 @@ function renderContent() {
     // Helper to get specific image data (e.g., img_01, img_07) for a slot
     const getImageDataForSlotKey = (slotName, imageKey) => {
         const slotData = slots[slotName];
-        // Image data is nested: slot -> imageOutputs -> selectedImageGenModel -> imageKey
-        return slotData?.imageOutputs?.[selectedImageGen]?.[imageKey];
+        if (!slotData?.imageOutputs) return null;
+        
+        // Use the full model ID instead of extracting slug
+        const modelId = selectedImageGen;
+        
+        // For advertisements, the data is stored as an array under the model ID
+        if (slotName === 'advertisements') {
+            const adImages = slotData.imageOutputs[modelId];
+            if (!adImages || !Array.isArray(adImages)) return null;
+            
+            // Convert imageKey (img_03, img_04, etc.) to array index (0, 1, etc.)
+            const adIndex = parseInt(imageKey.split('_')[1]) - 3; // img_03 -> 0, img_04 -> 1, etc.
+            return adImages[adIndex] || null;
+        } else {
+            // For non-ad slots, the data is stored as an object with prompt IDs as keys
+            return slotData.imageOutputs[modelId]?.[imageKey] || null;
+        }
+    };
+
+    // Helper to get LLM data using full model ID
+    const getLlmDataForSlot = (slotName) => {
+        const slotData = slots[slotName];
+        if (!slotData?.llmOutputs) return null;
+        
+        // Use the full model ID instead of extracting slug
+        const modelId = selectedLLM;
+        return slotData.llmOutputs[modelId] || null;
     };
 
     // Main Article (mapped to img_01)
-    const mainArticleLlmData = slots.mainArticle?.llmOutputs?.[selectedLLM];
+    const mainArticleLlmData = getLlmDataForSlot('mainArticle');
     updateElement('main-article-title', mainArticleLlmData?.title, true);
     updateElement('main-article-text', mainArticleLlmData?.text, true);
     const mainArticleImageProcessed = processImageData(getImageDataForSlotKey('mainArticle', 'img_01'));
@@ -214,21 +239,21 @@ function renderContent() {
 
 
     // Comparison Article (mapped to img_02)
-    const comparisonArticleLlmData = slots.comparisonArticle?.llmOutputs?.[selectedLLM];
+    const comparisonArticleLlmData = getLlmDataForSlot('comparisonArticle');
     updateElement('comparison-article-title', comparisonArticleLlmData?.title, true);
     updateElement('comparison-article-text', comparisonArticleLlmData?.text, true);
     const comparisonArticleImageProcessed = processImageData(getImageDataForSlotKey('comparisonArticle', 'img_02'));
     updateImage('comparison-article-image', comparisonArticleImageProcessed, 'Comparison story illustration');
 
     // LLM Story (mapped to img_07)
-    const llmStoryLlmData = slots.llmStory?.llmOutputs?.[selectedLLM];
+    const llmStoryLlmData = getLlmDataForSlot('llmStory');
     updateElement('llm-story-content', llmStoryLlmData?.content, true);
     const llmStoryImageProcessed = processImageData(getImageDataForSlotKey('llmStory', 'img_07'));
     updateImage('llm-story-image', llmStoryImageProcessed, 'LLM generated story illustration', newspaperPlaceholders.llmStory.imageUrl, newspaperPlaceholders.llmStory.imageAlt);
 
 
     // Joke (mapped to img_08)
-    const jokeLlmData = slots.joke?.llmOutputs?.[selectedLLM];
+    const jokeLlmData = getLlmDataForSlot('joke');
     updateElement('joke-content', jokeLlmData?.content, true);
     const jokeImageProcessed = processImageData(getImageDataForSlotKey('joke', 'img_08'));
     updateImage('joke-image', jokeImageProcessed, 'Joke illustration', newspaperPlaceholders.joke.imageUrl, newspaperPlaceholders.joke.imageAlt);

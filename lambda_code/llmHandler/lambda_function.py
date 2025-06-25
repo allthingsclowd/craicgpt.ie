@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-#  llm_runner.py – CraicGPT “newspaper” text-generation pipeline
+#  llm_runner.py – CraicGPT "newspaper" text-generation pipeline
 # ╟──────────────────────────────────────────────────────────────────────╢
 #  PURPOSE
 #  ▸ For each requested **date × prompt × Bedrock text model**:
@@ -23,7 +23,7 @@
 #      • Anthropic Claude (chat)           • Mistral / Mixtral (chat)
 #      • Amazon Titan Text                 • Cohere Command-R
 #      • AI-21 Jurassic-2                  • Generic fallback {"prompt": …}
-#      • Any “*embed*” model is **skipped by default** (vectors, not prose).
+#      • Any "*"embed*" model is **skipped by default** (vectors, not prose).
 #        Set env `ALLOW_EMBED_MODELS=true` to include them.
 #
 #  RESILIENCE
@@ -249,16 +249,17 @@ def lambda_handler(event, _ctx):
                 raw_key = f"results/{day}/{pid}/{slug(model_id)}.txt"
                 s3_put(raw_key, text)
 
-                mdl_slug  = model_id.split(":")[0].split("/")[-1]
+                # Use the full model ID as the key (same as image handler)
+                mdl_key = model_id
                 slot_dict = paper["contentSlots"][slot]["llmOutputs"]
                 if ftype == "title_text":
                     first, *rest = text.splitlines()
-                    slot_dict[mdl_slug] = {
+                    slot_dict[mdl_key] = {
                         "title": first.strip(),
                         "text":  "<p>" + "\n".join(rest).strip() + "</p>"
                     }
                 else:
-                    slot_dict[mdl_slug] = { "content": f"<p>{text}</p>" }
+                    slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
 
                 result_map[day][pid][model_id] = raw_key
 

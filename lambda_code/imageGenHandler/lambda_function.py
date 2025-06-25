@@ -1,5 +1,5 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
-#  image_runner.py – CraicGPT “newspaper” image-generation pipeline
+#  image_runner.py – CraicGPT "newspaper" image-generation pipeline
 # ╟──────────────────────────────────────────────────────────────────────╢
 #  PURPOSE
 #  ▸ For each requested **date × img-prompt × Bedrock image model**:
@@ -42,7 +42,7 @@
 #      • safe_invoke() returns *(resp, blocked, reason)* and caps back-off at 8 s.
 #      • Blocked requests are recorded in JSON as
 #          { "blocked": true, "reason": "…" } (front-end can show placeholder).
-#      • “payload lacks image” warning now fires **only** for genuine model bugs.
+#      • "payload lacks image" warning now fires **only** for genuine model bugs.
 #
 #  RESILIENCE
 #      • safe_invoke() retries up to 6× on *ThrottlingException*.
@@ -77,7 +77,7 @@ ALT_SLOT_TEXT = {
     "comparisonArticle":  "Comparison article illustration"
 }
 
-def ad_alt(idx: int) -> str:          # 0-based → “Ad 1…4”
+def ad_alt(idx: int) -> str:          # 0-based → "Ad 1…4"
     return f"Ad {idx + 1}"
 
 # Longer network read timeout for 1024-px generations
@@ -266,7 +266,10 @@ def lambda_handler(event, _ctx):
             prompt_txt  = json.loads(prompt_json)["prompt"]
 
             for model_id in model_ids:
-                mdl_slug  = model_id.split(":")[0].split("/")[-1]
+                # Use the full model ID as the key (same as LLM handler)
+                mdl_key = model_id
+                # Create a safe filename version of the model ID
+                mdl_slug = model_id.replace(':', '_').replace('/', '_')
                 px = 512 # Only generating 512px for now, can be parameterized later if needed
                 tag  = f"{pid}-{px}"
                 body = build_body(model_id, prompt_txt, size=px)
@@ -280,7 +283,7 @@ def lambda_handler(event, _ctx):
 
                 if is_ad:
                     # Ensure the list for ad images for this model_slug exists and has 4 slots
-                    model_ad_images = slot_image_outputs.setdefault(mdl_slug, [None] * 4)
+                    model_ad_images = slot_image_outputs.setdefault(mdl_key, [None] * 4)
                     ad_idx = int(pid.split("_")[1]) - 3  # img_03 -> 0, ..., img_06 -> 3
 
                     if blocked or resp is None:
@@ -291,7 +294,7 @@ def lambda_handler(event, _ctx):
                 else: # For non-ad slots like mainArticle, llmStory, joke
                     # model_specific_outputs will be the dictionary under the model_slug
                     # e.g., paper.contentSlots.mainArticle.imageOutputs["amazon-titan-image-generator-v1"]
-                    model_specific_outputs = slot_image_outputs.setdefault(mdl_slug, {})
+                    model_specific_outputs = slot_image_outputs.setdefault(mdl_key, {})
 
                     if blocked or resp is None:
                         model_specific_outputs[pid] = { # Store under the specific prompt_id (img_01, img_07, etc.)
