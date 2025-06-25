@@ -21,6 +21,7 @@
 import os, re, json, html, urllib.request
 from datetime import date
 import boto3
+from typing import Union
 
 # ──────────────────────────  ENV & CONSTANTS  ────────────────────────────
 BASE_PROMPT_PREFIX = "static_assets/content/prompts"
@@ -78,7 +79,7 @@ def scrape(sites: dict, limit: int = 10):
     return out
 
 # –– WEATHER (JSON → RSS → HTML) ––––––––––––––––––––––––––––––––––––––––
-def parse_bbc_json(text: str) -> tuple | None:
+def parse_bbc_json(text: str) -> Union[tuple, None]:
     js = json.loads(text)
     fc = js.get("forecast", {})
     # BBC keep reshuffling; try several likely paths
@@ -101,7 +102,7 @@ def parse_bbc_json(text: str) -> tuple | None:
             continue
     return None
 
-def parse_rss(text: str) -> tuple | None:
+def parse_rss(text: str) -> Union[tuple, None]:
     descs = re.findall(r"<description>(.*?)</description>", text, re.S)
     if len(descs) >= 2:
         today   = html.unescape(re.sub(r"^Today:\s*",   "", descs[0]).strip())
@@ -109,8 +110,8 @@ def parse_rss(text: str) -> tuple | None:
         return today, tonight
     return None
 
-def parse_html(text: str) -> tuple | None:
-    # Find the “Today” section
+def parse_html(text: str) -> Union[tuple, None]:
+    # Find the "Today" section
     t_block = re.search(r"<h2[^>]*>\s*Today\s*</h2>(.*?)<h2", text, re.S | re.I)
     n_block = re.search(r"<h2[^>]*>\s*Tonight\s*</h2>(.*?)<h2", text, re.S | re.I)
     if t_block and n_block:
@@ -169,20 +170,20 @@ def diary_prompt(hl, wx):
         "Write a single ~1,000-word Adrian-Mole-style diary entry. Rules:\n"
         " 1. Start with the date line only.\n"
         " 2. Reference yesterday in ≤2 lines.\n"
-        " 3. Use ONE upbeat headline below to frame today’s story.\n"
+        " 3. Use ONE upbeat headline below to frame today's story.\n"
         " 4. Quote/paraphrase both weather lines exactly once.\n"
         " 5. Mention a local Shropshire event if plausible.\n"
         " 6. Include antics from Lizzy, Noreen, Saoirse, Terry, Eddie & Puddle.\n"
         " 7. Include a ridiculous tech snafu.\n"
         " 8. Keep it funny; no politics/violence/death.\n"
-        " 9. End with: _“Right. That’s enough public disclosure for one day.”_\n\n"
+        " 9. End with: _"Right. That's enough public disclosure for one day."_\n\n"
         "HEADLINES:\n" + block + "\n--- END RULES ---"
     )
 
 def digest_prompt(hl):
     block = "\n".join(f"- {s}: {h}" for s, h in hl)
     return (
-        "Provide a ≤150-word bulleted digest of today’s tech headlines, grouped by "
+        "Provide a ≤150-word bulleted digest of today's tech headlines, grouped by "
         "source, highlighting any cybersecurity angles.\n\nHEADLINES:\n" + block
     )
 
@@ -191,8 +192,8 @@ def local_story_prompt(hl, wx):
     return (
         "Write a 300-word feel-good local article blending:\n"
         " • The most uplifting headline below (or invent one)\n"
-        " • Today’s weather summary\n"
-        " • Tonight’s farmers’ market at The Square\n\n"
+        " • Today's weather summary\n"
+        " • Tonight's farmers' market at The Square\n\n"
         f"WEATHER:\n  • Today: {wx['today']}\n  • Tonight: {wx['tonight']}\n\n"
         "HEADLINES:\n" + block
     )
@@ -200,7 +201,7 @@ def local_story_prompt(hl, wx):
 def tech_tip_prompt(hl):
     block = "\n".join(f"- {s}: {h}" for s, h in hl)
     return (
-        "Draft a 250-word ‘Tech Tip of the Day’ covering:\n"
+        "Draft a 250-word 'Tech Tip of the Day' covering:\n"
         " • Why a CNAPP beats siloed tools\n"
         " • Detecting secrets in container images\n"
         " • A Terraform least-privilege IAM guardrail snippet\n"
@@ -211,7 +212,7 @@ def tech_tip_prompt(hl):
 def _prompt(hl): # This function seems unused. Consider removing if confirmed.
     block = "\n".join(f"- {s}: {h}" for s, h in hl)
     return (
-        "Provide a ≤150-word bulleted digest of today’s tech headlines, grouped by "
+        "Provide a ≤150-word bulleted digest of today's tech headlines, grouped by "
         "source, highlighting any cybersecurity angles.\n\nHEADLINES:\n" + block
     )
 
@@ -268,7 +269,7 @@ def lambda_handler(event, _):
         ptxt = STATIC_IMAGE_PROMPT_DEFINITIONS.get(pid)
         if ptxt is None:
             ptxt = GENERIC_IMAGE_PROMPT_FALLBACK
-            log.warning(f"Image prompt ID '{pid}' not found in STATIC_IMAGE_PROMPT_DEFINITIONS. Using generic fallback.")
+            # Note: Image prompt ID not found, using generic fallback
 
         put_json(prefix + f"{pid}.json", {
             "type":   "image",
