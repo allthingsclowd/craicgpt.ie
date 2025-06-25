@@ -89,7 +89,7 @@ def load_paper_json(y, m, d):
         paper = {
             "publicationDate": f"{y}-{m}-{d}",
             "metadata": { "bannerTitle": "The Artificially Intelligent Times",
-                          "defaultLLM": "anthropic.claude-3-sonnet-20240229-v1",
+                          "defaultLLM": "anthropic.claude-3-sonnet-20240229-v1:0",
                           "defaultImageGen": "amazon.titan-image-generator-v1" },
             "contentSlots": {
                 "mainArticle":       { "llmOutputs": {}, "imageOutputs": {} },

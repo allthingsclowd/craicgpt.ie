@@ -12,7 +12,7 @@ const S3_BUCKET_BASE_URL = "https://craicgpt.ie"; // Fixed: Use the actual domai
 
 // Global variables to store fetched data and current selections
 let currentPaperData = null;
-let selectedLLM      = 'anthropic.claude-3-sonnet-20240229-v1';
+let selectedLLM      = 'anthropic.claude-3-sonnet-20240229-v1:0';
 let selectedImageGen = 'amazon.titan-image-generator-v1';
 // ─── track which JSON file we just fetched ───────────────────────────────
 let currentContentUrl = null;      // e.g. ".../2025/06/22/paper_content.json" // Updated comment
@@ -58,13 +58,13 @@ const newspaperPlaceholders = {
 // Helper function to get the currently selected LLM
 function getSelectedLLM() {
     const checkedRadio = document.querySelector('input[name="llm_choice"]:checked');
-    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultLLM || selectedLLM);
+    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultLLM || 'anthropic.claude-3-sonnet-20240229-v1:0');
 }
 
 // Helper function to get the currently selected Image Generator
 function getSelectedImageGen() {
     const checkedRadio = document.querySelector('input[name="imagegen_choice"]:checked');
-    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultImageGen || selectedImageGen);
+    return checkedRadio ? checkedRadio.value : (currentPaperData?.metadata?.defaultImageGen || 'amazon.titan-image-generator-v1');
 }
 
 // Function to update the content of an HTML element
