@@ -89,7 +89,7 @@ function updateElement(id, content, isHtml = false) {
 
 // Function to update the source and alt text of an image element
 // Now handles image data object which might include {url, alt, blocked}
-function updateImage(id, imageData, defaultAltText, placeholderUrl = 'static_assets/images/placeholder.jpg', placeholderAlt = 'Content unavailable') {
+function updateImage(id, imageData, defaultAltText, placeholderUrl = 'static_assets/images/placeholder_article.png', placeholderAlt = 'Content unavailable') {
     const imgElement = document.getElementById(id);
     if (imgElement) {
         if (imageData && (imageData.url || imageData.blocked)) {
@@ -144,11 +144,15 @@ function renderContent() {
         }
         if (!url) return { url: null, alt: alt };
 
-
+        let finalUrl;
         if (/^(https?:)?\/\//.test(url) || url.startsWith('/') || url.startsWith('static_assets/')) {
-            return { url: url, alt: alt };
+            finalUrl = url;
+        } else {
+            finalUrl = basePath + url;
         }
-        return { url: basePath + url, alt: alt };
+        
+        console.log(`Image processing: input="${url}", basePath="${basePath}", finalUrl="${finalUrl}"`);
+        return { url: finalUrl, alt: alt };
     }
 
 

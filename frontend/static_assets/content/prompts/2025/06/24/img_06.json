@@ -1,9 +1,0 @@
-{
-  "type": "image",
-  "id": "img_06",
-  "date": "2025-06-24",
-  "models": [
-    "stability.stable-diffusion-xl-v1"
-  ],
-  "prompt": "Ad4 - In the style of a DIY and home improvement store ad, featuring a dog in a beautifully decorated garden"
-}
