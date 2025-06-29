@@ -229,29 +229,12 @@ function renderContent() {
         console.log(`getImageDataForSlotKey: selectedImageGen="${selectedImageGen}", modelId="${modelId}"`);
         console.log(`getImageDataForSlotKey: imageOutputs=`, slotData.imageOutputs);
         
-        // For advertisements, the data is stored as an array under the model ID
-        if (slotName === 'advertisements') {
-            const adImages = slotData.imageOutputs[modelId];
-            console.log(`getImageDataForSlotKey: adImages=`, adImages);
-            if (!adImages || !Array.isArray(adImages)) {
-                console.log(`getImageDataForSlotKey: No valid adImages array found for model "${modelId}"`);
-                return null;
-            }
-            
-            // Convert imageKey (img_03, img_04, etc.) to array index (0, 1, etc.)
-            const adIndex = parseInt(imageKey.split('_')[1]) - 3; // img_03 -> 0, img_04 -> 1, etc.
-            console.log(`getImageDataForSlotKey: adIndex=${adIndex} for imageKey="${imageKey}"`);
-            const result = adImages[adIndex] || null;
-            console.log(`getImageDataForSlotKey: result=`, result);
-            return result;
-        } else {
-            // For non-ad slots, the data is stored as an object with prompt IDs as keys
-            const modelOutputs = slotData.imageOutputs[modelId];
-            console.log(`getImageDataForSlotKey: modelOutputs=`, modelOutputs);
-            const result = modelOutputs?.[imageKey] || null;
-            console.log(`getImageDataForSlotKey: result=`, result);
-            return result;
-        }
+        // All slots now use the same structure: data stored as an object with prompt IDs as keys
+        const modelOutputs = slotData.imageOutputs[modelId];
+        console.log(`getImageDataForSlotKey: modelOutputs=`, modelOutputs);
+        const result = modelOutputs?.[imageKey] || null;
+        console.log(`getImageDataForSlotKey: result=`, result);
+        return result;
     };
 
     // Helper to get LLM data using full model ID
@@ -312,15 +295,18 @@ function renderContent() {
         updateElement('author-bio', newspaperPlaceholders.authorBio.text, true);
     }
 
-    // Advertisements (mapped to img_03, img_04, img_05, img_06)
+    // Advertisements - now handled as individual slots (advertisement1, advertisement2, etc.)
+    const adSlots = ['advertisement1', 'advertisement2', 'advertisement3', 'advertisement4'];
     const adImageKeys = ['img_03', 'img_04', 'img_05', 'img_06'];
-    for (let i = 0; i < adImageKeys.length; i++) {
+    
+    for (let i = 0; i < adSlots.length; i++) {
+        const adSlot = adSlots[i];
         const adKey = adImageKeys[i];
         const adElementId = `ad-${i + 1}`;
         const adImgElement = document.getElementById(adElementId)?.querySelector('img');
 
         if (adImgElement) {
-            const adImageData = getImageDataForSlotKey('advertisements', adKey);
+            const adImageData = getImageDataForSlotKey(adSlot, adKey);
             console.log(`Ad ${i + 1} image data:`, adImageData);
             const processedAdImage = processImageData(adImageData);
             console.log(`Ad ${i + 1} image processed:`, processedAdImage);

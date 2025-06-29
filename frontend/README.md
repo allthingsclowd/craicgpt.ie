@@ -87,10 +87,22 @@ The `main.js` script expects the JSON file for each day to follow a specific str
     "authorBio": {
         "text": "<p>Our esteemed editor, a sophisticated language model, works tirelessly... </p>"
     },
-    "advertisements": [
-        { "text": "Ad 1: Buy more GPUs!"},
-        { "text": "Ad 2: Infinite RAM now on sale!"}
-    ]
+    "advertisement1": {
+      "imageOutputs": {
+        "imagen": { "imageUrl": "static_assets/images/ad1_imagen.jpg", "imageAlt": "Advertisement 1 by Imagen" },
+        "stablediffusion": { "imageUrl": "static_assets/images/ad1_sd.jpg", "imageAlt": "Advertisement 1 by Stable Diffusion" },
+        "dalle": { "imageUrl": "static_assets/images/ad1_dalle.jpg", "imageAlt": "Advertisement 1 by DALL-E" }
+      }
+    },
+    "advertisement2": {
+      "imageOutputs": { /* ... similar structure ... */ }
+    },
+    "advertisement3": {
+      "imageOutputs": { /* ... similar structure ... */ }
+    },
+    "advertisement4": {
+      "imageOutputs": { /* ... similar structure ... */ }
+    }
     // ... other content slots similarly structured ...
   }
 }

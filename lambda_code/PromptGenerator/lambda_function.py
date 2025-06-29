@@ -1,592 +1,1048 @@
-# ─────────────────────────────────────────────────────────────────────────
-#  prompt_generator.py - VIBE EDITION ✨
-#  -----------------------------------------------------------------------
-#  DAILY PROMPT FACTORY - Now with extra vibes and context awareness
+# ╔══════════════════════════════════════════════════════════════════════════╗
+#  CRAICGPT PROMPT GENERATOR - Enhanced Edition
+# ╟──────────────────────────────────────────────────────────────────────────╢
+#  PURPOSE: Generate daily prompts with 3 clear context sources:
+#    1. BASE CONTEXT: Consistent theme and purpose (easily configurable)
+#    2. DAILY CONTEXT: Fresh news, events, trends for specific dates
+#    3. WEATHER/LOCATION: Weather and location context for specific dates
 #
-#  * Builds 12 prompts (4 LLM + 8 image) with optional context injection
-#  * Optional fresh context from trending websites
-#  * Optional 7-day historical content review for LLM prompts
-#  * Maintains existing storage naming conventions
-#  * Weather extraction with THREE layers (JSON → RSS → HTML)
+#  NEW FEATURES:
+#    • Date range support via environment variables
+#    • Context data embedded directly into prompts
+#    • HTML placement references for each prompt
+#    • Enhanced context summaries
+#    • Date-specific prompt variation
 #
-#  ENVIRONMENT VARIABLES
-#      PROMPT_BUCKET
-#      BEDROCK_MODEL_IDS
-#      BEDROCK_IMAGE_MODEL_IDS
-#      ENABLE_FRESH_CONTEXT (optional, default: false)
-#      ENABLE_HISTORICAL_CONTEXT (optional, default: false)
-#
-#  IAM NEEDED:  s3:PutObject, s3:GetObject (for historical context)
-#  RUNTIME:     Python 3.12  (boto3 + std-lib only)
-# ─────────────────────────────────────────────────────────────────────────
-import os, re, json, html, urllib.request
+#  ENVIRONMENT VARIABLES:
+#    START_DATE - Start date for generation (YYYY-MM-DD)
+#    END_DATE - End date for generation (YYYY-MM-DD) 
+#    PROMPT_BUCKET - S3 bucket for storage
+#    BEDROCK_MODEL_IDS - LLM models (comma-separated)  
+#    BEDROCK_IMAGE_MODEL_IDS - Image models (comma-separated)
+#    ENABLE_FRESH_CONTEXT - Enable news scraping (default: true)
+#    ENABLE_HISTORICAL_WEATHER - Enable historical weather (default: true)
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+import os, re, json, html, urllib.request, random
 from datetime import date, datetime, timedelta
 import boto3
-from typing import Union, Optional, Dict, List
+from typing import Union, Optional, Dict, List, Tuple
 from dataclasses import dataclass
 
-# ──────────────────────────  VIBE CONSTANTS  ────────────────────────────
-BASE_PROMPT_PREFIX = "static_assets/content/prompts"
-TODAY_Y, TODAY_M, TODAY_D = date.today().strftime("%Y %m %d").split()
+# ═══════════════════════════════ CONFIGURATION ════════════════════════════════
 
+# AWS Configuration
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"]
+BASE_PROMPT_PREFIX = "static_assets/content/prompts"
+s3 = boto3.client("s3")
 
-# Model configurations with vibes ✨
+# Date Configuration from Environment Variables
+START_DATE = os.getenv("START_DATE")  # Format: YYYY-MM-DD
+END_DATE = os.getenv("END_DATE")      # Format: YYYY-MM-DD
+
+# Model Configuration
 LLM_MODELS = [m.strip() for m in os.getenv(
     "BEDROCK_MODEL_IDS",
     "anthropic.claude-3-sonnet-20240229-v1:0"
 ).split(",") if m.strip()]
 
 IMG_MODELS = [m.strip() for m in os.getenv(
-    "BEDROCK_IMAGE_MODEL_IDS",
-    "stability.stable-diffusion-xl-v1"
+    "BEDROCK_IMAGE_MODEL_IDS", 
+    "amazon.titan-image-generator-v1"
 ).split(",") if m.strip()]
 
-# Optional context features
-ENABLE_FRESH_CONTEXT = os.getenv("ENABLE_FRESH_CONTEXT", "false").lower() == "true"
-ENABLE_HISTORICAL_CONTEXT = os.getenv("ENABLE_HISTORICAL_CONTEXT", "false").lower() == "true"
+# Feature Toggles
+ENABLE_FRESH_CONTEXT = os.getenv("ENABLE_FRESH_CONTEXT", "true").lower() == "true"
+ENABLE_HISTORICAL_WEATHER = os.getenv("ENABLE_HISTORICAL_WEATHER", "true").lower() == "true"
 
-# Vibe sources for fresh context 🌊
-VIBE_SOURCES = {
-    "tech_vibes": {
-        "TheRegister": "https://www.theregister.com/",
-        "BBCTech": "https://www.bbc.com/news/technology",
-        "ArsTechnica": "https://arstechnica.com/",
-        "TechCrunch": "https://techcrunch.com/"
+# Location Configuration (Pontesbury, Shropshire)
+LOCATION_ID = "2640129"
+LOCATION_NAME = "Pontesbury, Shropshire"
+
+# HTML Placement References for Frontend Integration
+HTML_PLACEMENTS = {
+    "main_article": {
+        "title": "#main-article-title",
+        "content": "#main-article-text", 
+        "image": "#main-article-image"
     },
-    "local_vibes": {
-        "ShropshireStar": "https://www.shropshirestar.com/",
-        "PontesburyParishCouncil": "https://www.pontesbury-pc.gov.uk/",
-        "IrishTimes": "https://www.irishtimes.com/"
+    "comparison_article": {
+        "content": "#comparison-article-content",
+        "image": "#comparison-article-image"
     },
-    "security_vibes": {
-        "AquaBlog": "https://blog.aquasec.com/",
-        "SchneierOnSecurity": "https://www.schneier.com/",
-        "KrebsOnSecurity": "https://krebsonsecurity.com/"
+    "llm_story": {
+        "content": "#llm-story-content",
+        "image": "#llm-story-image"
+    },
+    "joke": {
+        "content": "#joke-content",
+        "image": "#joke-image"
+    },
+    "author_bio": {
+        "content": "#author-bio-content"
+    },
+    "advertisements": [
+        "#advertisement-1",
+        "#advertisement-2", 
+        "#advertisement-3",
+        "#advertisement-4"
+    ]
+}
+
+# ═══════════════════════════════ CONTEXT SOURCES ═══════════════════════════════
+
+# 1. BASE CONTEXT - Consistent themes and purposes (easily configurable)
+BASE_CONTEXTS = {
+    "main_article": {
+        "character": "Graz, 54 and a quarter, cybersecurity engineer",
+        "style": "first-person diary form, dry wit of Adrian Mole",
+        "location": "Pontesbury, Shropshire",
+        "family": {
+            "Lizzy": "brilliant wife who funds globe-trotting 'really important IT thingys'",
+            "Noreen (19)": "'Steve Davis of kids', brilliant yet boring", 
+            "Saoirse (17)": "grunge guitarist saving to visit a Parisian grave",
+            "Terry (13)": "rugby-obsessed son you 'fake-coach'",
+            "Eddie": "over-mortgaged black cockapoo",
+            "Puddle": "impulsively-adopted white kitten"
+        },
+        "tone": "self-deprecating, observational and silly",
+        "length": "approximately 650 words",
+        "requirements": "Mention one plausible local Shropshire event"
+    },
+    
+    "comparison_article": {
+        "topic": "Top-10 LLMs ranking (mid-2025)",
+        "format": "ordered Markdown list, 60 words per item", 
+        "content": "Model name & vendor (bolded), genuine strength, cynical 'what it's really used for'",
+        "tone": "informed yet cheekily sceptical"
+    },
+    
+    "llm_story": {
+        "style": "light-hearted, jargon-free story",
+        "character": "everyday non-techie (e.g., retired postman)",
+        "plot": "uses LLM to fix small life problem with unexpectedly funny twist",
+        "structure": "request, LLM reply, humorous outcome",
+        "tone": "relatable and chuckle-worthy",
+        "length": "400 words"
+    },
+    
+    "joke": {
+        "topic": "AI hype and industry",
+        "format": "one-liner, 40 words or less",
+        "requirements": "Include Sam Altman by name, clever, family-friendly, self-aware"
+    },
+    
+    "author_bio": {
+        "subject": "Graham Land", 
+        "style": "cheeky third-person bio",
+        "length": "120-150 words",
+        "background": "Irish-born, UK-based technologist; Technical Customer Success Manager at Aqua Security",
+        "experience": "ex-Manager CSM EMEA at HashiCorp (2018-23, grew portfolio 3M to 60M)",
+        "expertise": "OpenStack evangelist, Vault-certified, AWS SA cert, ITIL, conference speaker",
+        "hobbies": "motorbike & paddle-board addict",
+        "ending": "playful line about making DevOps 'slightly less terrifying'"
     }
 }
 
-# BBC Weather sources (Pontesbury / Shropshire → location-id 2640129)
-LOC_ID   = "2640129"
-WX_JSON  = f"https://weather-broker-cdn.api.bbci.co.uk/en/forecast/aggregated/{LOC_ID}"
-WX_RSS   = f"https://weather-broker-cdn.api.bbci.co.uk/en/forecast/rss/3day/{LOC_ID}"
-WX_HTML  = f"https://www.bbc.co.uk/weather/{LOC_ID}"
+# Image base contexts
+IMAGE_BASE_CONTEXTS = {
+    "main_article": "Comic-realistic family scene with Graz and family members, Shropshire setting",
+    "comparison_article": "Data visualization or infographic style, professional but playful",
+    "llm_story": "Single-panel comic style, cozy domestic setting", 
+    "joke": "Editorial cartoon style, AI industry satire",
+    "advertisements": [
+        "Spoof tech product billboard, retro styling",
+        "Fake cereal box, tech/AI theme", 
+        "Vintage travel poster, AI location theme",
+        "Mock luxury product ad, tech twist"
+    ]
+}
 
-# Regex patterns for content extraction
-HEAD_RE  = re.compile(r"<h[1-6][^>]*>(.*?)</h[1-6]>", re.S | re.I)
-P_RE     = re.compile(r"<p[^>]*>(.*?)</p>", re.S | re.I)
+# 2. DAILY CONTEXT SOURCES - Fresh content for specific dates
+NEWS_SOURCES = {
+    "tech": {
+        "TheRegister": "https://www.theregister.com/",
+        "BBCTech": "https://www.bbc.com/news/technology", 
+        "ArsTechnica": "https://arstechnica.com/",
+        "TechCrunch": "https://techcrunch.com/"
+    },
+    "local": {
+        "ShropshireStar": "https://www.shropshirestar.com/",
+        "IrishTimes": "https://www.irishtimes.com/",
+        "BBCShropshire": "https://www.bbc.co.uk/news/england/shropshire"
+    },
+    "security": {
+        "KrebsOnSecurity": "https://krebsonsecurity.com/",
+        "SchneierOnSecurity": "https://www.schneier.com/",
+        "BleepingComputer": "https://www.bleepingcomputer.com/"
+    }
+}
 
-s3 = boto3.client("s3")
+# 3. WEATHER/LOCATION SOURCES
+WEATHER_SOURCES = {
+    "current": {
+        "json": f"https://weather-broker-cdn.api.bbci.co.uk/en/forecast/aggregated/{LOCATION_ID}",
+        "rss": f"https://weather-broker-cdn.api.bbci.co.uk/en/forecast/rss/3day/{LOCATION_ID}",
+        "html": f"https://www.bbc.co.uk/weather/{LOCATION_ID}"
+    },
+    "historical": "https://api.openweathermap.org/data/3.0/onecall/timemachine"  # Requires API key
+}
 
-# ──────────────────────────  VIBE DATA CLASSES  ──────────────────────────
-@dataclass
-class VibeContext:
-    """Container for all the vibes we're feeling today"""
+# ═══════════════════════════════ DATA CLASSES ═══════════════════════════════
+
+@dataclass  
+class DailyContext:
+    """Daily context for a specific date"""
+    date: str
     weather: Dict[str, str]
-    fresh_headlines: Dict[str, List[str]]
-    historical_summary: Optional[str] = None
-    trending_themes: Optional[List[str]] = None
-
+    news_headlines: Dict[str, List[str]]
+    trending_topics: List[str]
+    local_events: List[str]
+    
     def __post_init__(self):
-        if self.trending_themes is None:
-            self.trending_themes = []
+        if not self.trending_topics:
+            self.trending_topics = []
+        if not self.local_events:
+            self.local_events = []
 
 @dataclass
-class PromptConfig:
-    """Configuration for each prompt type"""
+class PromptData:
+    """Complete prompt data with all context"""
     prompt_id: str
-    prompt_type: str  # "llm" or "image"
-    content: str
+    prompt_type: str  # "llm" or "image" 
+    date: str
+    base_context: Dict
+    daily_context: DailyContext
+    final_prompt: str
     models: List[str]
     temperature: Optional[float] = None
     size: Optional[str] = None
 
-# ──────────────────────────  VIBE HELPERS  ──────────────────────────────
-def fetch(url: str, ua: str = "Mozilla/5.0 (VibeGenerator/2.0)") -> str:
-    """Fetch content with good vibes"""
-    req = urllib.request.Request(url, headers={"User-Agent": ua})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return resp.read().decode()
+# ═══════════════════════════════ UTILITY FUNCTIONS ═══════════════════════════
 
-def scrape_vibes(sites: dict, limit: int = 15) -> List[tuple]:
-    """Scrape the vibes from various sources"""
-    out = []
-    for src, url in sites.items():
-        try:
-            doc = fetch(url)
-            for raw in HEAD_RE.findall(doc)[:30]:  # More headlines for better vibes
-                txt = html.unescape(re.sub("<[^>]*>", " ", raw)).strip()
-                if len(txt) >= 25:  # Shorter minimum for more variety
-                    out.append((src, txt))
-                if len(out) == limit:
-                    return out
-        except Exception:
-            continue
-    return out
+def fetch_url(url: str, timeout: int = 15) -> str:
+    """Safely fetch URL content"""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "CraicGPT-Bot/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode('utf-8', errors='ignore')
+    except Exception as e:
+        print(f"Failed to fetch {url}: {e}")
+        return ""
 
-def extract_trending_themes(headlines: List[tuple]) -> List[str]:
-    """Extract trending themes from headlines using basic NLP vibes"""
-    all_text = " ".join([h[1] for h in headlines]).lower()
-    
-    # Simple keyword extraction for vibes
-    vibe_keywords = [
-        "ai", "artificial intelligence", "machine learning", "cybersecurity", "cloud",
-        "blockchain", "quantum", "startup", "funding", "acquisition", "ipo",
-        "breach", "hack", "vulnerability", "patch", "update", "release",
-        "conference", "summit", "meetup", "workshop", "training"
+def extract_headlines(html_content: str, limit: int = 10) -> List[str]:
+    """Extract headlines from HTML content"""
+    headline_patterns = [
+        re.compile(r"<h[1-6][^>]*>(.*?)</h[1-6]>", re.S | re.I),
+        re.compile(r'<a[^>]*class="[^"]*headline[^"]*"[^>]*>(.*?)</a>', re.S | re.I),
+        re.compile(r'<span[^>]*class="[^"]*title[^"]*"[^>]*>(.*?)</span>', re.S | re.I)
     ]
     
-    themes = []
-    for keyword in vibe_keywords:
-        if keyword in all_text and keyword not in themes:
-            themes.append(keyword)
+    headlines = []
+    for pattern in headline_patterns:
+        matches = pattern.findall(html_content)
+        for match in matches:
+            clean_text = html.unescape(re.sub(r"<[^>]*>", " ", match)).strip()
+            if len(clean_text) > 20 and clean_text not in headlines:
+                headlines.append(clean_text)
+                if len(headlines) >= limit:
+                    return headlines
     
-    return themes[:5]  # Top 5 vibes
+    return headlines
 
-# ──────────────────────────  WEATHER VIBES  ──────────────────────────────
-def parse_bbc_json(text: str) -> Union[tuple, None]:
-    """Parse BBC weather JSON with good vibes"""
-    js = json.loads(text)
-    fc = js.get("forecast", {})
+def generate_date_range(start_date: str, end_date: str) -> List[str]:
+    """Generate list of dates between start and end (inclusive)"""
+    start = datetime.fromisoformat(start_date).date()
+    end = datetime.fromisoformat(end_date).date()
     
-    # BBC keeps reshuffling; try several likely paths
-    for path in [
-        ("daily", 0, "summary"),
-        ("daily", 0, "generalSummary"),
-        ("daily", 0, "narrative"),
-        ("text",  0, "summary"),
-    ]:
-        node = fc
+    dates = []
+    current = start
+    while current <= end:
+        dates.append(current.isoformat())
+        current += timedelta(days=1)
+    
+    return dates
+
+# ═══════════════════════════════ CONTEXT BUILDERS ═══════════════════════════
+
+def get_weather_context(target_date: str) -> Dict[str, str]:
+    """Get weather context for specific date"""
+    target_dt = datetime.fromisoformat(target_date).date()
+    today = date.today()
+    
+    # For current/recent dates, use live weather
+    if abs((target_dt - today).days) <= 2:
+        return get_current_weather()
+    
+    # For historical dates, generate plausible weather
+    if ENABLE_HISTORICAL_WEATHER:
+        return get_historical_weather(target_date)
+    
+    return get_seasonal_weather(target_date)
+
+def get_current_weather() -> Dict[str, str]:
+    """Get current weather from BBC"""
+    for source_type, url in WEATHER_SOURCES["current"].items():
         try:
-            for p in path:
-                node = node[p]
-            today = str(node)
-            tonight = (fc.get("daily", [{}])[0]
-                         .get("detailed", [{}])[0]
-                         .get("summary", "")) or today
-            return today, tonight
+            content = fetch_url(url)
+            if source_type == "json":
+                result = parse_weather_json(content)
+            elif source_type == "rss":
+                result = parse_weather_rss(content)
+            else:  # html
+                result = parse_weather_html(content)
+            
+            if result:
+                return {"today": result[0], "tonight": result[1], "source": source_type}
         except Exception:
             continue
-    return None
-
-def parse_rss(text: str) -> Union[tuple, None]:
-    """Parse RSS with good vibes"""
-    descs = re.findall(r"<description>(.*?)</description>", text, re.S)
-    if len(descs) >= 2:
-        today   = html.unescape(re.sub(r"^Today:\s*",   "", descs[0]).strip())
-        tonight = html.unescape(re.sub(r"^Tonight:\s*", "", descs[1]).strip())
-        return today, tonight
-    return None
-
-def parse_html(text: str) -> Union[tuple, None]:
-    """Parse HTML with good vibes"""
-    t_block = re.search(r"<h2[^>]*>\s*Today\s*</h2>(.*?)<h2", text, re.S | re.I)
-    n_block = re.search(r"<h2[^>]*>\s*Tonight\s*</h2>(.*?)<h2", text, re.S | re.I)
-    if t_block and n_block:
-        today_p   = P_RE.search(t_block.group(1))
-        tonight_p = P_RE.search(n_block.group(1))
-        if today_p and tonight_p:
-            today   = html.unescape(re.sub("<[^>]*>", " ", today_p.group(1))).strip()
-            tonight = html.unescape(re.sub("<[^>]*>", " ", tonight_p.group(1))).strip()
-            return today, tonight
-    return None
-
-def get_weather_vibes() -> dict:
-    """Get weather vibes with fallback layers"""
-    # 1️⃣ JSON vibes
-    try:
-        res = parse_bbc_json(fetch(WX_JSON))
-        if res:
-            t, n = res
-            return {"today": t, "tonight": n}
-    except Exception:
-        pass
     
-    # 2️⃣ RSS vibes
-    try:
-        res = parse_rss(fetch(WX_RSS))
-        if res:
-            t, n = res
-            return {"today": t, "tonight": n}
-    except Exception:
-        pass
-    
-    # 3️⃣ HTML vibes
-    try:
-        res = parse_html(fetch(WX_HTML))
-        if res:
-            t, n = res
-            return {"today": t, "tonight": n}
-    except Exception:
-        pass
-    
-    # Final fallback vibes
-    return {"today": "Weather vibes unavailable", "tonight": "Weather vibes unavailable"}
+    return {"today": "Weather unavailable", "tonight": "Weather unavailable", "source": "fallback"}
 
-# ──────────────────────────  HISTORICAL VIBES  ────────────────────────────
-def get_historical_context(prompt_type: str, days_back: int = 7) -> Optional[str]:
-    """Get historical context from the last 7 days of content"""
-    if not ENABLE_HISTORICAL_CONTEXT:
-        return None
-    
+def parse_weather_json(content: str) -> Optional[Tuple[str, str]]:
+    """Parse BBC weather JSON"""
     try:
-        # Get content from the last 7 days
-        historical_content = []
-        for i in range(1, days_back + 1):
-            past_date = date.today() - timedelta(days=i)
-            y, m, d = past_date.strftime("%Y %m %d").split()
-            
-            # Try to get the paper content from that date
+        data = json.loads(content)
+        forecast = data.get("forecast", {})
+        
+        # Try different JSON paths
+        for path in [("daily", 0, "summary"), ("daily", 0, "generalSummary")]:
             try:
-                key = f"static_assets/content/website/{y}/{m}/{d}/paper_content.json"
-                response = s3.get_object(Bucket=PROMPT_BUCKET, Key=key)
-                paper_data = json.loads(response["Body"].read().decode())
-                
-                # Extract relevant content based on prompt type
-                if prompt_type == "main-article-text":
-                    slot_data = paper_data.get("contentSlots", {}).get("mainArticle", {})
-                    for model_data in slot_data.get("llmOutputs", {}).values():
-                        if "text" in model_data:
-                            historical_content.append(model_data["text"])
-                
-                elif prompt_type == "comparison-article-text":
-                    slot_data = paper_data.get("contentSlots", {}).get("comparisonArticle", {})
-                    for model_data in slot_data.get("llmOutputs", {}).values():
-                        if "text" in model_data:
-                            historical_content.append(model_data["text"])
-                
-                elif prompt_type == "llm-story-content":
-                    slot_data = paper_data.get("contentSlots", {}).get("llmStory", {})
-                    for model_data in slot_data.get("llmOutputs", {}).values():
-                        if "content" in model_data:
-                            historical_content.append(model_data["content"])
-                
-                elif prompt_type == "joke-content":
-                    slot_data = paper_data.get("contentSlots", {}).get("joke", {})
-                    for model_data in slot_data.get("llmOutputs", {}).values():
-                        if "content" in model_data:
-                            historical_content.append(model_data["content"])
-                
-            except Exception:
-                continue  # Skip dates with no content
-        
-        if not historical_content:
-            return None
-        
-        # Create a summary of historical content
-        combined_content = " ".join(historical_content)
-        # Simple summary: take first 500 characters and add context
-        summary = combined_content[:500] + "..." if len(combined_content) > 500 else combined_content
-        
-        return f"Historical context from the last {days_back} days:\n{summary}\n\nUse this context to maintain story continuity and avoid repetition."
-    
-    except Exception:
-        return None
+                node = forecast
+                for key in path:
+                    node = node[key]
+                today = str(node)
+                tonight = forecast.get("daily", [{}])[0].get("detailed", [{}])[0].get("summary", today)
+                return (today, tonight)
+            except (KeyError, IndexError, TypeError):
+                continue
+    except json.JSONDecodeError:
+        pass
+    return None
 
-# ──────────────────────────  VIBE CONTEXT BUILDER  ────────────────────────
-def build_vibe_context() -> VibeContext:
-    """Build the ultimate vibe context for today"""
-    weather = get_weather_vibes()
+def parse_weather_rss(content: str) -> Optional[Tuple[str, str]]:
+    """Parse BBC weather RSS"""
+    descriptions = re.findall(r"<description>(.*?)</description>", content, re.S)
+    if len(descriptions) >= 2:
+        today = html.unescape(re.sub(r"^Today:\s*", "", descriptions[0])).strip()
+        tonight = html.unescape(re.sub(r"^Tonight:\s*", "", descriptions[1])).strip()
+        return (today, tonight)
+    return None
+
+def parse_weather_html(content: str) -> Optional[Tuple[str, str]]:
+    """Parse BBC weather HTML"""
+    today_match = re.search(r"<h2[^>]*>\s*Today\s*</h2>(.*?)<h2", content, re.S | re.I)
+    tonight_match = re.search(r"<h2[^>]*>\s*Tonight\s*</h2>(.*?)<h2", content, re.S | re.I)
     
-    fresh_headlines = {}
-    if ENABLE_FRESH_CONTEXT:
-        for vibe_category, sites in VIBE_SOURCES.items():
-            fresh_headlines[vibe_category] = [h[1] for h in scrape_vibes(sites, limit=10)]
+    if today_match and tonight_match:
+        today_p = re.search(r"<p[^>]*>(.*?)</p>", today_match.group(1), re.S)
+        tonight_p = re.search(r"<p[^>]*>(.*?)</p>", tonight_match.group(1), re.S)
+        
+        if today_p and tonight_p:
+            today = html.unescape(re.sub("<[^>]*>", " ", today_p.group(1))).strip()
+            tonight = html.unescape(re.sub("<[^>]*>", " ", tonight_p.group(1))).strip()
+            return (today, tonight)
+    return None
+
+def get_historical_weather(target_date: str) -> Dict[str, str]:
+    """Generate plausible historical weather based on season and patterns"""
+    # For now, generate seasonal weather - could be enhanced with weather history API
+    return get_seasonal_weather(target_date)
+
+def get_seasonal_weather(target_date: str) -> Dict[str, str]:
+    """Generate plausible weather based on season and location"""
+    dt = datetime.fromisoformat(target_date)
+    month = dt.month
     
-    # Extract trending themes from all headlines
-    all_headlines = []
-    for headlines in fresh_headlines.values():
-        all_headlines.extend(headlines)
+    # Shropshire seasonal patterns
+    weather_patterns = {
+        "winter": ["Frost and fog", "Light snow possible", "Cloudy and cold", "Mild but damp"],
+        "spring": ["Spring showers", "Mild and breezy", "Sunny spells", "Fresh and bright"],
+        "summer": ["Warm and sunny", "Scattered showers", "Pleasant breeze", "Hot and humid"],
+        "autumn": ["Autumn mist", "Crisp and clear", "Golden sunshine", "Blustery showers"]
+    }
     
-    trending_themes = extract_trending_themes([("", h) for h in all_headlines])
+    if month in [12, 1, 2]:
+        season = "winter"
+    elif month in [3, 4, 5]:
+        season = "spring"
+    elif month in [6, 7, 8]:
+        season = "summer"
+    else:
+        season = "autumn"
     
-    return VibeContext(
+    patterns = weather_patterns[season]
+    today_weather = random.choice(patterns)
+    tonight_weather = random.choice(patterns)
+    
+    return {
+        "today": f"{today_weather} in {LOCATION_NAME}",
+        "tonight": f"{tonight_weather} expected",
+        "source": "seasonal_pattern"
+    }
+
+def get_daily_news_context(target_date: str) -> Dict[str, List[str]]:
+    """Get news context for specific date"""
+    target_dt = datetime.fromisoformat(target_date).date()
+    today = date.today()
+    
+    # For current dates, scrape live news
+    if abs((target_dt - today).days) <= 1 and ENABLE_FRESH_CONTEXT:
+        return scrape_current_news()
+    
+    # For historical dates, generate contextual news
+    return generate_historical_news_context(target_date)
+
+def scrape_current_news() -> Dict[str, List[str]]:
+    """Scrape current news from configured sources"""
+    news_data = {}
+    
+    for category, sources in NEWS_SOURCES.items():
+        headlines = []
+        for source_name, url in sources.items():
+            content = fetch_url(url)
+            if content:
+                source_headlines = extract_headlines(content, limit=5)
+                headlines.extend(source_headlines)
+        
+        news_data[category] = headlines[:8]  # Limit per category
+    
+    return news_data
+
+def generate_historical_news_context(target_date: str) -> Dict[str, List[str]]:
+    """Generate plausible news context for historical dates"""
+    dt = datetime.fromisoformat(target_date)
+    
+    # Generate contextual headlines based on date and known trends
+    historical_context = {
+        "tech": [
+            f"AI developments continue to shape industry trends",
+            f"New cybersecurity challenges emerge in {dt.year}",
+            f"Cloud computing adoption accelerates across sectors"
+        ],
+        "local": [
+            f"Shropshire community events planned for {dt.strftime('%B')}",
+            f"Local businesses adapt to changing market conditions",
+            f"Rural connectivity improvements announced"
+        ],
+        "security": [
+            f"Security researchers identify new threat patterns",
+            f"Best practices evolve for remote work environments",
+            f"Industry collaboration strengthens cyber defenses"
+        ]
+    }
+    
+    return historical_context
+
+def extract_trending_topics(news_data: Dict[str, List[str]]) -> List[str]:
+    """Extract trending topics from news headlines"""
+    all_text = " ".join([
+        headline for headlines in news_data.values() 
+        for headline in headlines
+    ]).lower()
+    
+    # Enhanced keyword extraction
+    trending_keywords = [
+        "ai", "artificial intelligence", "machine learning", "chatgpt", "openai",
+        "cybersecurity", "cloud", "blockchain", "quantum", "startup",
+        "funding", "acquisition", "breach", "hack", "vulnerability",
+        "remote work", "automation", "privacy", "regulation", "sustainability"
+    ]
+    
+    found_topics = []
+    for keyword in trending_keywords:
+        if keyword in all_text and keyword not in found_topics:
+            found_topics.append(keyword)
+    
+    return found_topics[:6]
+
+def generate_local_events(target_date: str) -> List[str]:
+    """Generate plausible local Shropshire events for the date"""
+    dt = datetime.fromisoformat(target_date)
+    month_name = dt.strftime("%B")
+    
+    # Season-appropriate local events
+    seasonal_events = {
+        "winter": ["village pub quiz night", "local craft fair", "parish council meeting"],
+        "spring": ["garden center spring show", "village green clean-up", "local farmers market"],
+        "summer": ["village fete planning", "cricket match on the green", "community BBQ"],
+        "autumn": ["harvest festival preparations", "village bonfire planning", "autumn craft workshop"]
+    }
+    
+    if dt.month in [12, 1, 2]:
+        season = "winter"
+    elif dt.month in [3, 4, 5]:
+        season = "spring" 
+    elif dt.month in [6, 7, 8]:
+        season = "summer"
+    else:
+        season = "autumn"
+    
+    return [f"Pontesbury {event} in {month_name}" for event in seasonal_events[season][:2]]
+
+def build_daily_context(target_date: str) -> DailyContext:
+    """Build complete daily context for a specific date"""
+    weather = get_weather_context(target_date)
+    news = get_daily_news_context(target_date)
+    trending = extract_trending_topics(news)
+    events = generate_local_events(target_date)
+    
+    return DailyContext(
+        date=target_date,
         weather=weather,
-        fresh_headlines=fresh_headlines,
-        trending_themes=trending_themes
+        news_headlines=news,
+        trending_topics=trending,
+        local_events=events
     )
 
-# ──────────────────────────  VIBE PROMPT BUILDERS  ────────────────────────
-def build_main_article_prompt(context: VibeContext, historical_context: Optional[str] = None) -> str:
-    """Build the main article prompt with maximum vibes"""
-    d = date.today().strftime("%A %d %B %Y")
-    
-    # Build context section
-    context_sections = []
-    
-    # Weather vibes
-    context_sections.append(f"Weather Vibes:\n  • Today: {context.weather['today']}\n  • Tonight: {context.weather['tonight']}")
-    
-    # Fresh context vibes
-    if context.fresh_headlines:
-        for category, headlines in context.fresh_headlines.items():
-            if headlines:
-                context_sections.append(f"{category.replace('_', ' ').title()} Vibes:\n" + "\n".join(f"  • {h}" for h in headlines[:3]))
-    
-    # Trending themes
-    if context.trending_themes:
-        context_sections.append(f"Trending Vibes: {', '.join(context.trending_themes)}")
-    
-    # Historical context
-    if historical_context:
-        context_sections.append(f"{historical_context}")
-    
-    context_block = "\n\n".join(context_sections)
-    
-    return f"""Write approximately 650 words in first-person diary form. You are Graz, 54 and a quarter, a cybersecurity engineer in Pontesbury, Shropshire, channelling the dry wit of Adrian Mole. Mention one plausible local Shropshire event.
+# ═══════════════════════════════ PROMPT BUILDERS ═══════════════════════════
 
-Include family antics and clearly tag relationships:
-• Lizzy - brilliant wife who funds your globe-trotting "really important IT thingys"
-• Noreen (19) - "Steve Davis of kids", brilliant yet boring
-• Saoirse (17) - grunge guitarist saving to visit a Parisian grave
-• Terry (13) - rugby-obsessed son you "fake-coach"
-• Eddie the over-mortgaged black cockapoo & Puddle the impulsively-adopted white kitten
-
-Keep it self-deprecating, observational and silly. Reference current events and trends naturally.
-
-{context_block}
-
-Date: **{d}**"""
-
-def build_comparison_article_prompt(context: VibeContext, historical_context: Optional[str] = None) -> str:
-    """Build the comparison article prompt with tech vibes"""
-    context_sections = []
+def build_llm_prompt(prompt_type: str, base_context: Dict, daily_context: DailyContext) -> str:
+    """Build complete LLM prompt with all context sources"""
     
-    # Tech headlines context
-    if context.fresh_headlines.get("tech_vibes"):
-        context_sections.append("Recent Tech Vibes:\n" + "\n".join(f"  • {h}" for h in context.fresh_headlines["tech_vibes"][:5]))
-    
-    # Security headlines context
-    if context.fresh_headlines.get("security_vibes"):
-        context_sections.append("Security Vibes:\n" + "\n".join(f"  • {h}" for h in context.fresh_headlines["security_vibes"][:3]))
-    
-    # Historical context
-    if historical_context:
-        context_sections.append(f"{historical_context}")
-    
-    context_block = "\n\n".join(context_sections) if context_sections else ""
-    
-    return f"""Produce a Top-10 LLMs (mid-2025) ranked list. For each entry give: Model name & vendor (bolded), one-sentence genuine strength, one-sentence cynical "what it's really used for." 
+    if prompt_type == "main_article":
+        return build_main_article_prompt(base_context, daily_context)
+    elif prompt_type == "comparison_article":
+        return build_comparison_article_prompt(base_context, daily_context)
+    elif prompt_type == "llm_story":
+        return build_llm_story_prompt(base_context, daily_context)
+    elif prompt_type == "joke":
+        return build_joke_prompt(base_context, daily_context)
+    elif prompt_type == "author_bio":
+        return build_author_bio_prompt(base_context, daily_context)
+    else:
+        raise ValueError(f"Unknown prompt type: {prompt_type}")
 
-Tone: informed yet cheekily sceptical. Present as an ordered Markdown list; about 60 words per item.
-
-{context_block}"""
-
-def build_llm_story_prompt(context: VibeContext, historical_context: Optional[str] = None) -> str:
-    """Build the LLM story prompt with everyday vibes"""
-    context_sections = []
+def build_main_article_prompt(base_context: Dict, daily_context: DailyContext) -> str:
+    """Build main article prompt with embedded context data"""
+    date_obj = datetime.fromisoformat(daily_context.date)
+    date_formatted = date_obj.strftime("%A %d %B %Y")
+    day_of_week = date_obj.strftime("%A")
     
-    # Local headlines context
-    if context.fresh_headlines.get("local_vibes"):
-        context_sections.append("Local Vibes:\n" + "\n".join(f"  • {h}" for h in context.fresh_headlines["local_vibes"][:3]))
-    
-    # Historical context
-    if historical_context:
-        context_sections.append(f"{historical_context}")
-    
-    context_block = "\n\n".join(context_sections) if context_sections else ""
-    
-    return f"""Tell a light-hearted, jargon-free 400-word story about an everyday non-techie (e.g., retired postman) who uses an LLM to fix a small life problem, with an unexpectedly funny twist. 
+    # Base context section with embedded family details
+    base_section = f"""
+WRITING STYLE: {base_context['length']} in {base_context['style']}
+CHARACTER: {base_context['character']} in {base_context['location']}
+TONE: {base_context['tone']}
+REQUIREMENT: {base_context['requirements']}
+DATE: {date_formatted}
 
-Explain the request, the LLM's reply, and the humorous outcome. Relatable and chuckle-worthy.
-
-{context_block}"""
-
-def build_joke_prompt(context: VibeContext, historical_context: Optional[str] = None) -> str:
-    """Build the joke prompt with AI vibes"""
-    context_sections = []
+FAMILY MEMBERS CONTEXT:"""
     
-    # Tech headlines context for AI-related jokes
-    if context.fresh_headlines.get("tech_vibes"):
-        ai_headlines = [h for h in context.fresh_headlines["tech_vibes"] if any(word in h.lower() for word in ["ai", "artificial intelligence", "chatgpt", "openai"])]
+    for name, desc in base_context['family'].items():
+        base_section += f"\n• {name} - {desc}"
+    
+    # Embedded weather context with actual data
+    weather_section = f"""
+WEATHER CONTEXT FOR {date_formatted}:
+• Today's conditions: {daily_context.weather['today']}"""
+    if daily_context.weather.get('tonight'):
+        weather_section += f"\n• Tonight: {daily_context.weather['tonight']}"
+    if daily_context.weather.get('tomorrow'):
+        weather_section += f"\n• Tomorrow: {daily_context.weather['tomorrow']}"
+    weather_section += f"\n• Weather data source: {daily_context.weather.get('source', 'seasonal pattern')}"
+    
+    # Embedded local events with specific details
+    local_section = f"""
+LOCAL SHROPSHIRE CONTEXT:"""
+    if daily_context.local_events:
+        for i, event in enumerate(daily_context.local_events, 1):
+            local_section += f"\n• Event {i}: {event}"
+    else:
+        local_section += "\n• No specific local events for today"
+    
+    # Embedded news headlines with actual content
+    news_section = f"""
+CURRENT NEWS HEADLINES TO REFERENCE:"""
+    for category, headlines in daily_context.news_headlines.items():
+        if headlines:
+            news_section += f"\n{category.upper()} NEWS:"
+            for i, headline in enumerate(headlines[:3], 1):
+                news_section += f"\n  {i}. {headline}"
+    
+    # Embedded trending topics
+    trends_section = ""
+    if daily_context.trending_topics:
+        trends_section = f"""
+TRENDING TOPICS TODAY: {', '.join(daily_context.trending_topics[:5])}"""
+    
+    # Day-specific guidance for variation
+    day_guidance = {
+        "Monday": "Reference the weekend just passed, work week beginning",
+        "Tuesday": "Mid-week momentum building, tech announcements common",
+        "Wednesday": "Hump day observations, family midweek routines",
+        "Thursday": "Looking ahead to weekend, anticipation building",
+        "Friday": "End of week reflection, weekend plans forming",
+        "Saturday": "Weekend family time, more relaxed pace and activities",
+        "Sunday": "Sunday reflections, preparing for the week ahead"
+    }.get(day_of_week, "Daily observations and routine")
+    
+    return f"""{base_section}
+
+{weather_section}
+
+{local_section}
+
+{news_section}
+
+{trends_section}
+
+{day_of_week.upper()} GUIDANCE: {day_guidance}
+
+Write your diary entry for **{date_formatted}**. Embed specific weather observations, reference at least one actual news headline naturally, include authentic family interactions, and weave in current trends. Make it feel like this specific day with these specific conditions and events."""
+
+def build_comparison_article_prompt(base_context: Dict, daily_context: DailyContext) -> str:
+    """Build comparison article prompt"""
+    
+    base_section = f"""
+TOPIC: {base_context['topic']}
+FORMAT: {base_context['format']}
+CONTENT: {base_context['content']}
+TONE: {base_context['tone']}"""
+    
+    daily_section = ""
+    if daily_context.news_headlines.get('tech'):
+        daily_section += "\nCURRENT TECH CONTEXT:"
+        for headline in daily_context.news_headlines['tech'][:4]:
+            daily_section += f"\n• {headline}"
+    
+    if daily_context.trending_topics:
+        tech_topics = [t for t in daily_context.trending_topics if 'ai' in t or 'tech' in t or 'cyber' in t]
+        if tech_topics:
+            daily_section += f"\n\nTECH TRENDS: {', '.join(tech_topics)}"
+    
+    return f"""{base_section}
+
+{daily_section}
+
+Create your ranking considering current industry developments and trends."""
+
+def build_llm_story_prompt(base_context: Dict, daily_context: DailyContext) -> str:
+    """Build LLM story prompt"""
+    
+    base_section = f"""
+STORY STYLE: {base_context['style']}
+CHARACTER: {base_context['character']}
+PLOT: {base_context['plot']}
+STRUCTURE: {base_context['structure']}
+TONE: {base_context['tone']}
+LENGTH: {base_context['length']}"""
+    
+    daily_section = ""
+    if daily_context.local_events:
+        daily_section += f"\nLOCAL INSPIRATION: {daily_context.local_events[0]}"
+    
+    if daily_context.news_headlines.get('local'):
+        daily_section += "\nLOCAL NEWS CONTEXT:"
+        for headline in daily_context.news_headlines['local'][:2]:
+            daily_section += f"\n• {headline}"
+    
+    return f"""{base_section}
+
+{daily_section}
+
+Write a story where your everyday character uses an LLM in an unexpected way related to their daily life."""
+
+def build_joke_prompt(base_context: Dict, daily_context: DailyContext) -> str:
+    """Build joke prompt"""
+    
+    base_section = f"""
+TOPIC: {base_context['topic']}
+FORMAT: {base_context['format']}
+REQUIREMENTS: {base_context['requirements']}"""
+    
+    daily_section = ""
+    if daily_context.trending_topics:
+        ai_topics = [t for t in daily_context.trending_topics if 'ai' in t.lower()]
+        if ai_topics:
+            daily_section += f"\nAI TRENDS TO REFERENCE: {', '.join(ai_topics)}"
+    
+    if daily_context.news_headlines.get('tech'):
+        ai_headlines = [h for h in daily_context.news_headlines['tech'] if 'ai' in h.lower() or 'openai' in h.lower()]
         if ai_headlines:
-            context_sections.append("AI Vibes:\n" + "\n".join(f"  • {h}" for h in ai_headlines[:2]))
+            daily_section += f"\nCURRENT AI NEWS: {ai_headlines[0]}"
     
-    # Historical context
-    if historical_context:
-        context_sections.append(f"{historical_context}")
+    return f"""{base_section}
+
+{daily_section}
+
+Create a witty one-liner that references current AI developments."""
+
+def build_author_bio_prompt(base_context: Dict, daily_context: DailyContext) -> str:
+    """Build author bio prompt"""
     
-    context_block = "\n\n".join(context_sections) if context_sections else ""
+    base_section = f"""
+SUBJECT: {base_context['subject']}
+STYLE: {base_context['style']}
+LENGTH: {base_context['length']}
+BACKGROUND: {base_context['background']}
+EXPERIENCE: {base_context['experience']}
+EXPERTISE: {base_context['expertise']}
+HOBBIES: {base_context['hobbies']}
+ENDING: {base_context['ending']}"""
     
-    return f"""Write a one-liner (40 words or less) poking fun at AI hype. Include Sam Altman by name. Clever, family-friendly, self-aware.
-
-{context_block}"""
-
-def build_author_bio_prompt(context: VibeContext) -> str:
-    """Build the author bio prompt with professional vibes"""
-    context_sections = []
+    daily_section = ""
+    if daily_context.news_headlines.get('security'):
+        daily_section += "\nCURRENT SECURITY LANDSCAPE:"
+        for headline in daily_context.news_headlines['security'][:2]:
+            daily_section += f"\n• {headline}"
     
-    # Security headlines context
-    if context.fresh_headlines.get("security_vibes"):
-        context_sections.append("Industry Vibes:\n" + "\n".join(f"  • {h}" for h in context.fresh_headlines["security_vibes"][:2]))
+    return f"""{base_section}
+
+{daily_section}
+
+Write the bio incorporating current industry context where relevant."""
+
+def build_image_prompt(prompt_type: str, base_context: str, daily_context: DailyContext) -> str:
+    """Build image prompt with embedded context data and date-specific variation"""
     
-    context_block = "\n\n".join(context_sections) if context_sections else ""
+    date_obj = datetime.fromisoformat(daily_context.date)
+    day_of_week = date_obj.strftime("%A")
     
-    return f"""In 120-150 words, craft a cheeky third-person bio for Graham Land. Omit phone, email or addresses. 
-
-Use: Irish-born, UK-based technologist; Technical Customer Success Manager at Aqua Security (2024-), ex-Manager CSM EMEA at HashiCorp (2018-23, grew portfolio 3M to 60M); OpenStack evangelist at Fujitsu & HP; Vault-certified, AWS SA cert, ITIL; conference speaker; motorbike & paddle-board addict. 
-
-Finish with a playful line about making DevOps "slightly less terrifying."
-
-{context_block}"""
-
-# ──────────────────────────  IMAGE PROMPT BUILDERS  ────────────────────────
-def build_main_article_image_prompt(context: VibeContext) -> str:
-    """Build the main article image prompt with visual vibes"""
-    return """Comic-realistic illustration: middle-aged man labelled "Graz" at a messy desk, laptop aglow. Around him: Lizzy balancing a globe, Noreen polishing a trophy, Saoirse thrashing a guitar with Eiffel-Tower sticker, Terry tackling a rugby dummy, Eddie sprinting with a squeaky toy, Puddle dangling from curtains. Shropshire hills and a village fete banner in the window. Bright colours, playful energy."""
-
-def build_comparison_article_image_prompt(context: VibeContext) -> str:
-    """Build the comparison article image prompt with data vibes"""
-    return """Vibrant d3js-style combo chart titled "LLM Capability vs. Marketing Hype (2025)". X-axis = Marketing Hype, Y-axis = Actual Capability. Ten uniquely coloured bars/points, legend with model names, dashed line for "Hype-Reality Parity". Playful infographics flavour; no numeric data needed."""
-
-def build_llm_story_image_prompt(context: VibeContext) -> str:
-    """Build the LLM story image prompt with cozy vibes"""
-    return """Single-panel comic: cosy cottage lounge; cheerful elderly postman in slippers holding a tablet showing a chat bubble, while hundreds of perfectly folded origami swans overflow the room - his LLM's over-enthusiastic answer. Warm lighting, gentle humour."""
-
-def build_joke_image_prompt(context: VibeContext) -> str:
-    """Build the joke image prompt with satirical vibes"""
-    return """Satirical editorial cartoon: Sam Altman riding a giant, talking paperclip shaped like Clippy, waving a banner reading "Now with 10x more tokens!" Bemused office workers watch. Clean lines, bold colours, respectful caricature."""
-
-def build_ad_image_prompts(context: VibeContext) -> List[str]:
-    """Build the advertisement image prompts with marketing vibes"""
-    return [
-        """Spoof billboard: "Graz's Quantum-Powered Password Post-It Notes - Because Even Hackers Deserve A Challenge." Neon 80s styling; sticky notes orbiting a glowing quantum computer; small-print disclaimer: "Side effects include remembering none of your passwords." """,
-        
-        """Fake cereal box: "LLM-Os - Crunchy Clusters of Context!" Cartoon tokens pouring from a GPU-shaped spoon; starburst "Free 8K sample prompt inside!" Nutrition panel lists "100% Daily Iron-y".""",
-        
-        """Vintage travel poster: "Visit Promptesbury-on-AI - Where Every Pub Has Its Own Model!" Soft pastel colours; villagers ordering pints from robot barmaids; sign reads "Population 1, Tokens 1B".""",
-        
-        """Mock perfume advert: black-and-white close-up of a sleek USB stick labelled "TOKEN No.5". Elegant model whispers "Smell the parameters." Gold serif caption: "For those who prefer their GPUs in eau de toilette." """
+    # Seasonal elements based on month
+    seasonal_elements = {
+        12: "winter frost, bare trees, cozy holiday atmosphere", 
+        1: "new year energy, fresh start, winter clarity", 
+        2: "winter warmth, indoor comfort, February light",
+        3: "spring awakening, fresh growth, March winds", 
+        4: "April showers, blooming flowers, spring renewal", 
+        5: "spring sunshine, vibrant colors, May blossoms",
+        6: "summer warmth, outdoor activity, June brightness", 
+        7: "midsummer radiance, long days, July heat", 
+        8: "summer holidays, relaxed mood, August abundance", 
+        9: "autumn colors, harvest time, September transition", 
+        10: "golden autumn, crisp air, October beauty", 
+        11: "autumn mist, cozy preparations, November atmosphere"
+    }
+    
+    seasonal_hint = seasonal_elements.get(date_obj.month, "seasonal atmosphere")
+    
+    # Weather-based mood and lighting
+    weather_today = daily_context.weather['today'].lower()
+    if "sun" in weather_today or "clear" in weather_today:
+        weather_mood = "bright natural lighting, sunny atmosphere"
+    elif "cloud" in weather_today or "overcast" in weather_today:
+        weather_mood = "soft diffused lighting, cloudy atmospheric mood"
+    elif "rain" in weather_today or "shower" in weather_today:
+        weather_mood = "cozy indoor lighting, rain-day atmosphere"
+    else:
+        weather_mood = "balanced natural lighting"
+    
+    # Day-specific elements for variety
+    day_elements = {
+        "Monday": "beginning-of-week energy, fresh start vibes",
+        "Tuesday": "productive mid-week focus, determined mood",
+        "Wednesday": "midweek balance, steady progress feeling",
+        "Thursday": "anticipation building, forward momentum",
+        "Friday": "end-of-week satisfaction, weekend anticipation",
+        "Saturday": "relaxed weekend pace, leisure activities",
+        "Sunday": "peaceful reflection, family time, preparation mood"
+    }
+    
+    day_mood = day_elements.get(day_of_week, "daily life atmosphere")
+    
+    # Trending topic influences for contemporary feel
+    contemporary_elements = []
+    if daily_context.trending_topics:
+        tech_topics = [t for t in daily_context.trending_topics if any(keyword in t.lower() for keyword in ['ai', 'tech', 'digital', 'cyber'])]
+        if tech_topics:
+            contemporary_elements.append("subtle modern tech elements")
+    
+    # Build enhanced prompt
+    enhanced_prompt_parts = [
+        base_context,
+        f"Include {seasonal_hint}",
+        f"Use {weather_mood}",
+        f"Capture {day_mood}",
     ]
+    
+    if contemporary_elements:
+        enhanced_prompt_parts.append(f"Add {', '.join(contemporary_elements)}")
+    
+    enhanced_prompt_parts.append(f"reflecting {date_obj.strftime('%A %B %d, %Y')} character")
+    
+    return ". ".join(enhanced_prompt_parts) + "."
 
-# ──────────────────────────  VIBE STORAGE  ────────────────────────────────
-def put_json(key: str, obj: dict):
-    """Store JSON with good vibes"""
+# ═══════════════════════════════ STORAGE FUNCTIONS ═══════════════════════════
+
+def store_prompt(prompt_data: PromptData) -> str:
+    """Store prompt data to S3 with HTML placement references and enhanced context summaries"""
+    date_parts = prompt_data.date.split("-")
+    y, m, d = date_parts[0], date_parts[1], date_parts[2]
+    
+    key = f"{BASE_PROMPT_PREFIX}/{y}/{m}/{d}/{prompt_data.prompt_id}.json"
+    
+    # Determine content type from prompt ID
+    content_type = None
+    if prompt_data.prompt_id.startswith("llm_01"):
+        content_type = "main_article"
+    elif prompt_data.prompt_id.startswith("llm_02"):
+        content_type = "comparison_article"
+    elif prompt_data.prompt_id.startswith("llm_03"):
+        content_type = "llm_story"
+    elif prompt_data.prompt_id.startswith("llm_04"):
+        content_type = "joke"
+    elif prompt_data.prompt_id.startswith("img_01"):
+        content_type = "main_article"
+    elif prompt_data.prompt_id.startswith("img_02"):
+        content_type = "comparison_article"
+    elif prompt_data.prompt_id.startswith("img_07"):
+        content_type = "llm_story"
+    elif prompt_data.prompt_id.startswith("img_08"):
+        content_type = "joke"
+    elif prompt_data.prompt_id.startswith("img_03"):
+        content_type = "advertisement1"
+    elif prompt_data.prompt_id.startswith("img_04"):
+        content_type = "advertisement2"
+    elif prompt_data.prompt_id.startswith("img_05"):
+        content_type = "advertisement3"
+    elif prompt_data.prompt_id.startswith("img_06"):
+        content_type = "advertisement4"
+    
+    # Get HTML placement references
+    html_placement = {}
+    if content_type and content_type in HTML_PLACEMENTS:
+        html_placement = HTML_PLACEMENTS[content_type]
+    elif content_type and content_type.startswith("advertisement"):
+        # Map individual advertisement content types to HTML placements
+        ad_index = int(content_type[-1]) - 1  # advertisement1->0, advertisement2->1, etc.
+        if 0 <= ad_index < len(HTML_PLACEMENTS["advertisements"]):
+            html_placement = {"selector": HTML_PLACEMENTS["advertisements"][ad_index]}
+    
+    storage_data = {
+        "type": prompt_data.prompt_type,
+        "id": prompt_data.prompt_id,
+        "date": prompt_data.date,
+        "models": prompt_data.models,
+        "prompt": prompt_data.final_prompt,
+        "html_placement": html_placement,
+        "context_summary": {
+            "weather": {
+                "source": prompt_data.daily_context.weather.get('source', 'unknown'),
+                "conditions": prompt_data.daily_context.weather.get('today', 'N/A'),
+                "has_forecast": bool(prompt_data.daily_context.weather.get('tomorrow'))
+            },
+            "news": {
+                "categories": list(prompt_data.daily_context.news_headlines.keys()),
+                "total_headlines": sum(len(headlines) for headlines in prompt_data.daily_context.news_headlines.values()),
+                "sources_scraped": len([cat for cat, headlines in prompt_data.daily_context.news_headlines.items() if headlines])
+            },
+            "trending_topics": {
+                "count": len(prompt_data.daily_context.trending_topics),
+                "topics": prompt_data.daily_context.trending_topics[:5]
+            },
+            "local_events": {
+                "count": len(prompt_data.daily_context.local_events),
+                "events": prompt_data.daily_context.local_events[:3]
+            },
+            "date_context": {
+                "day_of_week": datetime.fromisoformat(prompt_data.date).strftime("%A"),
+                "formatted_date": datetime.fromisoformat(prompt_data.date).strftime("%B %d, %Y")
+            }
+        }
+    }
+    
+    # Add optional parameters
+    if prompt_data.temperature is not None:
+        storage_data["temperature"] = prompt_data.temperature
+    if prompt_data.size is not None:
+        storage_data["size"] = prompt_data.size
+    
     s3.put_object(
         Bucket=PROMPT_BUCKET,
         Key=key,
-        Body=json.dumps(obj, indent=2, ensure_ascii=False).encode(),
-        ContentType="application/json",
+        Body=json.dumps(storage_data, indent=2, ensure_ascii=False).encode(),
+        ContentType="application/json"
     )
+    
+    return key
 
-# ──────────────────────────  MAIN VIBE HANDLER  ────────────────────────────
-def lambda_handler(event, _):
-    """Main vibe handler - generate all the prompts with maximum vibes"""
-    today_iso = date.today().isoformat()
-    prefix = f"{BASE_PROMPT_PREFIX}/{TODAY_Y}/{TODAY_M}/{TODAY_D}/"
+# ═══════════════════════════════ MAIN HANDLER ═══════════════════════════════
+
+def lambda_handler(event, context):
+    """
+    Main handler supporting date range generation from environment variables
     
-    # Build the ultimate vibe context
-    vibe_context = build_vibe_context()
+    Environment Variables:
+    START_DATE: Start date for generation (YYYY-MM-DD)
+    END_DATE: End date for generation (YYYY-MM-DD)
     
-    # Get historical context for LLM prompts
-    historical_contexts = {}
-    if ENABLE_HISTORICAL_CONTEXT:
-        for prompt_type in ["main-article-text", "comparison-article-text", "llm-story-content", "joke-content"]:
-            historical_contexts[prompt_type] = get_historical_context(prompt_type)
+    Fallback to event parameters:
+    Single date: {"date": "2025-01-15"}
+    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+    Default:     Today's date
+    """
     
-    # Define all the prompts with their configurations
+    # Determine date range from environment variables first, then event, then default
+    if START_DATE and END_DATE:
+        dates = generate_date_range(START_DATE, END_DATE)
+        print(f"Using environment variable dates: {START_DATE} to {END_DATE}")
+    elif START_DATE:
+        dates = [START_DATE]
+        print(f"Using environment variable single date: {START_DATE}")
+    elif "start_date" in event and "end_date" in event:
+        dates = generate_date_range(event["start_date"], event["end_date"])
+        print(f"Using event date range: {event['start_date']} to {event['end_date']}")
+    elif "date" in event:
+        dates = [event["date"]]
+        print(f"Using event single date: {event['date']}")
+    else:
+        dates = [date.today().isoformat()]
+        print(f"Using default date: {dates[0]}")
+    
+    print(f"Generating prompts for {len(dates)} dates: {dates[0]} to {dates[-1]}")
+    
+    # Define prompt configurations with clear delineation and HTML placement
     prompt_configs = [
-        # LLM Prompts
-        PromptConfig(
-            prompt_id="llm_01",
-            prompt_type="llm",
-            content=build_main_article_prompt(vibe_context, historical_contexts.get("main-article-text")),
-            models=LLM_MODELS,
-            temperature=0.9
-        ),
-        PromptConfig(
-            prompt_id="llm_02", 
-            prompt_type="llm",
-            content=build_comparison_article_prompt(vibe_context, historical_contexts.get("comparison-article-text")),
-            models=LLM_MODELS,
-            temperature=0.7
-        ),
-        PromptConfig(
-            prompt_id="llm_03",
-            prompt_type="llm", 
-            content=build_llm_story_prompt(vibe_context, historical_contexts.get("llm-story-content")),
-            models=LLM_MODELS,
-            temperature=0.9
-        ),
-        PromptConfig(
-            prompt_id="llm_04",
-            prompt_type="llm",
-            content=build_joke_prompt(vibe_context, historical_contexts.get("joke-content")),
-            models=LLM_MODELS,
-            temperature=0.8
-        ),
+        # ═══ LLM PROMPTS ═══
+        {"id": "llm_01", "type": "llm", "content_type": "main_article", "temp": 0.9, 
+         "description": "Main diary article - Graz's daily observations"},
+        {"id": "llm_02", "type": "llm", "content_type": "comparison_article", "temp": 0.7,
+         "description": "LLM comparison ranking - Technical analysis"}, 
+        {"id": "llm_03", "type": "llm", "content_type": "llm_story", "temp": 0.9,
+         "description": "LLM user story - Relatable everyday scenario"},
+        {"id": "llm_04", "type": "llm", "content_type": "joke", "temp": 0.8,
+         "description": "AI industry joke - Sam Altman one-liner"},
+        {"id": "llm_05", "type": "llm", "content_type": "author_bio", "temp": 0.6,
+         "description": "Author bio - Graham Land background"},
         
-        # Image Prompts
-        PromptConfig(
-            prompt_id="img_01",
-            prompt_type="image",
-            content=build_main_article_image_prompt(vibe_context),
-            models=IMG_MODELS,
-            size="1024x1024"
-        ),
-        PromptConfig(
-            prompt_id="img_02",
-            prompt_type="image", 
-            content=build_comparison_article_image_prompt(vibe_context),
-            models=IMG_MODELS,
-            size="1024x1024"
-        ),
-        PromptConfig(
-            prompt_id="img_07",
-            prompt_type="image",
-            content=build_llm_story_image_prompt(vibe_context),
-            models=IMG_MODELS,
-            size="1024x1024"
-        ),
-        PromptConfig(
-            prompt_id="img_08",
-            prompt_type="image",
-            content=build_joke_image_prompt(vibe_context),
-            models=IMG_MODELS,
-            size="1024x1024"
-        )
+        # ═══ IMAGE PROMPTS ═══  
+        {"id": "img_01", "type": "image", "content_type": "main_article", "size": "1024x1024",
+         "description": "Main article illustration - Family scene"},
+        {"id": "img_02", "type": "image", "content_type": "comparison_article", "size": "1024x1024",
+         "description": "Comparison article graphic - Data visualization"},
+        {"id": "img_03", "type": "image", "content_type": "advertisement1", "size": "1024x1024", 
+         "description": "Advertisement 1 - Tech product spoof"},
+        {"id": "img_04", "type": "image", "content_type": "advertisement2", "size": "1024x1024", 
+         "description": "Advertisement 2 - AI cereal box"},
+        {"id": "img_05", "type": "image", "content_type": "advertisement3", "size": "1024x1024", 
+         "description": "Advertisement 3 - Vintage AI travel poster"},
+        {"id": "img_06", "type": "image", "content_type": "advertisement4", "size": "1024x1024", 
+         "description": "Advertisement 4 - Luxury tech product mockup"},
+        {"id": "img_07", "type": "image", "content_type": "llm_story", "size": "1024x1024",
+         "description": "LLM story illustration - Single panel comic"},
+        {"id": "img_08", "type": "image", "content_type": "joke", "size": "1024x1024",
+         "description": "Joke illustration - Editorial cartoon style"}
     ]
     
-    # Add advertisement image prompts
-    ad_prompts = build_ad_image_prompts(vibe_context)
-    for i, ad_prompt in enumerate(ad_prompts, 3):
-        prompt_configs.append(PromptConfig(
-            prompt_id=f"img_{i:02}",
-            prompt_type="image",
-            content=ad_prompt,
-            models=IMG_MODELS,
-            size="1024x1024"
-        ))
+    generated_prompts = []
+    prompt_details = []
     
-    # Generate and store all prompts
-    for config in prompt_configs:
-        prompt_data = {
-            "type": config.prompt_type,
-            "id": config.prompt_id,
-            "date": today_iso,
-            "models": config.models,
-            "prompt": config.content
-        }
+    # Generate prompts for each date
+    for target_date in dates:
+        print(f"\n{'='*60}")
+        print(f"PROCESSING DATE: {target_date}")
+        print(f"{'='*60}")
         
-        # Add optional parameters for LLM prompts
-        if config.prompt_type == "llm" and config.temperature is not None:
-            prompt_data["temperature"] = config.temperature
+        # Build daily context for this date
+        daily_context = build_daily_context(target_date)
         
-        # Add optional parameters for image prompts
-        if config.prompt_type == "image" and config.size is not None:
-            prompt_data["size"] = config.size
+        print(f"Daily Context Built:")
+        print(f"  Weather: {daily_context.weather.get('today', 'N/A')} (source: {daily_context.weather.get('source', 'unknown')})")
+        print(f"  News categories: {list(daily_context.news_headlines.keys())}")
+        print(f"  Trending topics: {daily_context.trending_topics[:5]}")
+        print(f"  Local events: {len(daily_context.local_events)}")
         
-        put_json(prefix + f"{config.prompt_id}.json", prompt_data)
+        # Generate each prompt with clear delineation
+        for config in prompt_configs:
+            try:
+                content_type = config["content_type"]
+                
+                print(f"\n  ┌─ {config['description']}")
+                print(f"  │  ID: {config['id']}")
+                print(f"  │  Type: {config['type']}")
+                print(f"  │  Content: {content_type}")
+                
+                if config["type"] == "llm":
+                    base_context = BASE_CONTEXTS[content_type]
+                    final_prompt = build_llm_prompt(content_type, base_context, daily_context)
+                    models = LLM_MODELS
+                    temperature = config.get("temp")
+                    size = None
+                    print(f"  │  Models: {len(models)} LLM models")
+                    print(f"  │  Temperature: {temperature}")
+                    
+                else:  # image
+                    if content_type.startswith("advertisement"):
+                        ad_idx = int(content_type[-1]) - 1  # advertisement1->0, advertisement2->1, etc.
+                        base_context = IMAGE_BASE_CONTEXTS["advertisements"][ad_idx]
+                    else:
+                        base_context = IMAGE_BASE_CONTEXTS[content_type]
+                    
+                    final_prompt = build_image_prompt(content_type, base_context, daily_context)
+                    models = IMG_MODELS
+                    temperature = None
+                    size = config.get("size")
+                    print(f"  │  Models: {len(models)} Image models")
+                    print(f"  │  Size: {size}")
+                
+                # Create prompt data object
+                prompt_data = PromptData(
+                    prompt_id=config["id"],
+                    prompt_type=config["type"],
+                    date=target_date,
+                    base_context=base_context if isinstance(base_context, dict) else {"description": base_context},
+                    daily_context=daily_context,
+                    final_prompt=final_prompt,
+                    models=models,
+                    temperature=temperature,
+                    size=size
+                )
+                
+                # Store prompt
+                key = store_prompt(prompt_data)
+                generated_prompts.append(key)
+                
+                # Add to detailed tracking
+                prompt_details.append({
+                    "id": config["id"],
+                    "type": config["type"],  
+                    "date": target_date,
+                    "description": config["description"],
+                    "s3_key": key,
+                    "prompt_length": len(final_prompt),
+                    "models_count": len(models)
+                })
+                
+                print(f"  │  Prompt length: {len(final_prompt)} characters")
+                print(f"  │  Stored: {key}")
+                print(f"  └─ ✓ Generated successfully")
+                
+            except Exception as e:
+                print(f"  └─ ✗ Error generating {config['id']}: {e}")
+                continue
+        
+        print(f"\nCompleted {target_date}: {len([p for p in prompt_details if p['date'] == target_date])} prompts generated")
+    
+    # Summary statistics
+    llm_prompts = [p for p in prompt_details if p['type'] == 'llm']
+    image_prompts = [p for p in prompt_details if p['type'] == 'image']
+    
+    print(f"\n{'='*60}")
+    print(f"GENERATION COMPLETE")
+    print(f"{'='*60}")
+    print(f"Total dates processed: {len(dates)}")
+    print(f"Total prompts generated: {len(generated_prompts)}")
+    print(f"  - LLM prompts: {len(llm_prompts)}")
+    print(f"  - Image prompts: {len(image_prompts)}")
     
     return {
-        "status": "VIBES_OK ✨",
-        "saved_prompts": len(prompt_configs),
-        "date": today_iso,
-        "prefix": prefix,
-        "vibe_features": {
+        "status": "SUCCESS",
+        "dates_processed": dates,
+        "prompts_generated": len(generated_prompts),
+        "prompt_breakdown": {
+            "llm_prompts": len(llm_prompts),
+            "image_prompts": len(image_prompts),
+            "by_date": {date: len([p for p in prompt_details if p['date'] == date]) for date in dates}
+        },
+        "configuration": {
+            "date_source": "environment_variables" if (START_DATE or END_DATE) else "event_or_default",
             "fresh_context_enabled": ENABLE_FRESH_CONTEXT,
-            "historical_context_enabled": ENABLE_HISTORICAL_CONTEXT,
-            "trending_themes": vibe_context.trending_themes,
-            "weather_vibes": vibe_context.weather
-        }
+            "historical_weather_enabled": ENABLE_HISTORICAL_WEATHER,
+            "base_contexts_loaded": len(BASE_CONTEXTS),
+            "news_sources_configured": len(NEWS_SOURCES),
+            "html_placements_defined": len(HTML_PLACEMENTS)
+        },
+        "sample_outputs": prompt_details[:3] if prompt_details else [],
+        "storage_keys": generated_prompts[:10]  # First 10 keys for reference
     }

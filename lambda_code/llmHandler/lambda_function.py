@@ -1,48 +1,49 @@
-# ╔══════════════════════════════════════════════════════════════════════╗
-#  llm_runner.py – CraicGPT "newspaper" text-generation pipeline
-# ╟──────────────────────────────────────────────────────────────────────╢
-#  PURPOSE
-#  ▸ For each requested **date × prompt × Bedrock text model**:
-#      1. Pull the prompt JSON from S3 (`prompts/YYYY-MM-DD/<prompt_id>.json`)
-#      2. Call the model (chat schema when supported)
-#           – automatic **exponential back-off** on ThrottlingException
-#           – automatic fallback to minimal single-prompt schema on
-#             ValidationException
-#      3. Save raw output ➜ `results/<date>/<prompt>/<model>.txt`
-#      4. Merge output into    `static_assets/content/website/YYYY/MM/DD/paper_content.json`
-#      5. **NEW:** Log total **output-tokens per rolling minute** so you
-#         can compare with Bedrock token-per-minute quotas.
+# ╔══════════════════════════════════════════════════════════════════════════╗
+#  llm_runner.py – CraicGPT Enhanced LLM Text Generation Pipeline
+# ╟──────────────────────────────────────────────────────────────────────────╢
+#  PURPOSE: Generate text content for CraicGPT newspaper with date range support
+#  
+#  NEW FEATURES:
+#    • Date range support (start_date to end_date)
+#    • Improved error handling and resilience
+#    • Enhanced token budget tracking
+#    • Better logging and debugging
+#    • Maintains backward compatibility
 #
-#  PROMPT-ID → NEWSPAPER SLOT MAP
+#  USAGE:
+#    Single date: {"date": "2025-01-15"}
+#    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+#    Custom prompts: {"dates": [...], "prompt_ids": [...], "model_ids": [...]}
+#
+#  PROMPT-ID → NEWSPAPER SLOT MAP:
 #      llm_01 → mainArticle        {title, text}
 #      llm_02 → comparisonArticle  {title, text}
 #      llm_03 → llmStory           {content}
 #      llm_04 → joke               {content}
 #
-#  MODEL SUPPORT
+#  MODEL SUPPORT:
 #      • Anthropic Claude (chat)           • Mistral / Mixtral (chat)
 #      • Amazon Titan Text                 • Cohere Command-R
-#      • AI-21 Jurassic-2                  • Generic fallback {"prompt": …}
-#      • Any "*"embed*" model is **skipped by default** (vectors, not prose).
-#        Set env `ALLOW_EMBED_MODELS=true` to include them.
+#      • AI-21 Jurassic-2                  • Generic fallback
+#      • Embedding models skipped by default (set ALLOW_EMBED_MODELS=true)
 #
-#  RESILIENCE
-#      • safe_invoke() retries up to 6× with exponential back-off
-#        (0.25 s → 0.5 s → 1 s → 2 s …) on *ThrottlingException*.
-#      • On *ValidationException* the code logs the body and retries once
-#        with a universal single-prompt schema, else skips the model.
+#  RESILIENCE:
+#      • Exponential back-off on ThrottlingException (up to 6 retries)
+#      • Fallback schema on ValidationException
+#      • Comprehensive error logging
+#      • Token usage tracking per minute
 #
-#  PERMISSIONS
+#  PERMISSIONS:
 #      s3:GetObject, s3:PutObject  – PROMPT_BUCKET
-#      bedrock:InvokeModel        – each model you call
+#      bedrock:InvokeModel        – each model
 #
-#  RUNTIME
-#      Python 3.12   •   AWS Region default: eu-west-1
-# ╚══════════════════════════════════════════════════════════════════════╝
+#  RUNTIME: Python 3.12   •   AWS Region default: eu-west-1
+# ╚══════════════════════════════════════════════════════════════════════════╝
 import os, json, re, time, random, logging
 import boto3, botocore.exceptions
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
+from typing import List, Dict, Any, Optional, Union
 
 # ─── Environment & AWS clients ──────────────────────────────────────────
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
@@ -82,10 +83,13 @@ def s3_put(key: str, data, ct="text/plain; charset=utf-8"):
 
 # ─── Newspaper JSON skeleton & helpers ──────────────────────────────────
 def load_paper_json(y, m, d):
-    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json" # Changed filename and variable
+    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json"
     try:
-        return key, json.loads(s3_read(key))
+        existing_paper = json.loads(s3_read(key))
+        log.info(f"📄 Found existing paper_content.json for {y}-{m}-{d}")
+        return key, existing_paper, True  # True = file existed
     except s3.exceptions.NoSuchKey:
+        log.info(f"📄 Creating new paper_content.json for {y}-{m}-{d}")
         paper = {
             "publicationDate": f"{y}-{m}-{d}",
             "metadata": { "bannerTitle": "The Artificially Intelligent Times",
@@ -95,12 +99,15 @@ def load_paper_json(y, m, d):
                 "mainArticle":       { "llmOutputs": {}, "imageOutputs": {} },
                 "authorBio":         { "text": "<p>Editor bio not generated yet.</p>" },
                 "comparisonArticle": { "llmOutputs": {}, "imageOutputs": {} },
-                "llmStory":          { "llmOutputs": {}, "imageOutputs": {} }, # Added imageOutputs
-                "joke":              { "llmOutputs": {}, "imageOutputs": {} }, # Added imageOutputs
-                "advertisements":    { "imageOutputs": {} }
+                "llmStory":          { "llmOutputs": {}, "imageOutputs": {} },
+                "joke":              { "llmOutputs": {}, "imageOutputs": {} },
+                "advertisement1":    { "imageOutputs": {} },
+                "advertisement2":    { "imageOutputs": {} },
+                "advertisement3":    { "imageOutputs": {} },
+                "advertisement4":    { "imageOutputs": {} }
             }
         }
-        return key, paper
+        return key, paper, False  # False = file was created new
 
 def save_paper_json(key, obj):
     s3_put(key, json.dumps(obj, indent=2), "application/json")
@@ -110,7 +117,8 @@ PROMPT_TO_SLOT = {
     "llm_01": ("mainArticle",        "title_text"),
     "llm_02": ("comparisonArticle",  "title_text"),
     "llm_03": ("llmStory",           "content"),
-    "llm_04": ("joke",               "content")
+    "llm_04": ("joke",               "content"),
+    "llm_05": ("authorBio",          "content")
 }
 
 # ─── Request body builder – family-aware schemas ────────────────────────
@@ -184,91 +192,268 @@ def safe_invoke(model_id: str, body_json: str, tag: str,
             raise
     raise RuntimeError(f"Throttled >{max_retries}× for model {model_id}")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# DATE RANGE UTILITY
+# ═══════════════════════════════════════════════════════════════════════════
+
+def generate_date_range(start_date: str, end_date: str) -> list[str]:
+    """Generate list of dates between start and end (inclusive)"""
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    
+    dates = []
+    current = start
+    while current <= end:
+        dates.append(current.isoformat())
+        current += timedelta(days=1)
+    
+    return dates
+
 # ─── Lambda entrypoint ──────────────────────────────────────────────────
 def lambda_handler(event, _ctx):
-    dates      = event.get("dates") or [event.get("date", today_iso())]
-    prompt_ids = event.get("prompt_ids") or [f"llm_{i:02}" for i in range(1,5)]
-    model_ids  = event.get("model_ids")  or DEFAULT_MODELS
+    """
+    Enhanced worker handler - processes single model/date combinations
+    
+    Worker Mode (NEW - called by orchestrator):
+    {"date": "2025-01-15", "model": "claude-3-sonnet", "worker_mode": true}
+    
+    Legacy Mode (fallback for backwards compatibility):
+    Single date: {"date": "2025-01-15"}
+    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+    Environment variables: START_DATE, END_DATE
+    """
+    
+    try:
+        # Check if this is single model worker mode (called by orchestrator)
+        if event.get("worker_mode") and "model" in event and "date" in event:
+            log.info("Running in WORKER MODE for single model/date combination")
+            dates = [event["date"]]
+            model_ids = [event["model"]]
+            log.info("Processing: %s on %s", event["model"], event["date"])
+        else:
+            log.info("Running in LEGACY MODE with date range processing")
+            
+            # Get environment variables for date range
+            START_DATE = os.getenv("START_DATE")
+            END_DATE = os.getenv("END_DATE")
+            
+            # Determine date range from environment variables first, then event, then default
+            if START_DATE and END_DATE:
+                dates = generate_date_range(START_DATE, END_DATE)
+                log.info("Using environment variable dates: %s to %s (%d dates)", 
+                         START_DATE, END_DATE, len(dates))
+            elif START_DATE:
+                dates = [START_DATE]
+                log.info("Using environment variable single date: %s", START_DATE)
+            elif "start_date" in event and "end_date" in event:
+                dates = generate_date_range(event["start_date"], event["end_date"])
+                log.info("Processing event date range: %s to %s (%d dates)", 
+                         event["start_date"], event["end_date"], len(dates))
+            elif "dates" in event:
+                dates = event["dates"]
+                log.info("Processing custom event date list: %d dates", len(dates))
+            elif "date" in event:
+                dates = [event["date"]]
+                log.info("Processing single event date: %s", event["date"])
+            else:
+                dates = [today_iso()]
+                log.info("Processing default date (today): %s", dates[0])
+            
+            model_ids = event.get("model_ids") or DEFAULT_MODELS
+        
+        prompt_ids = event.get("prompt_ids") or [f"llm_{i:02}" for i in range(1,6)]
 
-    if not ALLOW_EMBED:
-        embed_skip = [m for m in model_ids if "embed" in m.lower()]
-        model_ids  = [m for m in model_ids if m not in embed_skip]
-        if embed_skip:
-            log.info("Skipping embedding models: %s", ", ".join(embed_skip))
-    if not model_ids:
-        raise ValueError("No generative models to run")
+        if not ALLOW_EMBED:
+            embed_skip = [m for m in model_ids if "embed" in m.lower()]
+            model_ids  = [m for m in model_ids if m not in embed_skip]
+            if embed_skip:
+                log.info("Skipping embedding models: %s", ", ".join(embed_skip))
+        if not model_ids:
+            raise ValueError("No generative models to run")
 
-    result_map = {}
+        result_map = {}
+        start_time = time.time()
 
-    # ── rolling token-budget globals ────────────────────────────────────
-    global _tok_total, _tok_start
-    _tok_total, _tok_start = 0, time.time()
+        # ── rolling token-budget globals ────────────────────────────────────
+        global _tok_total, _tok_start
+        _tok_total, _tok_start = 0, time.time()
 
-    for day in dates:
-        y, m, d = day.split("-")
-        paper_key, paper = load_paper_json(y, m, d)
-        result_map[day] = {}
+        # Process each date
+        for day in dates:
+            log.info("Processing date: %s", day)
+            y, m, d = day.split("-")
+            
+            try:
+                paper_key, paper, file_existed = load_paper_json(y, m, d)
+                result_map[day] = {}
+                
+                if file_existed:
+                    log.info(f"🔍 Checking existing content for incremental processing on {day}")
+                else:
+                    log.info(f"🆕 Full content generation required for {day}")
 
-        for pid in prompt_ids:
-            slot, ftype = PROMPT_TO_SLOT.get(pid, (None, None))
-            if slot is None:
-                log.warning("Unknown prompt_id %s – skipped", pid)
+                for pid in prompt_ids:
+                    slot, ftype = PROMPT_TO_SLOT.get(pid, (None, None))
+                    if slot is None:
+                        log.warning("Unknown prompt_id %s – skipped", pid)
+                        continue
+
+                    try:
+                        prompt_txt = json.loads(
+                            s3_read(f"{PROMPT_ROOT}/{y}/{m}/{d}/{pid}.json"))["prompt"]
+                    except Exception as e:
+                        log.error("Failed to load prompt %s for %s: %s", pid, day, e)
+                        continue
+
+                    result_map[day][pid] = {}
+
+                    for model_id in model_ids:
+                        try:
+                            # Check if content already exists for this model (only if file existed)
+                            if file_existed:
+                                mdl_key = model_id
+                                
+                                # Special check for authorBio (static content)
+                                if slot == "authorBio":
+                                    existing_bio = paper["contentSlots"]["authorBio"].get("text", "")
+                                    if (existing_bio and 
+                                        existing_bio != "<p>Editor bio not generated yet.</p>" and
+                                        len(existing_bio.strip()) > 10):  # More robust check
+                                        log.info(f"✅ AuthorBio already exists for {day} ({len(existing_bio)} chars) - skipping")
+                                        result_map[day][pid][model_id] = "SKIPPED: Content already exists"
+                                        continue
+                                    else:
+                                        log.info(f"🔄 AuthorBio needs generation for {day}")
+                                else:
+                                    slot_dict = paper["contentSlots"][slot].get("llmOutputs", {})
+                                    existing_content = slot_dict.get(mdl_key, {})
+                                    
+                                    # Check if meaningful content exists
+                                    has_content = False
+                                    if ftype == "title_text":
+                                        has_content = (existing_content.get("title") and 
+                                                     existing_content.get("text") and
+                                                     len(existing_content.get("title", "").strip()) > 5 and
+                                                     len(existing_content.get("text", "").strip()) > 20)
+                                    else:  # content type
+                                        has_content = (existing_content.get("content") and
+                                                     len(existing_content.get("content", "").strip()) > 20)
+                                    
+                                    if has_content:
+                                        log.info(f"✅ Content already exists for {model_id} on {pid} for {day} - skipping")
+                                        result_map[day][pid][model_id] = "SKIPPED: Content already exists"
+                                        continue
+                                    else:
+                                        log.info(f"🔄 Generating missing content for {model_id} on {pid} for {day}")
+                            else:
+                                log.info(f"🆕 New file - generating all content for {model_id} on {pid} for {day}")
+                            
+                            chat_cap  = model_id.startswith(("anthropic.", "mistral."))
+                            body_prim = build_body(model_id, prompt_txt, chat=chat_cap)
+                            body_fbk  = build_body(model_id, prompt_txt, chat=False)
+
+                            try:
+                                resp = safe_invoke(model_id, body_prim,  f"{pid}-primary")
+                            except botocore.exceptions.ClientError as ve:
+                                if ve.response["Error"]["Code"] != "ValidationException":
+                                    raise
+                                log.warning("⚠️  %s ValidationException – retry fallback", model_id)
+                                resp = safe_invoke(model_id, body_fbk, f"{pid}-fallback")
+
+                            payload = json.loads(resp["body"].read())
+                            text    = extract_text(model_id, payload)
+
+                            # ── rolling token-budget logging ───────────────────
+                            usage = payload.get("usage") or payload.get("usage_metadata") or {}
+                            out_tok = (usage.get("output_tokens") or
+                                       usage.get("generated_tokens") or 0)
+                            _tok_total += out_tok
+                            if time.time() - _tok_start >= 60:
+                                log.info("📊  Output-tokens last 60 s: %d", _tok_total)
+                                _tok_total, _tok_start = 0, time.time()
+
+                            raw_key = f"results/{day}/{pid}/{slug(model_id)}.txt"
+                            s3_put(raw_key, text)
+
+                            # Use the full model ID as the key (same as image handler)
+                            mdl_key = model_id
+                            
+                            # Special handling for authorBio - store as static text, not model-specific
+                            if slot == "authorBio":
+                                paper["contentSlots"]["authorBio"]["text"] = f"<p>{text}</p>"
+                            else:
+                                slot_dict = paper["contentSlots"][slot]["llmOutputs"]
+                                if ftype == "title_text":
+                                    first, *rest = text.splitlines()
+                                    slot_dict[mdl_key] = {
+                                        "title": first.strip(),
+                                        "text":  "<p>" + "\n".join(rest).strip() + "</p>"
+                                    }
+                                else:
+                                    slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
+
+                            result_map[day][pid][model_id] = raw_key
+                            
+                        except Exception as e:
+                            log.error("❌ Failed to process %s for %s on %s: %s", 
+                                      model_id, pid, day, e)
+                            result_map[day][pid][model_id] = f"ERROR: {str(e)}"
+                            continue
+
+                save_paper_json(paper_key, paper)
+                log.info("✅ Completed processing for %s", day)
+                
+            except Exception as e:
+                log.error("❌ Failed to process date %s: %s", day, e)
+                result_map[day] = {"error": str(e)}
                 continue
 
-            prompt_txt = json.loads(
-                s3_read(f"{PROMPT_ROOT}/{y}/{m}/{d}/{pid}.json"))["prompt"]
-
-            result_map[day][pid] = {}
-
-            for model_id in model_ids:
-                chat_cap  = model_id.startswith(("anthropic.", "mistral."))
-                body_prim = build_body(model_id, prompt_txt, chat=chat_cap)
-                body_fbk  = build_body(model_id, prompt_txt, chat=False)
-
-                try:
-                    resp = safe_invoke(model_id, body_prim,  f"{pid}-primary")
-                except botocore.exceptions.ClientError as ve:
-                    if ve.response["Error"]["Code"] != "ValidationException":
-                        raise
-                    log.warning("⚠️  %s ValidationException – retry fallback", model_id)
-                    resp = safe_invoke(model_id, body_fbk, f"{pid}-fallback")
-
-                payload = json.loads(resp["body"].read())
-                text    = extract_text(model_id, payload)
-
-                # ── NEW: rolling token-budget logging ───────────────────
-                usage = payload.get("usage") or payload.get("usage_metadata") or {}
-                out_tok = (usage.get("output_tokens") or
-                           usage.get("generated_tokens") or 0)
-                _tok_total += out_tok
-                if time.time() - _tok_start >= 60:
-                    log.info("📊  Output-tokens last 60 s: %d", _tok_total)
-                    _tok_total, _tok_start = 0, time.time()
-                # ────────────────────────────────────────────────────────
-
-                raw_key = f"results/{day}/{pid}/{slug(model_id)}.txt"
-                s3_put(raw_key, text)
-
-                # Use the full model ID as the key (same as image handler)
-                mdl_key = model_id
-                slot_dict = paper["contentSlots"][slot]["llmOutputs"]
-                if ftype == "title_text":
-                    first, *rest = text.splitlines()
-                    slot_dict[mdl_key] = {
-                        "title": first.strip(),
-                        "text":  "<p>" + "\n".join(rest).strip() + "</p>"
-                    }
-                else:
-                    slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
-
-                result_map[day][pid][model_id] = raw_key
-
-        save_paper_json(paper_key, paper)
-
-    return {
-        "status": "OK",
-        "dates_processed": dates,
-        "prompt_ids": prompt_ids,
-        "models_used": model_ids,
-        "result_map": result_map
-    }
+        processing_time = time.time() - start_time
+        successful_dates = [d for d in result_map.keys() if "error" not in result_map[d]]
+        
+        # Worker mode returns simple success response
+        if event.get("worker_mode"):
+            prompts_processed = sum(
+                len([1 for pid_results in day_results.values() 
+                     for model_result in pid_results.values() 
+                     if not str(model_result).startswith("ERROR")])
+                for day_results in result_map.values()
+                if "error" not in day_results
+            )
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "status": "success",
+                    "prompts_processed": prompts_processed,
+                    "processing_time": round(processing_time, 2),
+                    "model": model_ids[0] if len(model_ids) == 1 else model_ids,
+                    "date": dates[0] if len(dates) == 1 else dates
+                })
+            }
+        
+        # Legacy mode returns detailed response
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "SUCCESS",
+                "processing_time_seconds": round(processing_time, 2),
+                "dates_processed": len(successful_dates),
+                "dates_failed": len(dates) - len(successful_dates),
+                "total_dates": len(dates),
+                "prompt_ids": prompt_ids,
+                "models_used": model_ids,
+                "result_map": result_map
+            })
+        }
+        
+    except Exception as e:
+        log.error("LLM generation failed: %s", str(e))
+        return {
+            "statusCode": 500,
+            "body": json.dumps({
+                "status": "error",
+                "error": str(e),
+                "model": event.get("model", "unknown"),
+                "date": event.get("date", "unknown")
+            })
+        }

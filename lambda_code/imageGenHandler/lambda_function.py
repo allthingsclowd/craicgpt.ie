@@ -1,60 +1,51 @@
-# ╔══════════════════════════════════════════════════════════════════════╗
-#  image_runner.py – CraicGPT "newspaper" image-generation pipeline
-# ╟──────────────────────────────────────────────────────────────────────╢
-#  PURPOSE
-#  ▸ For each requested **date × img-prompt × Bedrock image model**:
-#      1. Pull the prompt JSON from S3 (`prompts/YYYY-MM-DD/<img_id>.json`)
-#      2. Call the model twice (512² & 1024²)
-#         – automatic **exponential back-off** on *ThrottlingException*
-#         – skip on *ValidationException* (blocked by model content filters)
-#      3. Save raw bytes ➜ `static_assets/content/website/YYYY/MM/DD/<file>.png`
-#      4. Merge results into `paper_content.json › contentSlots[*].imageOutputs`
-#      5. Log rolling request count per minute  (debug capacity tracking)
+# ╔══════════════════════════════════════════════════════════════════════════╗
+#  image_runner.py – CraicGPT Enhanced Image Generation Pipeline
+# ╟──────────────────────────────────────────────────────────────────────────╢
+#  PURPOSE: Generate images for CraicGPT newspaper with date range support
+#  
+#  NEW FEATURES:
+#    • Date range support (start_date to end_date)
+#    • Improved error handling and resilience
+#    • Enhanced request tracking
+#    • Better logging and debugging
+#    • Maintains backward compatibility
 #
-#  IMAGE-PROMPT → NEWSPAPER SLOT MAP
+#  USAGE:
+#    Single date: {"date": "2025-01-15"}
+#    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+#    Custom prompts: {"dates": [...], "prompt_ids": [...], "model_ids": [...]}
+#
+#  IMAGE-PROMPT → NEWSPAPER SLOT MAP:
 #      img_01 → mainArticle        (hero)
 #      img_02 → comparisonArticle  (hero)
-#      img_03 → advertisements     (ad-block 1) # Corrected mapping based on code
-#      img_04 → advertisements     (ad-block 2) # Corrected mapping based on code
+#      img_03 → advertisements     (ad-block 1)
+#      img_04 → advertisements     (ad-block 2)
 #      img_05 → advertisements     (ad-block 3)
 #      img_06 → advertisements     (ad-block 4)
-#      img_07 → llmStory           (spot) # Added for new functionality
-#      img_08 → joke               (spot) # Added for new functionality
+#      img_07 → llmStory           (spot)
+#      img_08 → joke               (spot)
 #
-#  MODEL SUPPORT  (GA 2025-06)
+#  MODEL SUPPORT:
 #      • amazon.titan-image-generator-v1   – text → image
 #      • amazon.nova-canvas-v1:0           – text → image
+#      • Both models use the same GA schema with textToImageParams
 #
-#      ⮕ **Both** models now accept the *same* GA schema:
-#         {
-#           "taskType": "TEXT_IMAGE",
-#           "textToImageParams": { "text": "<prompt>" },
-#           "imageGenerationConfig": {
-#               "numberOfImages": 1,
-#               "quality":        "standard",
-#               "width":           <px>,
-#               "height":          <px>
-#               # optional: "seed": 123
-#           }
-#         }
+#  RESILIENCE:
+#      • Exponential back-off on ThrottlingException (up to 6 retries)
+#      • Content filter detection and graceful handling
+#      • Comprehensive error logging
+#      • Request count tracking per minute
 #
-#  NEW (2025-06-22)
-#      • safe_invoke() returns *(resp, blocked, reason)* and caps back-off at 8 s.
-#      • Blocked requests are recorded in JSON as
-#          { "blocked": true, "reason": "…" } (front-end can show placeholder).
-#      • "payload lacks image" warning now fires **only** for genuine model bugs.
+#  PERMISSIONS:
+#      s3:GetObject, s3:PutObject  – PROMPT_BUCKET
+#      bedrock:InvokeModel        – each model
 #
-#  RESILIENCE
-#      • safe_invoke() retries up to 6× on *ThrottlingException*.
-#      • On *ValidationException* we log the server message & mark slot blocked.
-#
-#  RUNTIME
-#      Python 3.13          • AWS Region default: eu-west-1
-# ╚══════════════════════════════════════════════════════════════════════╝
+#  RUNTIME: Python 3.13   •   AWS Region default: eu-west-1
+# ╚══════════════════════════════════════════════════════════════════════════╝
 import os, json, re, time, random, logging, base64
 import boto3, botocore.exceptions
 from botocore.config import Config
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 # ─── Environment & AWS clients ──────────────────────────────────────────
@@ -112,14 +103,31 @@ def s3_put(key: str, data: bytes, ct="image/png"):
 
 # ─── Newspaper JSON skeleton & helpers ──────────────────────────────────
 def load_paper_json(y, m, d):
-    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json" # Changed filename and variable
+    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json"
     try:
-        return key, json.loads(s3_read(key))
+        existing_paper = json.loads(s3_read(key))
+        log.info(f"📄 Found existing paper_content.json for {y}-{m}-{d}")
+        return key, existing_paper, True  # True = file existed
     except s3.exceptions.NoSuchKey:
-        # If llmHandler hasn't created it yet, this is an issue.
-        # However, for robustness, we could create a minimal shell, though it might hide upstream errors.
-        # For now, maintaining original behavior of raising error.
-        raise RuntimeError("paper_content.json must exist before image pass. Run llmHandler first.")
+        log.info(f"📄 Creating minimal paper_content.json structure for {y}-{m}-{d}")
+        # Create minimal shell for image-only processing
+        paper = {
+            "publicationDate": f"{y}-{m}-{d}",
+            "metadata": { "bannerTitle": "The Artificially Intelligent Times",
+                          "defaultLLM": "anthropic.claude-3-sonnet-20240229-v1:0",
+                          "defaultImageGen": "amazon.titan-image-generator-v1" },
+            "contentSlots": {
+                "mainArticle": {"imageOutputs": {}}, 
+                "comparisonArticle": {"imageOutputs": {}}, 
+                "llmStory": {"imageOutputs": {}}, 
+                "joke": {"imageOutputs": {}}, 
+                "advertisement1": {"imageOutputs": {}},
+                "advertisement2": {"imageOutputs": {}},
+                "advertisement3": {"imageOutputs": {}},
+                "advertisement4": {"imageOutputs": {}}
+            }
+        }
+        return key, paper, False  # False = file was created new
 
 def save_paper_json(key, obj):
     s3_put(key, json.dumps(obj, indent=2).encode(), "application/json")
@@ -128,36 +136,152 @@ def save_paper_json(key, obj):
 PROMPT_TO_SLOT = {
     "img_01": "mainArticle",
     "img_02": "comparisonArticle",
-    "img_03": "advertisements", # Keeps ad_idx logic simple: img_03 -> ad 0
-    "img_04": "advertisements", # img_04 -> ad 1
-    "img_05": "advertisements", # img_05 -> ad 2
-    "img_06": "advertisements", # img_06 -> ad 3
+    "img_03": "advertisement1",  # Changed from "advertisements" to individual slots
+    "img_04": "advertisement2",
+    "img_05": "advertisement3", 
+    "img_06": "advertisement4",
     "img_07": "llmStory",
     "img_08": "joke"
 }
 ALT_SLOT_TEXT.update({ # Add alt text for new slots
     "llmStory": "LLM story illustration",
-    "joke": "Joke illustration"
+    "joke": "Joke illustration",
+    "advertisement1": "Advertisement 1",
+    "advertisement2": "Advertisement 2", 
+    "advertisement3": "Advertisement 3",
+    "advertisement4": "Advertisement 4"
 })
+
+# ─── Titan-specific prompt simplification ──────────────────────────────────
+def simplify_prompt_for_titan(original_prompt: str, slot: str) -> str:
+    """
+    Create a simplified version of the prompt optimized for Titan Image Generator.
+    Titan works better with shorter, more focused prompts.
+    """
+    
+    # Base simplified prompts for each content type
+    titan_base_prompts = {
+        "mainArticle": "Family scene with father and children, cozy home setting",
+        "comparisonArticle": "Simple data chart, clean infographic style", 
+        "llmStory": "Cozy indoor scene, single person",
+        "joke": "Simple cartoon style, editorial illustration",
+        "advertisement1": "Product advertisement, clean design",
+        "advertisement2": "Product advertisement, clean design", 
+        "advertisement3": "Product advertisement, clean design",
+        "advertisement4": "Product advertisement, clean design"
+    }
+    
+    # Get the base prompt for this slot
+    base = titan_base_prompts.get(slot, "Simple illustration")
+    
+    # Extract key elements from original prompt that Titan handles well
+    simple_elements = []
+    
+    # Look for style keywords that Titan understands
+    style_keywords = {
+        "comic": "comic style",
+        "cartoon": "cartoon style", 
+        "realistic": "realistic style",
+        "illustration": "illustration",
+        "infographic": "infographic",
+        "chart": "chart",
+        "billboard": "advertisement",
+        "poster": "poster"
+    }
+    
+    for keyword, simple_style in style_keywords.items():
+        if keyword in original_prompt.lower():
+            simple_elements.append(simple_style)
+            break  # Only take first match
+    
+    # Look for simple lighting/mood
+    if "bright" in original_prompt.lower() or "sun" in original_prompt.lower():
+        simple_elements.append("bright lighting")
+    elif "cozy" in original_prompt.lower() or "warm" in original_prompt.lower():
+        simple_elements.append("warm lighting")
+    
+    # Combine base with simple elements
+    if simple_elements:
+        return f"{base}, {', '.join(simple_elements[:2])}"  # Max 2 additional elements
+    else:
+        return base
+
+def safe_invoke_with_fallback(model_id: str, original_prompt: str, slot: str, size: int, tag: str, 
+                             max_retries: int = 6, base_delay: float = 0.25):
+    """
+    Enhanced safe_invoke that tries simplified prompts for Titan when original fails.
+    """
+    
+    # First, try with original prompt using existing safe_invoke
+    body = build_body(model_id, original_prompt, size=size)
+    resp, blocked, reason = safe_invoke(model_id, body, tag, max_retries, base_delay)
+    
+    # If successful or blocked by content filter, return as-is
+    if resp is not None or blocked:
+        return resp, blocked, reason, False  # False = didn't use fallback
+    
+    # If failed and this is a Titan model, try simplified prompt
+    if model_id.startswith("amazon.titan-image"):
+        log.info(f"🔄 Titan failed with complex prompt, trying simplified version for {tag}")
+        
+        simplified_prompt = simplify_prompt_for_titan(original_prompt, slot)
+        log.info(f"   Original: {original_prompt[:100]}...")
+        log.info(f"   Simplified: {simplified_prompt}")
+        
+        # Try with simplified prompt
+        simple_body = build_body(model_id, simplified_prompt, size=size)
+        resp, blocked, reason = safe_invoke(model_id, simple_body, f"{tag}-simplified", max_retries//2, base_delay)
+        
+        if resp is not None:
+            log.info(f"✅ Titan succeeded with simplified prompt for {tag}")
+            return resp, blocked, reason, True  # True = used fallback
+        else:
+            log.warning(f"❌ Titan failed even with simplified prompt for {tag}: {reason}")
+    
+    # Return original failure if no fallback worked
+    return resp, blocked, reason, False
 
 # ─── REQUEST BODY builder (Titan & Nova share schema) ───────────────────
 def build_body(model_id: str, prompt: str, *, size: int) -> str:
     """
     Return a JSON string for GA Bedrock image models.
     """
-    return json.dumps({
-        "taskType": "TEXT_IMAGE",
-        "textToImageParams": {
-             "text": prompt,
-             "negativeText": "low quality, blurry, ugly"  # <-- ADD THIS LINE
-        },
-        "imageGenerationConfig": {
-            "numberOfImages": 1,
-            "quality":        "standard",
-            "width":           size,
-            "height":          size
-        }
-    })
+    # Enhanced negative prompts for better quality
+    enhanced_negative = "low quality, blurry, ugly, distorted, watermark, text overlay, deformed"
+    
+    # Titan-specific optimizations
+    if model_id.startswith("amazon.titan-image"):
+        # Titan works better with slightly different config
+        return json.dumps({
+            "taskType": "TEXT_IMAGE",
+            "textToImageParams": {
+                 "text": prompt,
+                 "negativeText": "low quality, blurry, text, watermark"  # Simpler negative for Titan
+            },
+            "imageGenerationConfig": {
+                "numberOfImages": 1,
+                "quality": "standard",  # Titan is more reliable with standard quality
+                "width": size,
+                "height": size,
+                "cfgScale": 7.0  # Lower CFG scale for Titan stability
+            }
+        })
+    else:
+        # Nova and other models can handle more complex configs
+        return json.dumps({
+            "taskType": "TEXT_IMAGE",
+            "textToImageParams": {
+                 "text": prompt,
+                 "negativeText": enhanced_negative
+            },
+            "imageGenerationConfig": {
+                "numberOfImages": 1,
+                "quality": "premium",  # Nova can handle premium quality
+                "width": size,
+                "height": size,
+                "cfgScale": 8.0
+            }
+        })
 
 # ─── Bedrock invoke with exponential back-off ───────────────────────────
 def safe_invoke(model_id: str, body_json: str, tag: str,
@@ -234,134 +358,244 @@ def extract_base64(payload, model_id):
     return None
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# DATE RANGE UTILITY
+# ═══════════════════════════════════════════════════════════════════════════
+
+def generate_date_range(start_date: str, end_date: str) -> list[str]:
+    """Generate list of dates between start and end (inclusive)"""
+    start = datetime.fromisoformat(start_date).date()
+    end = datetime.fromisoformat(end_date).date()
+    
+    dates = []
+    current = start
+    while current <= end:
+        dates.append(current.isoformat())
+        current += timedelta(days=1)
+    
+    return dates
+
 # ─── Lambda entry-point ─────────────────────────────────────────────────
 def lambda_handler(event, _ctx):
     """
-    • For every requested date → read prompts img_01 … img_08 (now includes llmStory & joke)
-    • Call each Bedrock image model at 512 px & 1024 px  
-    • Persist the PNGs under static_assets/…  
-    • Merge their filenames (or block flags) into paper_content.json
+    Enhanced worker handler - processes single model/date combinations
+    
+    Worker Mode (NEW - called by orchestrator):
+    {"date": "2025-01-15", "model": "amazon.titan-image-generator-v1", "worker_mode": true}
+    
+    Legacy Mode (fallback for backwards compatibility):
+    Single date: {"date": "2025-01-15"}
+    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+    Environment variables: START_DATE, END_DATE
     """
-    dates      = event.get("dates")      or [event.get("date", today_iso())]
-    # Updated to include img_07 and img_08 for llmStory and joke images
-    prompt_ids = event.get("prompt_ids") or [f"img_{i:02}" for i in range(1, 9)]
-    model_ids  = event.get("model_ids")  or DEFAULT_MODELS
+    
+    try:
+        # Check if this is single model worker mode (called by orchestrator)
+        if event.get("worker_mode") and "model" in event and "date" in event:
+            log.info("Running in WORKER MODE for single model/date combination")
+            dates = [event["date"]]
+            model_ids = [event["model"]]
+            log.info("Processing: %s on %s", event["model"], event["date"])
+        else:
+            log.info("Running in LEGACY MODE with date range processing")
+            
+            # Get environment variables for date range
+            START_DATE = os.getenv("START_DATE")
+            END_DATE = os.getenv("END_DATE")
+            
+            # Determine date range from environment variables first, then event, then default
+            if START_DATE and END_DATE:
+                dates = generate_date_range(START_DATE, END_DATE)
+                log.info("Using environment variable dates: %s to %s (%d dates)", 
+                         START_DATE, END_DATE, len(dates))
+            elif START_DATE:
+                dates = [START_DATE]
+                log.info("Using environment variable single date: %s", START_DATE)
+            elif "start_date" in event and "end_date" in event:
+                dates = generate_date_range(event["start_date"], event["end_date"])
+                log.info("Processing event date range: %s to %s (%d dates)", 
+                         event["start_date"], event["end_date"], len(dates))
+            elif "dates" in event:
+                dates = event["dates"]
+                log.info("Processing custom event date list: %d dates", len(dates))
+            elif "date" in event:
+                dates = [event["date"]]
+                log.info("Processing single event date: %s", event["date"])
+            else:
+                dates = [today_iso()]
+                log.info("Processing default date (today): %s", dates[0])
+            
+            model_ids = event.get("model_ids") or DEFAULT_MODELS
+            
+        # Updated to include img_07 and img_08 for llmStory and joke images
+        prompt_ids = event.get("prompt_ids") or [f"img_{i:02}" for i in range(1, 9)]
 
-    for day in dates:
-        y, m, d = day.split("-")
-        paper_key, paper = load_paper_json(y, m, d)
+        start_time = time.time()
+        results_summary = {"successful_dates": 0, "failed_dates": 0, "total_images": 0}
 
-        for pid in prompt_ids:
-            slot = PROMPT_TO_SLOT.get(pid)
-            if not slot:
-                log.warning("Unknown img_id %s – skipped", pid)
+        for day in dates:
+            log.info("Processing date: %s", day)
+            y, m, d = day.split("-")
+            
+            try:
+                paper_key, paper, file_existed = load_paper_json(y, m, d)
+                
+                if file_existed:
+                    log.info(f"🔍 Checking existing images for incremental processing on {day}")
+                else:
+                    log.info(f"🆕 Full image generation required for {day}")
+
+                for pid in prompt_ids:
+                    slot = PROMPT_TO_SLOT.get(pid)
+                    if not slot:
+                        log.warning("Unknown img_id %s – skipped", pid)
+                        continue
+
+                    try:
+                        s3_key_for_prompt = f"{PROMPT_ROOT}/{y}/{m}/{d}/{pid}.json"
+                        log.debug(f"Reading prompt from S3: {s3_key_for_prompt}")
+
+                        prompt_json = s3_read(s3_key_for_prompt)
+                        prompt_txt  = json.loads(prompt_json)["prompt"]
+                    except Exception as e:
+                        log.error(f"Failed to load prompt {pid} for {day}: {e}")
+                        continue
+
+                    for model_id in model_ids:
+                        # Use the full model ID as the key (same as LLM handler)
+                        mdl_key = model_id
+                        # Create a safe filename version of the model ID
+                        mdl_slug = model_id.replace(':', '_').replace('/', '_')
+                        px = 512 # Only generating 512px for now, can be parameterized later if needed
+                        
+                        # Ensure the imageOutputs dictionary exists for the slot and model
+                        slot_image_outputs = paper["contentSlots"][slot].setdefault("imageOutputs", {})
+                        model_specific_outputs = slot_image_outputs.setdefault(mdl_key, {})
+                        
+                        # Check if image already exists (only if file existed and has valid content)
+                        should_skip = False
+                        if file_existed:
+                            existing_image = model_specific_outputs.get(pid)
+                            
+                            if (existing_image and
+                                isinstance(existing_image, dict) and
+                                existing_image.get("imageUrl") and
+                                isinstance(existing_image.get("imageUrl"), str) and
+                                len(str(existing_image.get("imageUrl", "")).strip()) > 10 and
+                                not existing_image.get("blocked", False)):
+                                log.info(f"✅ Image already exists for {model_id} {pid} on {day} ({existing_image['imageUrl']}) - skipping")
+                                should_skip = True
+                            else:
+                                log.info(f"🔄 Generating missing/invalid image for {model_id} {pid} on {day}")
+                        else:
+                            log.info(f"🆕 New file - generating all images for {model_id} {pid} on {day}")
+                        
+                        if should_skip:
+                            continue
+                        
+                        tag  = f"{pid}-{px}"
+                        
+                        # Use enhanced fallback system for better Titan compatibility
+                        resp, blocked, reason, used_fallback = safe_invoke_with_fallback(
+                            model_id, prompt_txt, slot, px, tag
+                        )
+                        
+                        # Track if we used a fallback prompt
+                        if used_fallback:
+                            log.info(f"📝 Used simplified fallback prompt for {model_id} on {pid}")
+
+                        # Handle blocked/failed images uniformly for all slots
+                        if blocked or resp is None:
+                            model_specific_outputs[pid] = { # Store under the specific prompt_id (img_01, img_07, etc.)
+                                "blocked": True,
+                                "reason":  reason[:120] if reason else ""
+                            }
+                            continue # Skip to next model or prompt_id
+
+                        # ─── parse Bedrock response ───────────────────────────────
+                        # This part is now only reached if `resp` is not None and `blocked` is False.
+                        raw = resp["body"].read()
+                        try:
+                            payload = json.loads(raw)
+                        except json.JSONDecodeError:
+                            payload = raw.decode()
+
+                        # content-filtered after 200 OK
+                        if isinstance(payload, dict) and payload.get("contentFiltered"):
+                            reason = payload.get("filteredReason", "Image blocked by AWS filters")
+                            entry = {"blocked": True, "reason": reason}
+                            model_specific_outputs[pid] = entry
+                            continue
+
+                        b64_img = extract_base64(payload, model_id)
+                        if not b64_img: # 200 OK but no image
+                            log.warning("❔ %s returned 200 OK with no image for %s. Full payload: %s", model_id, pid, payload)
+                            # Create a "blocked" entry to signify missing image data
+                            entry = {"blocked": True, "reason": "No image data in response"}
+                            model_specific_outputs[pid] = entry
+                            continue
+
+                        # ─── successful image ────────────────────────────────────
+                        img_bytes = base64.b64decode(b64_img)
+                        fname = f"{pid}_{mdl_slug}_{px}.png"
+                        key   = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/{fname}"
+                        s3_put(key, img_bytes)
+
+                        entry = {
+                            "imageUrl": fname, 
+                            "imageAlt": ALT_SLOT_TEXT.get(slot, "Illustration")
+                        }
+
+                        # All slots now use the same structure: store under specific prompt_id (pid)
+                        model_specific_outputs[pid] = entry
+                        results_summary["total_images"] += 1
+
+                save_paper_json(paper_key, paper)
+                results_summary["successful_dates"] += 1
+                log.info("✅ Completed processing for %s", day)
+                
+            except Exception as e:
+                log.error("❌ Failed to process date %s: %s", day, e)
+                results_summary["failed_dates"] += 1
                 continue
 
-            s3_key_for_prompt = f"{PROMPT_ROOT}/{y}/{m}/{d}/{pid}.json"
-            log.info(f"Attempting to read prompt from S3 Bucket: {PROMPT_BUCKET}")
-            log.info(f"Constructed S3 Key: {s3_key_for_prompt}")
-            log.info(f"Key components: PROMPT_ROOT='{PROMPT_ROOT}', y='{y}', m='{m}', d='{d}', pid='{pid}'")
-
-            prompt_json = s3_read(s3_key_for_prompt)
-            prompt_txt  = json.loads(prompt_json)["prompt"]
-
-            for model_id in model_ids:
-                # Use the full model ID as the key (same as LLM handler)
-                mdl_key = model_id
-                # Create a safe filename version of the model ID
-                mdl_slug = model_id.replace(':', '_').replace('/', '_')
-                px = 512 # Only generating 512px for now, can be parameterized later if needed
-                tag  = f"{pid}-{px}"
-                body = build_body(model_id, prompt_txt, size=px)
-
-                resp, blocked, reason = safe_invoke(model_id, body, tag)
-
-                # Ensure the imageOutputs dictionary exists for the slot and model slug
-                slot_image_outputs = paper["contentSlots"][slot].setdefault("imageOutputs", {})
-
-                is_ad = (slot == "advertisements")
-
-                if is_ad:
-                    # Ensure the list for ad images for this model_slug exists and has 4 slots
-                    model_ad_images = slot_image_outputs.setdefault(mdl_key, [None] * 4)
-                    ad_idx = int(pid.split("_")[1]) - 3  # img_03 -> 0, ..., img_06 -> 3
-
-                    if blocked or resp is None:
-                        entry = {"blocked": True, "reason": reason[:120] if reason else ""}
-                        model_ad_images[ad_idx] = entry
-                        continue # Skip to next model or prompt_id
-
-                else: # For non-ad slots like mainArticle, llmStory, joke
-                    # model_specific_outputs will be the dictionary under the model_slug
-                    # e.g., paper.contentSlots.mainArticle.imageOutputs["amazon-titan-image-generator-v1"]
-                    model_specific_outputs = slot_image_outputs.setdefault(mdl_key, {})
-
-                    if blocked or resp is None:
-                        model_specific_outputs[pid] = { # Store under the specific prompt_id (img_01, img_07, etc.)
-                            "blocked": True,
-                            "reason":  reason[:120] if reason else ""
-                        }
-                        continue # Skip to next model or prompt_id
-
-                # Redundant block removed as this condition (blocked or resp is None)
-                # is already handled by the logic from lines 262-279 which includes a `continue`.
-                # The original syntax error was caused by the `if blocked:` within this
-                # (now removed) block not having an indented executable statement after
-                # its own contents were commented out.
-
-                # ─── parse Bedrock response ───────────────────────────────
-                # This part is now only reached if `resp` is not None and `blocked` is False.
-                raw = resp["body"].read()
-                try:
-                    payload = json.loads(raw)
-                except json.JSONDecodeError:
-                    payload = raw.decode()
-
-                # content-filtered after 200 OK
-                if isinstance(payload, dict) and payload.get("contentFiltered"):
-                    reason = payload.get("filteredReason", "Image blocked by AWS filters")
-                    entry = {"blocked": True, "reason": reason}
-                    if is_ad:
-                        # 'container' here refers to 'model_ad_images' if is_ad was true when it was set up.
-                        # This assumes 'model_ad_images' is the intended variable if is_ad path was taken.
-                        # However, 'container' is not explicitly passed or re-assigned here, relying on prior scope.
-                        # For safety and clarity, explicitly use the variables defined in the respective scopes.
-                        model_ad_images[ad_idx] = entry
-                    else:
-                        model_specific_outputs[pid] = entry # Corrected: Use model_specific_outputs
-                    continue
-
-                b64_img = extract_base64(payload, model_id)
-                if not b64_img: # 200 OK but no image
-                    log.warning("❔ %s returned 200 OK with no image for %s. Full payload: %s", model_id, pid, payload)
-                    # Create a "blocked" entry to signify missing image data
-                    entry = {"blocked": True, "reason": "No image data in response"}
-                    if is_ad:
-                        model_ad_images[ad_idx] = entry
-                    else:
-                        model_specific_outputs[pid] = entry # Corrected: Use model_specific_outputs
-                    continue
-
-                # ─── successful image ────────────────────────────────────
-                img_bytes = base64.b64decode(b64_img)
-                fname = f"{pid}_{mdl_slug}_{px}.png"
-                key   = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/{fname}" # Use new variable name
-                s3_put(key, img_bytes)
-
-                entry = (
-                    {"imageUrl": fname, "imageAlt": ad_alt(ad_idx)}
-                    if is_ad else
-                    {"imageUrl": fname, "imageAlt": ALT_SLOT_TEXT.get(slot, "Illustration")} # Use .get for safety
-                )
-
-                if is_ad:
-                    model_ad_images[ad_idx] = entry
-                else:
-                        # For non-ad slots, entry is stored under the specific prompt_id (pid)
-                        # model_specific_outputs was already retrieved/created earlier
-                        model_specific_outputs[pid] = entry
-
-
-        save_paper_json(paper_key, paper)
-
-    return {"status": "OK", "dates_processed": dates}
+        processing_time = time.time() - start_time
+        
+        # Worker mode returns simple success response
+        if event.get("worker_mode"):
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "status": "success",
+                    "prompts_processed": results_summary["total_images"],
+                    "processing_time": round(processing_time, 2),
+                    "model": model_ids[0] if len(model_ids) == 1 else model_ids,
+                    "date": dates[0] if len(dates) == 1 else dates
+                })
+            }
+        
+        # Legacy mode returns detailed response
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "status": "SUCCESS",
+                "processing_time_seconds": round(processing_time, 2),
+                "dates_processed": results_summary["successful_dates"],
+                "dates_failed": results_summary["failed_dates"],
+                "total_dates": len(dates),
+                "total_images_generated": results_summary["total_images"],
+                "prompt_ids": prompt_ids,
+                "model_ids": model_ids,
+                "configuration": {
+                    "aws_region": AWS_REGION,
+                    "prompt_bucket": PROMPT_BUCKET
+                }
+            })
+        }
+        
+    except Exception as e:
+        log.error("❌ Fatal error in image generation: %s", e)
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
