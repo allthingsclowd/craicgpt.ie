@@ -78,7 +78,7 @@ bedrock = boto3.client("bedrock-runtime",
                        region_name=AWS_REGION,
                        config=bedrock_cfg)
 
-slug = lambda m: re.sub(r'[:/]', '_', m)        # safe filename helper
+slug = lambda m: re.sub(r'[:.\/]', '_', m)        # safe filename helper
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("image_runner")
@@ -100,6 +100,17 @@ def s3_read(key: str) -> str:
 
 def s3_put(key: str, data: bytes, ct="image/png"):
     s3.put_object(Bucket=PROMPT_BUCKET, Key=key, Body=data, ContentType=ct)
+
+def s3_exists(key: str) -> bool:
+    """Check if an S3 object exists"""
+    try:
+        s3.head_object(Bucket=PROMPT_BUCKET, Key=key)
+        return True
+    except s3.exceptions.NoSuchKey:
+        return False
+    except Exception as e:
+        log.warning(f"Error checking S3 existence for {key}: {e}")
+        return False
 
 # ─── Newspaper JSON skeleton & helpers ──────────────────────────────────
 def load_paper_json(y, m, d):
@@ -161,7 +172,7 @@ def simplify_prompt_for_titan(original_prompt: str, slot: str) -> str:
     
     # Base simplified prompts for each content type
     titan_base_prompts = {
-        "mainArticle": "Family scene with father and children, cozy home setting",
+        "mainArticle": "Family scene with father and children, cozy home setting",  # Restored original
         "comparisonArticle": "Simple data chart, clean infographic style", 
         "llmStory": "Cozy indoor scene, single person",
         "joke": "Simple cartoon style, editorial illustration",
@@ -214,15 +225,24 @@ def safe_invoke_with_fallback(model_id: str, original_prompt: str, slot: str, si
     
     # First, try with original prompt using existing safe_invoke
     body = build_body(model_id, original_prompt, size=size)
+    
+    # Debug logging for Titan
+    if model_id.startswith("amazon.titan-image"):
+        log.info(f"🔍 TITAN DEBUG - Original prompt: {original_prompt}")
+        log.info(f"🔍 TITAN DEBUG - Request body: {body}")
+    
     resp, blocked, reason = safe_invoke(model_id, body, tag, max_retries, base_delay)
     
-    # If successful or blocked by content filter, return as-is
-    if resp is not None or blocked:
+    # If successful, return as-is
+    if resp is not None:
         return resp, blocked, reason, False  # False = didn't use fallback
     
-    # If failed and this is a Titan model, try simplified prompt
+    # For Titan models, try simplified prompt for both failures and content blocks
     if model_id.startswith("amazon.titan-image"):
-        log.info(f"🔄 Titan failed with complex prompt, trying simplified version for {tag}")
+        if blocked:
+            log.info(f"🔄 Titan blocked by content filter, trying simplified version for {tag}")
+        else:
+            log.info(f"🔄 Titan failed with error, trying simplified version for {tag}")
         
         simplified_prompt = simplify_prompt_for_titan(original_prompt, slot)
         log.info(f"   Original: {original_prompt[:100]}...")
@@ -230,6 +250,8 @@ def safe_invoke_with_fallback(model_id: str, original_prompt: str, slot: str, si
         
         # Try with simplified prompt
         simple_body = build_body(model_id, simplified_prompt, size=size)
+        log.info(f"🔍 TITAN DEBUG - Simplified request body: {simple_body}")
+        
         resp, blocked, reason = safe_invoke(model_id, simple_body, f"{tag}-simplified", max_retries//2, base_delay)
         
         if resp is not None:
@@ -237,8 +259,9 @@ def safe_invoke_with_fallback(model_id: str, original_prompt: str, slot: str, si
             return resp, blocked, reason, True  # True = used fallback
         else:
             log.warning(f"❌ Titan failed even with simplified prompt for {tag}: {reason}")
+            return resp, blocked, reason, False
     
-    # Return original failure if no fallback worked
+    # For non-Titan models or if original succeeded, return original result
     return resp, blocked, reason, False
 
 # ─── REQUEST BODY builder (Titan & Nova share schema) ───────────────────
@@ -251,19 +274,16 @@ def build_body(model_id: str, prompt: str, *, size: int) -> str:
     
     # Titan-specific optimizations
     if model_id.startswith("amazon.titan-image"):
-        # Titan works better with slightly different config
+        # Correct Titan request format to avoid false positives
         return json.dumps({
             "taskType": "TEXT_IMAGE",
             "textToImageParams": {
-                 "text": prompt,
-                 "negativeText": "low quality, blurry, text, watermark"  # Simpler negative for Titan
+                "text": prompt
             },
             "imageGenerationConfig": {
                 "numberOfImages": 1,
-                "quality": "standard",  # Titan is more reliable with standard quality
-                "width": size,
                 "height": size,
-                "cfgScale": 7.0  # Lower CFG scale for Titan stability
+                "width": size
             }
         })
     else:
@@ -390,16 +410,26 @@ def lambda_handler(event, _ctx):
     """
     
     try:
-        # Check if this is single model worker mode (called by orchestrator)
-        if event.get("worker_mode") and "model" in event and "date" in event:
-            log.info("Running in WORKER MODE for single model/date combination")
-            dates = [event["date"]]
-            model_ids = [event["model"]]
-            log.info("Processing: %s on %s", event["model"], event["date"])
-        else:
-            log.info("Running in LEGACY MODE with date range processing")
+        # Check for special debugging mode
+        if event.get("debug"):
+            import logging
+            logging.getLogger().setLevel(logging.DEBUG)
+            log.setLevel(logging.DEBUG)
             
-            # Get environment variables for date range
+        # Check for force regeneration mode
+        force_regenerate = event.get("force_regenerate", False)
+        
+        # Environment variable fallback for dates (for production scheduling)
+        if event.get("worker_mode"):
+            # Worker mode - process single model/date combination with minimal output
+            dates = [event.get("date", today_iso())]
+            model_ids = [event.get("model_id", DEFAULT_MODELS[0])]
+            prompt_ids = [event.get("prompt_id", "img_01")]
+            
+            log.info("Worker mode: Processing %s with %s for %s", 
+                     prompt_ids[0], model_ids[0], dates[0])
+        else:
+            # Legacy mode - handle multiple dates/models/prompts
             START_DATE = os.getenv("START_DATE")
             END_DATE = os.getenv("END_DATE")
             
@@ -434,7 +464,7 @@ def lambda_handler(event, _ctx):
         results_summary = {"successful_dates": 0, "failed_dates": 0, "total_images": 0}
 
         for day in dates:
-            log.info("Processing date: %s", day)
+            log.info("Processing date: %s (force_regenerate=%s)", day, force_regenerate)
             y, m, d = day.split("-")
             
             try:
@@ -465,33 +495,52 @@ def lambda_handler(event, _ctx):
                         # Use the full model ID as the key (same as LLM handler)
                         mdl_key = model_id
                         # Create a safe filename version of the model ID
-                        mdl_slug = model_id.replace(':', '_').replace('/', '_')
+                        mdl_slug = slug(model_id)  # Use the slug helper for consistent filename sanitization
                         px = 512 # Only generating 512px for now, can be parameterized later if needed
                         
                         # Ensure the imageOutputs dictionary exists for the slot and model
                         slot_image_outputs = paper["contentSlots"][slot].setdefault("imageOutputs", {})
                         model_specific_outputs = slot_image_outputs.setdefault(mdl_key, {})
                         
-                        # Check if image already exists (only if file existed and has valid content)
+                        # Check if image already exists (both JSON metadata AND actual file)
                         should_skip = False
-                        if file_existed:
-                            existing_image = model_specific_outputs.get(pid)
-                            
+                        existing_image = model_specific_outputs.get(pid) if file_existed else None
+                        
+                        if file_existed and not force_regenerate:  # Skip only if not forcing regeneration
                             if (existing_image and
                                 isinstance(existing_image, dict) and
                                 existing_image.get("imageUrl") and
                                 isinstance(existing_image.get("imageUrl"), str) and
                                 len(str(existing_image.get("imageUrl", "")).strip()) > 10 and
                                 not existing_image.get("blocked", False)):
-                                log.info(f"✅ Image already exists for {model_id} {pid} on {day} ({existing_image['imageUrl']}) - skipping")
-                                should_skip = True
+                                
+                                # Also check if the actual image file exists in S3
+                                image_filename = existing_image["imageUrl"]
+                                image_s3_key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/{image_filename}"
+                                
+                                if s3_exists(image_s3_key):
+                                    log.info(f"✅ Image already exists for {model_id} {pid} on {day} ({image_filename}) - skipping")
+                                    should_skip = True
+                                else:
+                                    log.info(f"🔄 JSON has imageUrl but file missing from S3 for {model_id} {pid} on {day} - regenerating")
                             else:
                                 log.info(f"🔄 Generating missing/invalid image for {model_id} {pid} on {day}")
+                        elif force_regenerate:
+                            log.info(f"🔥 Force regeneration enabled - regenerating {model_id} {pid} on {day}")
                         else:
                             log.info(f"🆕 New file - generating all images for {model_id} {pid} on {day}")
                         
                         if should_skip:
                             continue
+                        
+                        # Clean up any existing blocked data when force regenerating
+                        if force_regenerate and existing_image:
+                            if existing_image.get("blocked"):
+                                log.info(f"🧹 Cleaning up old blocked data for {model_id} {pid} on {day}: {existing_image.get('reason', 'No reason')}")
+                                del model_specific_outputs[pid]  # Remove old blocked entry
+                            else:
+                                log.info(f"🧹 Cleaning up existing image data for {model_id} {pid} on {day}: {existing_image.get('imageUrl', 'No URL')}")
+                                del model_specific_outputs[pid]  # Remove old successful entry for fresh generation
                         
                         tag  = f"{pid}-{px}"
                         

@@ -107,7 +107,7 @@ body{
 /* spans */
 .main-story{grid-column:span 3;grid-row:span 2}
 .comparison-story{grid-column:span 3}
-.advertisements{grid-column:4/5;grid-row:1/span 4;display:flex;flex-direction:column;gap:15px}
+.sponsors{grid-column:4/5;grid-row:1/span 4;display:flex;flex-direction:column;gap:15px}
 .llm-feature{grid-column:span 2}
 .daily-joke{grid-column:span 1}
 .author-bio{
@@ -117,9 +117,9 @@ body{
   padding-top:15px;
 }
 
-/* Images & placeholders – prevent “blow-out” */
+/* Images & placeholders – prevent "blow-out" */
 .article-image,
-.advertisement img{
+.sponsor-content img{
   width:100%;
   height:auto;
   max-height:400px;
@@ -128,8 +128,8 @@ body{
   border:1px solid #ccc;
 }
 
-/* Ads */
-.advertisement{
+/* Sponsored Content */
+.sponsor-content{
   min-height:120px;
   display:flex;
   align-items:center;
@@ -141,12 +141,12 @@ body{
 @media(max-width:992px){
   .main-content-grid{grid-template-columns:repeat(3,1fr)}
   .main-story,.comparison-story{grid-column:span 3}
-  .advertisements{grid-column:1/-1;flex-direction:row;flex-wrap:wrap}
+  .sponsors{grid-column:1/-1;flex-direction:row;flex-wrap:wrap}
 }
 @media(max-width:768px){
   .main-content-grid{grid-template-columns:1fr}
   .grid-item{grid-column:span 1 !important}
-  .advertisements .advertisement{flex:1 1 calc(50% - 10px)}
+  .sponsors .sponsor-content{flex:1 1 calc(50% - 10px)}
 }
 
 /* ========== 6. FOOTER ============================================== */

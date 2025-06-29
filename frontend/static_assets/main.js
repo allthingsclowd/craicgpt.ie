@@ -129,7 +129,7 @@ function updateImage(id, imageData, defaultAltText, placeholderUrl = 'static_ass
 // Function to render content based on currentPaperData and selections
 function renderContent() {
     const basePath = currentContentUrl
-        ? currentContentUrl.replace(/paper_content\.json$/i, '') // Updated filename
+        ? currentContentUrl.replace(/paper_content\.json(\?.*)?$/i, '') // Remove filename and any query parameters
         : 'static_assets/content/website/fallback/'; // Fallback base path for placeholders if currentContentUrl is null
 
     // Processes image data which might be a string URL or an object {url, alt, blocked}
@@ -295,33 +295,33 @@ function renderContent() {
         updateElement('author-bio', newspaperPlaceholders.authorBio.text, true);
     }
 
-    // Advertisements - now handled as individual slots (advertisement1, advertisement2, etc.)
-    const adSlots = ['advertisement1', 'advertisement2', 'advertisement3', 'advertisement4'];
-    const adImageKeys = ['img_03', 'img_04', 'img_05', 'img_06'];
+    // Sponsored Content - now handled as individual slots (advertisement1, advertisement2, etc.)
+    const sponsorSlots = ['advertisement1', 'advertisement2', 'advertisement3', 'advertisement4'];
+    const sponsorImageKeys = ['img_03', 'img_04', 'img_05', 'img_06'];
     
-    for (let i = 0; i < adSlots.length; i++) {
-        const adSlot = adSlots[i];
-        const adKey = adImageKeys[i];
-        const adElementId = `ad-${i + 1}`;
-        const adImgElement = document.getElementById(adElementId)?.querySelector('img');
+    for (let i = 0; i < sponsorSlots.length; i++) {
+        const sponsorSlot = sponsorSlots[i];
+        const sponsorKey = sponsorImageKeys[i];
+        const sponsorElementId = `sponsor-${i + 1}`;
+        const sponsorImgElement = document.getElementById(sponsorElementId)?.querySelector('img');
 
-        if (adImgElement) {
-            const adImageData = getImageDataForSlotKey(adSlot, adKey);
-            console.log(`Ad ${i + 1} image data:`, adImageData);
-            const processedAdImage = processImageData(adImageData);
-            console.log(`Ad ${i + 1} image processed:`, processedAdImage);
+        if (sponsorImgElement) {
+            const sponsorImageData = getImageDataForSlotKey(sponsorSlot, sponsorKey);
+            console.log(`Sponsor ${i + 1} image data:`, sponsorImageData);
+            const processedSponsorImage = processImageData(sponsorImageData);
+            console.log(`Sponsor ${i + 1} image processed:`, processedSponsorImage);
 
-            // Use specific placeholder for this ad if processedAdImage is null/invalid
-            const placeholderAd = newspaperPlaceholders.advertisements[i] || { imageUrl: 'static_assets/images/placeholder_ad.png', imageAlt: 'Advertisement space unavailable' };
+            // Use specific placeholder for this sponsor if processedSponsorImage is null/invalid
+            const placeholderSponsor = newspaperPlaceholders.advertisements[i] || { imageUrl: 'static_assets/images/placeholder_ad.png', imageAlt: 'Sponsored content unavailable' };
             
-            if (processedAdImage && processedAdImage.url) {
-                adImgElement.src = processedAdImage.url;
-                adImgElement.alt = processedAdImage.alt || `Advertisement ${i + 1}`;
+            if (processedSponsorImage && processedSponsorImage.url) {
+                sponsorImgElement.src = processedSponsorImage.url;
+                sponsorImgElement.alt = processedSponsorImage.alt || `Sponsored Content ${i + 1}`;
             } else {
-                adImgElement.src = placeholderAd.imageUrl;
-                adImgElement.alt = placeholderAd.imageAlt;
+                sponsorImgElement.src = placeholderSponsor.imageUrl;
+                sponsorImgElement.alt = placeholderSponsor.imageAlt;
             }
-            adImgElement.style.display = '';
+            sponsorImgElement.style.display = '';
         }
     }
 
@@ -361,7 +361,7 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
     const [yearStr, monthStr, dayStr] = dateString.split('-');
     // Construct the full URL using the S3_BUCKET_BASE_URL
     const relativePath = `static_assets/content/website/${yearStr}/${monthStr}/${dayStr}/paper_content.json`;
-    const fullS3Url = `${S3_BUCKET_BASE_URL}/${relativePath}`;
+    const fullS3Url = `${S3_BUCKET_BASE_URL}/${relativePath}?v=${Date.now()}`;
 
     currentContentUrl = fullS3Url; // Store the full S3 URL
 

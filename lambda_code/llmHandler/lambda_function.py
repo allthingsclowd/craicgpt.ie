@@ -63,7 +63,7 @@ ALLOW_EMBED  = os.getenv("ALLOW_EMBED_MODELS", "").lower() == "true"
 s3       = boto3.client("s3")
 bedrock  = boto3.client("bedrock-runtime", region_name=AWS_REGION)
 
-slug = lambda m: re.sub(r'[:/]', '_', m)       # safe filename helper
+slug = lambda m: re.sub(r'[:.\/]', '_', m)       # safe filename helper
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 log = logging.getLogger("llm_runner")

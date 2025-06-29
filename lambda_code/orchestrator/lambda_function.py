@@ -82,7 +82,7 @@ LLM_MODELS = [m.strip() for m in os.getenv(
 
 IMAGE_MODELS = [m.strip() for m in os.getenv(
     "BEDROCK_IMAGE_MODEL_IDS", 
-    "amazon.titan-image-generator-v1"
+    "amazon.titan-image-generator-v1,amazon.nova-canvas-v1:0"
 ).split(",") if m.strip()]
 
 def generate_date_range(start_date: str, end_date: str) -> List[str]:
@@ -341,13 +341,10 @@ def lambda_handler(event, context):
     START_DATE = os.getenv("START_DATE")
     END_DATE = os.getenv("END_DATE")
     
+    # Default to current date if START_DATE not provided
     if not START_DATE:
-        return {
-            "statusCode": 400,
-            "body": json.dumps({
-                "error": "START_DATE environment variable is required"
-            })
-        }
+        START_DATE = date.today().isoformat()
+        log.info(f"No START_DATE provided, defaulting to current date: {START_DATE}")
     
     # Default END_DATE to START_DATE if not specified
     if not END_DATE:
