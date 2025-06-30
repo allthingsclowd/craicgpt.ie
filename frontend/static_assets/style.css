@@ -184,7 +184,77 @@ body{
   .sponsors .sponsor-content{flex:1 1 calc(50% - 10px)}
 }
 
-/* ========== 6. FOOTER ============================================== */
+/* ========== 6. TOOLTIP ============================================= */
+.prompt-tooltip {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.95);
+  color: #fff;
+  padding: 15px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  max-width: 400px;
+  min-width: 250px;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.prompt-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.prompt-tooltip-header {
+  font-weight: bold;
+  color: #ffd700;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 5px;
+}
+
+.prompt-tooltip-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.prompt-tooltip-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.prompt-tooltip-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.prompt-tooltip-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.prompt-tooltip-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+/* Hover cursors for promptable elements */
+[data-prompt-type] {
+  cursor: help;
+  position: relative;
+}
+
+[data-prompt-type]:hover {
+  background-color: rgba(255, 215, 0, 0.1);
+  transition: background-color 0.2s ease;
+}
+
+/* ========== 7. FOOTER ============================================== */
 .page-footer{
   text-align:center;
   padding:20px;

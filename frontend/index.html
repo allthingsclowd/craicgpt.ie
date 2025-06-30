@@ -72,12 +72,14 @@
 
       <!-- Main Article -->
       <article id="main-article" class="grid-item main-story">
-        <h2 id="main-article-title">Main Article Title Loading…</h2>
+        <h2 id="main-article-title" data-prompt-type="llm" data-prompt-file="llm_01.json">Main Article Title Loading…</h2>
         <img id="main-article-image"
              src="static_assets/images/placeholder_article.png"
              alt="Main article placeholder"
-             class="article-image">
-        <div id="main-article-text" class="article-text">
+             class="article-image"
+             data-prompt-type="image" 
+             data-prompt-file="img_01.json">
+        <div id="main-article-text" class="article-text" data-prompt-type="llm" data-prompt-file="llm_01.json">
           <p>Loading main article content…</p>
         </div>
       </article>
@@ -90,7 +92,7 @@
                src="static_assets/images/GeekWithThePeakLogoJune25.png" 
                alt="The Geek with the Peak logo" 
                class="author-bio-logo">
-          <div id="author-bio">
+          <div id="author-bio" data-prompt-type="llm" data-prompt-file="llm_05.json">
             <p>Our esteemed editor, a sophisticated language model, works tirelessly (without coffee breaks!) to bring you the latest insights and ramblings from the digital ether…</p>
           </div>
         </div>
@@ -98,12 +100,14 @@
 
       <!-- Comparison Article -->
       <article id="comparison-article" class="grid-item comparison-story">
-        <h2 id="comparison-article-title">Comparison Piece Title Loading…</h2>
+        <h2 id="comparison-article-title" data-prompt-type="llm" data-prompt-file="llm_02.json">Comparison Piece Title Loading…</h2>
         <img id="comparison-article-image"
              src="static_assets/images/placeholder_article.png"
              alt="Comparison article placeholder"
-             class="article-image">
-        <div id="comparison-article-text" class="article-text">
+             class="article-image"
+             data-prompt-type="image" 
+             data-prompt-file="img_02.json">
+        <div id="comparison-article-text" class="article-text" data-prompt-type="llm" data-prompt-file="llm_02.json">
           <p>Loading comparison article content…</p>
         </div>
       </article>
@@ -114,8 +118,10 @@
         <img id="llm-story-image"
              src="static_assets/images/placeholder_article.png"
              alt="LLM story placeholder image"
-             class="article-image">
-        <div id="llm-story-content">
+             class="article-image"
+             data-prompt-type="image" 
+             data-prompt-file="img_07.json">
+        <div id="llm-story-content" data-prompt-type="llm" data-prompt-file="llm_03.json">
           <p>An LLM ponders the meaning of a full stop. More at 11 (binary time).</p>
         </div>
       </section>
@@ -126,8 +132,10 @@
         <img id="joke-image"
              src="static_assets/images/placeholder_article.png"
              alt="Joke placeholder image"
-             class="article-image">
-        <div id="joke-content">
+             class="article-image"
+             data-prompt-type="image" 
+             data-prompt-file="img_08.json">
+        <div id="joke-content" data-prompt-type="llm" data-prompt-file="llm_04.json">
           <p>Why did the scarecrow win an award? Because he was outstanding in his field… of data!</p>
         </div>
       </section>
@@ -135,10 +143,10 @@
       <!-- Sponsored Content -->
       <aside id="sponsors-column" class="grid-item sponsors">
         <h3>Sponsored Messages (from our AI Overlords)</h3>
-        <div id="sponsor-1" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 1"></div>
-        <div id="sponsor-2" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 2"></div>
-        <div id="sponsor-3" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 3"></div>
-        <div id="sponsor-4" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 4"></div>
+        <div id="sponsor-1" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 1" data-prompt-type="image" data-prompt-file="img_03.json"></div>
+        <div id="sponsor-2" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 2" data-prompt-type="image" data-prompt-file="img_04.json"></div>
+        <div id="sponsor-3" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 3" data-prompt-type="image" data-prompt-file="img_05.json"></div>
+        <div id="sponsor-4" class="sponsor-content"><img src="static_assets/images/placeholder_ad.png" alt="Sponsor 4" data-prompt-type="image" data-prompt-file="img_06.json"></div>
       </aside>
     </main>
 

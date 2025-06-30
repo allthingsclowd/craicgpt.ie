@@ -128,6 +128,11 @@ function updateImage(id, imageData, defaultAltText, placeholderUrl = 'static_ass
 
 // Function to render content based on currentPaperData and selections
 function renderContent() {
+    // Clear prompt cache when content changes (e.g., switching LLM models)
+    if (typeof currentPromptCache !== 'undefined') {
+        currentPromptCache.clear();
+    }
+    
     const basePath = currentContentUrl
         ? currentContentUrl.replace(/paper_content\.json(\?.*)?$/i, '') // Remove filename and any query parameters
         : 'static_assets/content/website/fallback/'; // Fallback base path for placeholders if currentContentUrl is null
@@ -469,4 +474,224 @@ window.addEventListener('load', () => {
             }
         });
     });
+    
+    // Initialize prompt tooltips
+    initializePromptTooltips();
 });
+
+// ========== PROMPT TOOLTIP SYSTEM ==========
+
+let promptTooltip = null;
+let tooltipTimeout = null;
+let currentPromptCache = new Map();
+
+// Create the tooltip element on page load
+function createPromptTooltip() {
+    if (promptTooltip) return;
+    
+    promptTooltip = document.createElement('div');
+    promptTooltip.className = 'prompt-tooltip';
+    promptTooltip.innerHTML = `
+        <div class="prompt-tooltip-header"></div>
+        <div class="prompt-tooltip-content"></div>
+    `;
+    document.body.appendChild(promptTooltip);
+}
+
+// Position tooltip near mouse cursor but keep it on screen
+function positionTooltip(event) {
+    if (!promptTooltip) return;
+    
+    const rect = promptTooltip.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    let x = event.clientX + 15;
+    let y = event.clientY + 15;
+    
+    // Adjust if tooltip would go off right edge
+    if (x + rect.width > viewportWidth) {
+        x = event.clientX - rect.width - 15;
+    }
+    
+    // Adjust if tooltip would go off bottom edge
+    if (y + rect.height > viewportHeight) {
+        y = event.clientY - rect.height - 15;
+    }
+    
+    // Ensure tooltip doesn't go off top or left edges
+    x = Math.max(10, x);
+    y = Math.max(10, y);
+    
+    promptTooltip.style.left = x + 'px';
+    promptTooltip.style.top = y + 'px';
+}
+
+// Fetch prompt data from S3
+async function fetchPromptData(promptFile) {
+    // Check cache first
+    if (currentPromptCache.has(promptFile)) {
+        return currentPromptCache.get(promptFile);
+    }
+    
+    try {
+        // Extract date from current content URL to build prompt path
+        let promptUrl;
+        
+        if (currentContentUrl) {
+            // Extract YYYY/MM/DD from the current content URL
+            const contentUrlMatch = currentContentUrl.match(/static_assets\/content\/website\/(\d{4})\/(\d{2})\/(\d{2})/);
+            if (contentUrlMatch) {
+                const [, year, month, day] = contentUrlMatch;
+                // Prompts are in static_assets/content/prompts/YYYY/MM/DD/ not website/YYYY/MM/DD/
+                promptUrl = `${S3_BUCKET_BASE_URL}/static_assets/content/prompts/${year}/${month}/${day}/${promptFile}?v=${Date.now()}`;
+            } else {
+                // Fallback if we can't parse the date
+                promptUrl = `${S3_BUCKET_BASE_URL}/static_assets/content/prompts/fallback/${promptFile}?v=${Date.now()}`;
+            }
+        } else {
+            // Fallback when no content URL is available
+            promptUrl = `${S3_BUCKET_BASE_URL}/static_assets/content/prompts/fallback/${promptFile}?v=${Date.now()}`;
+        }
+        
+        console.log(`Fetching prompt from: ${promptUrl}`);
+        
+        const response = await fetch(promptUrl);
+        if (!response.ok) {
+            throw new Error(`Failed to fetch prompt: ${response.status}`);
+        }
+        
+        const promptData = await response.json();
+        
+        // Cache the result
+        currentPromptCache.set(promptFile, promptData);
+        
+        return promptData;
+    } catch (error) {
+        console.error(`Error fetching prompt ${promptFile}:`, error);
+        return null;
+    }
+}
+
+// Show tooltip with prompt content
+async function showPromptTooltip(element, event) {
+    if (!promptTooltip) createPromptTooltip();
+    
+    const promptType = element.dataset.promptType;
+    const promptFile = element.dataset.promptFile;
+    
+    if (!promptType || !promptFile) return;
+    
+    // Clear any existing timeout
+    clearTimeout(tooltipTimeout);
+    
+    // Show loading state
+    const header = promptTooltip.querySelector('.prompt-tooltip-header');
+    const content = promptTooltip.querySelector('.prompt-tooltip-content');
+    
+    header.textContent = `${promptType.toUpperCase()} Prompt - Loading...`;
+    content.textContent = 'Fetching prompt data...';
+    
+    // Position and show tooltip
+    positionTooltip(event);
+    promptTooltip.classList.add('visible');
+    
+    // Fetch prompt data
+    const promptData = await fetchPromptData(promptFile);
+    
+    if (promptData) {
+        // Update header
+        const promptTypeName = promptType === 'llm' ? 'LLM' : 'Image Generation';
+        header.textContent = `${promptTypeName} Prompt (${promptFile})`;
+        
+        // Format content based on prompt type
+        if (promptType === 'llm') {
+            // For LLM prompts, show the main prompt content
+            if (promptData.prompt) {
+                content.textContent = promptData.prompt;
+            } else if (promptData.messages && Array.isArray(promptData.messages)) {
+                // Handle messages format (like Claude)
+                const messagesText = promptData.messages
+                    .map(msg => `${msg.role}: ${msg.content}`)
+                    .join('\n\n');
+                content.textContent = messagesText;
+            } else {
+                content.textContent = JSON.stringify(promptData, null, 2);
+            }
+        } else if (promptType === 'image') {
+            // For image prompts, show the text prompt and any relevant config
+            let imagePromptText = '';
+            
+            if (promptData.textPrompt || promptData.text_prompts) {
+                imagePromptText = promptData.textPrompt || 
+                    (promptData.text_prompts && promptData.text_prompts[0]?.text) || 
+                    'No text prompt found';
+            } else if (promptData.prompt) {
+                imagePromptText = promptData.prompt;
+            } else {
+                imagePromptText = JSON.stringify(promptData, null, 2);
+            }
+            
+            content.textContent = imagePromptText;
+            
+            // Add configuration info if available
+            if (promptData.width && promptData.height) {
+                content.textContent += `\n\nDimensions: ${promptData.width}x${promptData.height}`;
+            }
+            if (promptData.numberOfImages) {
+                content.textContent += `\nNumber of images: ${promptData.numberOfImages}`;
+            }
+        }
+    } else {
+        header.textContent = `${promptType.toUpperCase()} Prompt - Error`;
+        content.textContent = 'Failed to load prompt data. The prompt file may not exist for this date.';
+    }
+    
+    // Set auto-hide timeout (10 seconds)
+    tooltipTimeout = setTimeout(() => {
+        hidePromptTooltip();
+    }, 10000);
+}
+
+// Hide tooltip
+function hidePromptTooltip() {
+    if (promptTooltip) {
+        promptTooltip.classList.remove('visible');
+    }
+    clearTimeout(tooltipTimeout);
+}
+
+// Initialize tooltip event listeners
+function initializePromptTooltips() {
+    // Create tooltip element
+    createPromptTooltip();
+    
+    // Add event listeners for all elements with prompt data
+    document.addEventListener('mouseover', (event) => {
+        const target = event.target.closest('[data-prompt-type]');
+        if (target) {
+            showPromptTooltip(target, event);
+        }
+    });
+    
+    document.addEventListener('mouseout', (event) => {
+        const target = event.target.closest('[data-prompt-type]');
+        if (target) {
+            // Check if we're really leaving the element (not just moving to a child)
+            if (!target.contains(event.relatedTarget)) {
+                hidePromptTooltip();
+            }
+        }
+    });
+    
+    // Hide tooltip when scrolling or resizing
+    document.addEventListener('scroll', hidePromptTooltip);
+    window.addEventListener('resize', hidePromptTooltip);
+    
+    // Update prompt cache clearing
+    const originalFetchContentForDate = window.fetchContentForDate || fetchContentForDate;
+    window.fetchContentForDate = function(...args) {
+        currentPromptCache.clear(); // Clear cache when loading new date
+        return originalFetchContentForDate.apply(this, args);
+    };
+}
