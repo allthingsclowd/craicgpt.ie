@@ -23,10 +23,24 @@ const newspaperPlaceholders = {
     bannerTitle: "The Artificially Intelligent Times (Offline View)",
     currentDateText: "Date Not Available - Showing Default Layout",
     mainArticle: {
-        title: "City Celebrates Annual Tech Chronicle Gala",
-        text: "The grand ballroom buzzed with excitement as tech enthusiasts, innovators, and investors gathered for the annual Tech Chronicle Gala...",
+        title: "Meet Graham: The Geek with the Peak's Daily Digital Diary",
+        text: `<p>At 54¼, Graham—self-dubbed "the Geek with the Peak"—has perfected the art of chronicling chaos in the digital age. This freshly-minted AI engineer, who once moonlighted as cybersecurity architect, cloud whisperer, and (in pre-pandemic glory days) barman extraordinaire, now documents his daily adventures in Adrian Mole fashion.</p>
+
+<p><strong>The Cast of Characters:</strong><br>
+• Ester: wife, undisputed household keystone, omniscient task-master<br>
+• Nelly (19): uni-bound, dating someone with an unfortunate resemblance to Peter Sutcliffe<br>
+• Saoirse (17): guitar-shredding Shropshire Kurt Cobain<br>
+• Terrence (14): aspiring Brian O'Driscoll (Graham coaches his rugby team)<br>
+• Eddie: spoilt pandemic pup worth more than the family car<br>
+• Puddle: new kitten with mysterious acquisition motives</p>
+
+<p><strong>The Formula:</strong> Each 250-400 word entry blends work trials (CNAPP deployments, YAML-induced trauma), family follies, and essential pub research—all delivered with cheeky optimism and Irish flair. "The pub," Graham insists, "is my spiritual R&D lab for Pint-Driven Development."</p>
+
+<p>From morning caffeine shortages to sprint deadline disasters, Graham transforms daily tech tantrums into comedy gold. Whether decoding zero-trust architecture or dodging Eddie's vet bills, each entry promises dad-joke meets DevSecOps stand-up.</p>
+
+<p><em>Sláinte to that!</em> 🍀</p>`,
         imageUrl: "static_assets/images/placeholder_article.png",
-        imageAlt: "Illustration of a bustling city event with futuristic elements"
+        imageAlt: "Illustration of a tech-savvy Irish gentleman with a tweed cap"
     },
     comparisonArticle: {
         title: "The AI Revolution: Perspectives from Two Leading Models",
@@ -85,6 +99,128 @@ function updateElement(id, content, isHtml = false) {
             }
         }
     }
+}
+
+// Function to render comparison article content - handles JSON table format
+function renderComparisonArticleContent(content) {
+    const element = document.getElementById('comparison-article-text');
+    if (!element) return;
+    
+    if (!content) {
+        element.innerHTML = '<p>Loading comparison content...</p>';
+        return;
+    }
+    
+    try {
+        // Try to parse as JSON
+        const jsonData = JSON.parse(content);
+        
+        // Check if it has the expected table structure
+        if (jsonData.comparison_article && 
+            jsonData.comparison_article.format === 'table' &&
+            jsonData.comparison_article.columns &&
+            jsonData.comparison_article.rows &&
+            Array.isArray(jsonData.comparison_article.rows)) {
+            
+            console.log('Rendering comparison article as JSON table');
+            element.innerHTML = renderJsonTable(jsonData.comparison_article);
+            return;
+        }
+    } catch (e) {
+        // Not valid JSON, fall through to regular text rendering
+        console.log('Comparison article is not JSON table format, rendering as text');
+    }
+    
+    // Fallback: render as regular text/HTML
+    element.innerHTML = String(content);
+}
+
+// Function to render JSON table data as HTML table
+function renderJsonTable(tableData) {
+    const { topic, columns, rows } = tableData;
+    
+    let html = '';
+    
+    // Add topic as a subtitle if provided
+    if (topic && topic !== "Top-10 LLMs ranking (mid-2025)") {
+        html += `<h4 class="table-subtitle">${escapeHtml(topic)}</h4>`;
+    }
+    
+    // Start table
+    html += '<table class="comparison-table">';
+    
+    // Table header - handle both array and object column formats
+    let columnKeys = [];
+    if (columns && columns.length > 0) {
+        html += '<thead><tr>';
+        
+        // Handle different column formats
+        if (typeof columns[0] === 'string') {
+            // Simple string array: ["Model name", "Strength", "Use"]
+            columnKeys = columns;
+            columns.forEach(column => {
+                html += `<th>${escapeHtml(column)}</th>`;
+            });
+        } else if (columns[0] && columns[0].data) {
+            // Object format: [{data: "Model name"}, {data: "Strength"}]
+            columnKeys = columns.map(col => col.data);
+            columns.forEach(column => {
+                html += `<th>${escapeHtml(column.data || '')}</th>`;
+            });
+        }
+        
+        html += '</tr></thead>';
+    }
+    
+    // Table body - handle both array and object row formats
+    if (rows && rows.length > 0) {
+        html += '<tbody>';
+        rows.forEach((row, index) => {
+            html += '<tr>';
+            
+            if (Array.isArray(row)) {
+                // Array format: ["**GPT-4**", "Good reasoning", "Homework helper"]
+                row.forEach((cell, cellIndex) => {
+                    const cellClass = cellIndex === 0 ? ' class="model-name"' : '';
+                    const cellContent = convertMarkdownBold(escapeHtml(String(cell || '')));
+                    html += `<td${cellClass}>${cellContent}</td>`;
+                });
+            } else if (typeof row === 'object' && row !== null) {
+                // Object format: {"Model name & vendor": "**GPT-4**", "Genuine strength": "Good", ...}
+                // Use columnKeys to maintain order, or fallback to object keys
+                const keysToUse = columnKeys.length > 0 ? columnKeys : Object.keys(row);
+                
+                keysToUse.forEach((key, cellIndex) => {
+                    const cellClass = cellIndex === 0 ? ' class="model-name"' : '';
+                    const cellValue = row[key] || '';
+                    const cellContent = convertMarkdownBold(escapeHtml(String(cellValue)));
+                    html += `<td${cellClass}>${cellContent}</td>`;
+                });
+            } else {
+                // Fallback for unexpected format
+                const colSpan = columnKeys.length || columns.length || 3;
+                html += `<td colspan="${colSpan}">${escapeHtml(String(row))}</td>`;
+            }
+            html += '</tr>';
+        });
+        html += '</tbody>';
+    }
+    
+    html += '</table>';
+    
+    return html;
+}
+
+// Helper function to escape HTML characters
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Helper function to convert markdown bold (**text**) to HTML <strong>text</strong>
+function convertMarkdownBold(text) {
+    return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 }
 
 // Function to update the source and alt text of an image element
@@ -263,10 +399,10 @@ function renderContent() {
     updateImage('main-article-image', mainArticleImageProcessed, 'Lead story illustration');
 
 
-    // Comparison Article (mapped to img_02)
+    // Comparison Article (mapped to img_02) - Handle JSON table format
     const comparisonArticleLlmData = getLlmDataForSlot('comparisonArticle');
     updateElement('comparison-article-title', comparisonArticleLlmData?.title, true);
-    updateElement('comparison-article-text', comparisonArticleLlmData?.text, true);
+    renderComparisonArticleContent(comparisonArticleLlmData?.text);
     const comparisonArticleImageData = getImageDataForSlotKey('comparisonArticle', 'img_02');
     console.log('Comparison article image data:', comparisonArticleImageData);
     const comparisonArticleImageProcessed = processImageData(comparisonArticleImageData);

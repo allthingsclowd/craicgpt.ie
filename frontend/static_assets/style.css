@@ -184,7 +184,138 @@ body{
   .sponsors .sponsor-content{flex:1 1 calc(50% - 10px)}
 }
 
-/* ========== 6. TOOLTIP ============================================= */
+/* ========== 6. COMPARISON TABLE =================================== */
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 15px 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.comparison-table thead {
+  background: linear-gradient(135deg, #2c3e50, #34495e);
+  color: #fff;
+}
+
+.comparison-table th {
+  padding: 12px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border-bottom: 2px solid #1a252f;
+}
+
+.comparison-table td {
+  padding: 10px;
+  border-bottom: 1px solid #e8e8e8;
+  vertical-align: top;
+}
+
+.comparison-table tbody tr:hover {
+  background: #f8f9fa;
+  transition: background-color 0.2s ease;
+}
+
+.comparison-table tbody tr:nth-child(even) {
+  background: #fdfdfd;
+}
+
+.comparison-table tbody tr:nth-child(even):hover {
+  background: #f0f1f3;
+}
+
+/* First column (model names) styling */
+.comparison-table .model-name {
+  font-weight: 500;
+  background: linear-gradient(90deg, #ecf0f1, #f8f9fa);
+  border-right: 2px solid #bdc3c7;
+  min-width: 140px;
+}
+
+.comparison-table .model-name strong {
+  color: #2c3e50;
+  font-weight: 700;
+}
+
+/* Table subtitle styling */
+.table-subtitle {
+  margin: 0 0 10px 0;
+  color: #34495e;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+/* Responsive table styling */
+@media (max-width: 768px) {
+  .comparison-table {
+    font-size: 0.8rem;
+  }
+  
+  .comparison-table th,
+  .comparison-table td {
+    padding: 8px 6px;
+  }
+  
+  .comparison-table th {
+    font-size: 0.75rem;
+  }
+  
+  .comparison-table .model-name {
+    min-width: auto;
+  }
+}
+
+/* Very small screens - stack table vertically */
+@media (max-width: 480px) {
+  .comparison-table,
+  .comparison-table thead,
+  .comparison-table tbody,
+  .comparison-table th,
+  .comparison-table td,
+  .comparison-table tr {
+    display: block;
+  }
+  
+  .comparison-table thead tr {
+    position: absolute;
+    top: -9999px;
+    left: -9999px;
+  }
+  
+  .comparison-table tr {
+    border: 1px solid #ccc;
+    margin-bottom: 10px;
+    padding: 10px;
+    background: #fff;
+    border-radius: 4px;
+  }
+  
+  .comparison-table td {
+    border: none;
+    padding: 5px 0;
+    position: relative;
+    padding-left: 30%;
+  }
+  
+  .comparison-table td:before {
+    content: attr(data-label);
+    position: absolute;
+    left: 6px;
+    width: 25%;
+    padding-right: 10px;
+    white-space: nowrap;
+    font-weight: 600;
+    color: #34495e;
+  }
+}
+
+/* ========== 7. TOOLTIP ============================================= */
 .prompt-tooltip {
   position: fixed;
   background: rgba(0, 0, 0, 0.95);
@@ -269,7 +400,7 @@ body{
   transition: background-color 0.2s ease;
 }
 
-/* ========== 7. FOOTER ============================================== */
+/* ========== 8. FOOTER ============================================== */
 .page-footer{
   text-align:center;
   padding:20px;
