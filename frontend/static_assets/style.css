@@ -117,6 +117,41 @@ body{
   padding-top:15px;
 }
 
+/* Author bio layout with image on left */
+.author-bio-content {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+}
+
+.author-bio-logo {
+  width: auto;
+  height: calc(1.6em * 8); /* 8 lines of text height (1.6em line-height × 8) */
+  min-width: 60px; /* minimum width to prevent it getting too small */
+  max-width: 120px; /* maximum width to prevent it getting too large */
+  object-fit: contain;
+  flex-shrink: 0; /* prevent the image from shrinking */
+  border-radius: 4px; /* subtle rounded corners */
+}
+
+.author-bio-content #author-bio {
+  flex: 1; /* take up remaining space */
+}
+
+/* Responsive adjustments for smaller screens */
+@media(max-width: 768px) {
+  .author-bio-content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  
+  .author-bio-logo {
+    height: calc(1.6em * 6); /* slightly smaller on mobile */
+    max-width: 100px;
+  }
+}
+
 /* Images & placeholders – prevent "blow-out" */
 .article-image,
 .sponsor-content img{

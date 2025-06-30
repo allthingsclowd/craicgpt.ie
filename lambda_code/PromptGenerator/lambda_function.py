@@ -25,6 +25,7 @@
 
 import os, re, json, html, urllib.request, random
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 import boto3
 from typing import Union, Optional, Dict, List, Tuple
 from dataclasses import dataclass
@@ -268,7 +269,7 @@ def generate_date_range(start_date: str, end_date: str) -> List[str]:
 def get_weather_context(target_date: str) -> Dict[str, str]:
     """Get weather context for specific date"""
     target_dt = datetime.fromisoformat(target_date).date()
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/London")).date()
     
     # For current/recent dates, use live weather
     if abs((target_dt - today).days) <= 2:
@@ -384,7 +385,7 @@ def get_seasonal_weather(target_date: str) -> Dict[str, str]:
 def get_daily_news_context(target_date: str) -> Dict[str, List[str]]:
     """Get news context for specific date"""
     target_dt = datetime.fromisoformat(target_date).date()
-    today = date.today()
+    today = datetime.now(ZoneInfo("Europe/London")).date()
     
     # For current dates, scrape live news
     if abs((target_dt - today).days) <= 1 and ENABLE_FRESH_CONTEXT:
@@ -887,7 +888,7 @@ def lambda_handler(event, context):
         dates = [event["date"]]
         print(f"Using event single date: {event['date']}")
     else:
-        dates = [date.today().isoformat()]
+        dates = [datetime.now(ZoneInfo("Europe/London")).date().isoformat()]
         print(f"Using default date: {dates[0]}")
     
     print(f"Generating prompts for {len(dates)} dates: {dates[0]} to {dates[-1]}")

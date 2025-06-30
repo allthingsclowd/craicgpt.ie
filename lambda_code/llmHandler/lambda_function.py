@@ -97,7 +97,7 @@ def load_paper_json(y, m, d):
                           "defaultImageGen": "amazon.titan-image-generator-v1" },
             "contentSlots": {
                 "mainArticle":       { "llmOutputs": {}, "imageOutputs": {} },
-                "authorBio":         { "text": "<p>Editor bio not generated yet.</p>" },
+                "authorBio":         { "llmOutputs": {}, "imageOutputs": {} },
                 "comparisonArticle": { "llmOutputs": {}, "imageOutputs": {} },
                 "llmStory":          { "llmOutputs": {}, "imageOutputs": {} },
                 "joke":              { "llmOutputs": {}, "imageOutputs": {} },
@@ -312,39 +312,26 @@ def lambda_handler(event, _ctx):
                             # Check if content already exists for this model (only if file existed)
                             if file_existed:
                                 mdl_key = model_id
+                                slot_dict = paper["contentSlots"][slot].get("llmOutputs", {})
+                                existing_content = slot_dict.get(mdl_key, {})
                                 
-                                # Special check for authorBio (static content)
-                                if slot == "authorBio":
-                                    existing_bio = paper["contentSlots"]["authorBio"].get("text", "")
-                                    if (existing_bio and 
-                                        existing_bio != "<p>Editor bio not generated yet.</p>" and
-                                        len(existing_bio.strip()) > 10):  # More robust check
-                                        log.info(f"✅ AuthorBio already exists for {day} ({len(existing_bio)} chars) - skipping")
-                                        result_map[day][pid][model_id] = "SKIPPED: Content already exists"
-                                        continue
-                                    else:
-                                        log.info(f"🔄 AuthorBio needs generation for {day}")
+                                # Check if meaningful content exists
+                                has_content = False
+                                if ftype == "title_text":
+                                    has_content = (existing_content.get("title") and 
+                                                 existing_content.get("text") and
+                                                 len(existing_content.get("title", "").strip()) > 5 and
+                                                 len(existing_content.get("text", "").strip()) > 20)
+                                else:  # content type
+                                    has_content = (existing_content.get("content") and
+                                                 len(existing_content.get("content", "").strip()) > 20)
+                                
+                                if has_content:
+                                    log.info(f"✅ Content already exists for {model_id} on {pid} for {day} - skipping")
+                                    result_map[day][pid][model_id] = "SKIPPED: Content already exists"
+                                    continue
                                 else:
-                                    slot_dict = paper["contentSlots"][slot].get("llmOutputs", {})
-                                    existing_content = slot_dict.get(mdl_key, {})
-                                    
-                                    # Check if meaningful content exists
-                                    has_content = False
-                                    if ftype == "title_text":
-                                        has_content = (existing_content.get("title") and 
-                                                     existing_content.get("text") and
-                                                     len(existing_content.get("title", "").strip()) > 5 and
-                                                     len(existing_content.get("text", "").strip()) > 20)
-                                    else:  # content type
-                                        has_content = (existing_content.get("content") and
-                                                     len(existing_content.get("content", "").strip()) > 20)
-                                    
-                                    if has_content:
-                                        log.info(f"✅ Content already exists for {model_id} on {pid} for {day} - skipping")
-                                        result_map[day][pid][model_id] = "SKIPPED: Content already exists"
-                                        continue
-                                    else:
-                                        log.info(f"🔄 Generating missing content for {model_id} on {pid} for {day}")
+                                    log.info(f"🔄 Generating missing content for {model_id} on {pid} for {day}")
                             else:
                                 log.info(f"🆕 New file - generating all content for {model_id} on {pid} for {day}")
                             
@@ -378,21 +365,19 @@ def lambda_handler(event, _ctx):
                             # Use the full model ID as the key (same as image handler)
                             mdl_key = model_id
                             
-                            # Special handling for authorBio - store as static text, not model-specific
-                            if slot == "authorBio":
-                                paper["contentSlots"]["authorBio"]["text"] = f"<p>{text}</p>"
+                            # Store content in model-specific llmOutputs (all slots treated equally)
+                            slot_dict = paper["contentSlots"][slot]["llmOutputs"]
+                            if ftype == "title_text":
+                                first, *rest = text.splitlines()
+                                slot_dict[mdl_key] = {
+                                    "title": first.strip(),
+                                    "text":  "<p>" + "\n".join(rest).strip() + "</p>"
+                                }
                             else:
-                                slot_dict = paper["contentSlots"][slot]["llmOutputs"]
-                                if ftype == "title_text":
-                                    first, *rest = text.splitlines()
-                                    slot_dict[mdl_key] = {
-                                        "title": first.strip(),
-                                        "text":  "<p>" + "\n".join(rest).strip() + "</p>"
-                                    }
-                                else:
-                                    slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
+                                slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
 
                             result_map[day][pid][model_id] = raw_key
+                            log.info(f"✅ Generated {ftype} content for {model_id} on {pid}")
                             
                         except Exception as e:
                             log.error("❌ Failed to process %s for %s on %s: %s", 

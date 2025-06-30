@@ -41,7 +41,8 @@ import boto3
 import time
 import random
 from datetime import date, datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from zoneinfo import ZoneInfo
+# Removed concurrent.futures - using sequential processing to avoid Lambda limits
 from typing import List, Dict, Any, Tuple
 import logging
 from collections import defaultdict
@@ -56,7 +57,7 @@ lambda_client = boto3.client('lambda')
 # Configuration
 LLM_WORKER_FUNCTION = os.environ.get("LLM_WORKER_FUNCTION", "craicgptie_llm_runner")
 IMAGE_WORKER_FUNCTION = os.environ.get("IMAGE_WORKER_FUNCTION", "craicgptie_image_runner") 
-MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "5"))  # Reduced for better throttling
+MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "1"))  # Further reduced to avoid Lambda limits
 
 # Model-specific throttling configuration (requests per minute)
 MODEL_RATE_LIMITS = {
@@ -156,52 +157,95 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
     date_str = work_item["date"]
     function_name = work_item["function_name"]
     
-    # Apply throttling delay
+    # Apply throttling delay for Bedrock models
     delay = get_throttling_delay(model)
     if delay > 0:
         log.info(f"Throttling delay for {model}: {delay:.2f}s")
         time.sleep(delay)
     
+    # Add additional Lambda invocation delay to prevent concurrency saturation
+    lambda_delay = 5.0  # 5 second delay between Lambda invocations for rate limiting
+    log.info(f"⏳ Lambda invocation delay: {lambda_delay}s...")
+    time.sleep(lambda_delay)
+    
     # Prepare payload for worker
     payload = {
         "date": date_str,
-        "model": model,
+        "model_id": model,  # Fixed: workers expect "model_id"
         "worker_mode": True  # Tell worker to process only this model
     }
     
-    try:
-        log.info(f"Invoking {function_name} for {model} on {date_str}")
-        
-        response = lambda_client.invoke(
-            FunctionName=function_name,
-            InvocationType='RequestResponse',  # Synchronous
-            Payload=json.dumps(payload)
-        )
-        
-        # Update throttling state
-        update_throttling_state(model)
-        
-        # Parse response
-        response_payload = json.loads(response['Payload'].read().decode())
-        
-        result = {
-            "work_item": work_item,
-            "status": "success",
-            "response": response_payload,
-            "status_code": response['StatusCode']
-        }
-        
-        log.info(f"✅ Completed {model} on {date_str}")
-        return result
-        
-    except Exception as e:
-        log.error(f"❌ Failed {model} on {date_str}: {e}")
-        return {
-            "work_item": work_item,
-            "status": "error", 
-            "error": str(e),
-            "status_code": 500
-        }
+    # Retry logic with exponential backoff for Lambda throttling
+    max_retries = 3
+    base_delay = 10.0
+    
+    for attempt in range(max_retries + 1):
+        try:
+            if attempt > 0:
+                retry_delay = base_delay * (2 ** attempt) + random.uniform(0, 5)
+                log.info(f"🔄 Retry {attempt}/{max_retries} for {model} after {retry_delay:.1f}s delay...")
+                time.sleep(retry_delay)
+            
+            log.info(f"⚡ Invoking {function_name} for {model} on {date_str} (attempt {attempt + 1})")
+            
+            response = lambda_client.invoke(
+                FunctionName=function_name,
+                InvocationType='RequestResponse',  # Synchronous
+                Payload=json.dumps(payload)
+            )
+            
+            # Update throttling state on successful invocation
+            update_throttling_state(model)
+            
+            # Parse response
+            response_payload = json.loads(response['Payload'].read().decode())
+            
+            result = {
+                "work_item": work_item,
+                "status": "success",
+                "response": response_payload,
+                "status_code": response['StatusCode']
+            }
+            
+            # Extract worker details for progress reporting
+            worker_response = response_payload.get("body", {})
+            if isinstance(worker_response, str):
+                try:
+                    worker_response = json.loads(worker_response)
+                except:
+                    worker_response = {}
+            
+            prompts_processed = worker_response.get("prompts_processed", "unknown")
+            worker_time = worker_response.get("processing_time", 0)
+            
+            log.info(f"✅ {model} completed: {prompts_processed} prompts in {worker_time:.1f}s")
+            return result
+            
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Check if this is a retryable error
+            if ("TooManyRequestsException" in error_msg or 
+                "Rate Exceeded" in error_msg or
+                "timeout" in error_msg.lower()) and attempt < max_retries:
+                log.warning(f"⚠️  Retryable error for {model} on {date_str} (attempt {attempt + 1}): {error_msg}")
+                continue
+            else:
+                log.error(f"❌ Failed {model} on {date_str} after {attempt + 1} attempts: {error_msg}")
+                return {
+                    "work_item": work_item,
+                    "status": "error", 
+                    "error": error_msg,
+                    "status_code": 500
+                }
+    
+    # This should never be reached, but handle it for completeness
+    return {
+        "work_item": work_item,
+        "status": "error", 
+        "error": "Unexpected error: retry loop exited without result",
+        "status_code": 500
+    }
 
 def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Execute work items with dependency-aware scheduling (LLM before Image per date)"""
@@ -222,27 +266,35 @@ def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         llm_items = date_work["llm"]
         image_items = date_work["image"]
         
-        log.info(f"Processing {date_str}: {len(llm_items)} LLM + {len(image_items)} Image work items")
+        log.info(f"🗓️  Processing {date_str}: {len(llm_items)} LLM + {len(image_items)} Image work items")
+        log.info(f"📋 LLM models to process: {[item['model'] for item in llm_items]}")
+        log.info(f"🖼️  Image models to process: {[item['model'] for item in image_items]}")
         
         # Phase 1: Execute ALL LLM work items for this date
         if llm_items:
-            log.info(f"Phase 1 - LLM processing for {date_str}: {len(llm_items)} items")
+            log.info(f"🔸 Phase 1 - LLM processing for {date_str}: {len(llm_items)} items")
             llm_results = execute_work_phase(llm_items, f"LLM-{date_str}")
             results.extend(llm_results)
             
             # Check if LLM processing succeeded
             llm_success_count = len([r for r in llm_results if r["status"] == "success"])
-            log.info(f"LLM phase completed for {date_str}: {llm_success_count}/{len(llm_items)} successful")
+            if llm_success_count == len(llm_items):
+                log.info(f"✅ LLM phase completed for {date_str}: {llm_success_count}/{len(llm_items)} successful")
+            else:
+                log.warning(f"⚠️  LLM phase completed for {date_str}: {llm_success_count}/{len(llm_items)} successful")
         
         # Phase 2: Execute ALL Image work items for this date (only after LLM completes)
         if image_items:
-            log.info(f"Phase 2 - Image processing for {date_str}: {len(image_items)} items")
+            log.info(f"🔹 Phase 2 - Image processing for {date_str}: {len(image_items)} items")
             image_results = execute_work_phase(image_items, f"Image-{date_str}")
             results.extend(image_results)
             
             # Check if Image processing succeeded  
             image_success_count = len([r for r in image_results if r["status"] == "success"])
-            log.info(f"Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
+            if image_success_count == len(image_items):
+                log.info(f"✅ Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
+            else:
+                log.warning(f"⚠️  Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
         
         # Log overall progress
         completed = len(results)
@@ -261,24 +313,24 @@ def execute_work_phase(work_items: List[Dict[str, Any]], phase_name: str) -> Lis
     
     log.info(f"Starting {phase_name} with {len(work_items)} items")
     
-    with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_WORKERS) as executor:
-        # Submit all work items for this phase
-        future_to_work = {}
+    # Process work items sequentially to avoid Lambda concurrency limits
+    for i, item in enumerate(work_items, 1):
+        log.info(f"🚀 {phase_name} progress: {i}/{len(work_items)} - Starting {item['model']}")
         
-        for item in work_items:
-            future = executor.submit(invoke_worker, item)
-            future_to_work[future] = item
+        start_time = time.time()
+        result = invoke_worker(item)
+        duration = time.time() - start_time
+        results.append(result)
         
-        # Collect results as they complete
-        for future in as_completed(future_to_work):
-            result = future.result()
-            results.append(result)
-            
-            # Log progress within this phase
-            completed = len(results)
-            total = len(work_items)
-            success_rate = len([r for r in results if r["status"] == "success"]) / completed * 100 if completed > 0 else 0
-            log.info(f"{phase_name} progress: {completed}/{total} ({completed/total*100:.1f}%) - Success: {success_rate:.1f}%")
+        # Log individual result with timing
+        status_emoji = "✅" if result["status"] == "success" else "❌"
+        log.info(f"{status_emoji} {item['model']} completed in {duration:.1f}s")
+        
+        # Log overall progress
+        completed = len(results)
+        total = len(work_items)
+        success_rate = len([r for r in results if r["status"] == "success"]) / completed * 100 if completed > 0 else 0
+        log.info(f"📊 {phase_name} progress: {completed}/{total} ({completed/total*100:.1f}%) - Success: {success_rate:.1f}%")
     
     log.info(f"{phase_name} completed: {len([r for r in results if r['status'] == 'success'])}/{len(work_items)} successful")
     return results
@@ -343,7 +395,7 @@ def lambda_handler(event, context):
     
     # Default to current date if START_DATE not provided
     if not START_DATE:
-        START_DATE = date.today().isoformat()
+        START_DATE = datetime.now(ZoneInfo("Europe/London")).date().isoformat()
         log.info(f"No START_DATE provided, defaulting to current date: {START_DATE}")
     
     # Default END_DATE to START_DATE if not specified
@@ -353,14 +405,16 @@ def lambda_handler(event, context):
     try:
         # Generate date range
         dates = generate_date_range(START_DATE, END_DATE)
-        log.info(f"Processing date range: {START_DATE} to {END_DATE} ({len(dates)} dates)")
+        log.info(f"🗓️  Processing date range: {START_DATE} to {END_DATE} ({len(dates)} dates)")
         
         # Create work items
         work_items = create_work_items(dates)
-        log.info(f"Generated {len(work_items)} work items:")
-        log.info(f"  LLM models: {LLM_MODELS}")
-        log.info(f"  Image models: {IMAGE_MODELS}")
-        log.info(f"  Total combinations: {len(dates)} dates × {len(LLM_MODELS + IMAGE_MODELS)} models")
+        log.info(f"📋 Generated {len(work_items)} work items:")
+        log.info(f"   📝 LLM models ({len(LLM_MODELS)}): {LLM_MODELS}")
+        log.info(f"   🖼️  Image models ({len(IMAGE_MODELS)}): {IMAGE_MODELS}")
+        log.info(f"   🔢 Total combinations: {len(dates)} dates × {len(LLM_MODELS + IMAGE_MODELS)} models")
+        log.info(f"⏱️  Estimated completion time: {len(work_items) * 6 / 60:.1f} minutes (sequential processing)")
+        log.info(f"🚀 Starting orchestration with {MAX_CONCURRENT_WORKERS} max workers...")
         
         # Execute work items
         results = execute_work_items(work_items)
@@ -370,8 +424,9 @@ def lambda_handler(event, context):
         
         processing_time = time.time() - start_time
         
-        log.info(f"Orchestration completed in {processing_time:.2f} seconds")
-        log.info(f"Success rate: {analysis['success_rate']:.1f}%")
+        log.info(f"🎉 Orchestration completed in {processing_time:.2f} seconds ({processing_time/60:.1f} minutes)")
+        log.info(f"📈 Final success rate: {analysis['success_rate']:.1f}%")
+        log.info(f"📊 Final results: {analysis['successful']}/{len(work_items)} successful, {analysis['failed']} failed")
         
         return {
             "statusCode": 200,

@@ -187,9 +187,9 @@ function renderContent() {
 
         for (let i = 0; i < newspaperPlaceholders.advertisements.length; i++) {
             const adPlaceholder = newspaperPlaceholders.advertisements[i];
-            const adElementContainer = document.getElementById(`ad-${i + 1}`);
-            if (adElementContainer) {
-                const imgElement = adElementContainer.querySelector('img');
+            const sponsorElementContainer = document.getElementById(`sponsor-${i + 1}`);
+            if (sponsorElementContainer) {
+                const imgElement = sponsorElementContainer.querySelector('img');
                 if (imgElement) {
                     // Placeholder URLs are already fully qualified or relative to static_assets root
                     imgElement.src = adPlaceholder.imageUrl;
@@ -289,11 +289,8 @@ function renderContent() {
 
 
     // Author Bio
-    if (slots.authorBio && typeof slots.authorBio.text !== 'undefined') {
-         updateElement('author-bio', slots.authorBio.text, true);
-    } else {
-        updateElement('author-bio', newspaperPlaceholders.authorBio.text, true);
-    }
+    const authorBioLlmData = getLlmDataForSlot('authorBio');
+    updateElement('author-bio', authorBioLlmData?.content, true);
 
     // Sponsored Content - now handled as individual slots (advertisement1, advertisement2, etc.)
     const sponsorSlots = ['advertisement1', 'advertisement2', 'advertisement3', 'advertisement4'];

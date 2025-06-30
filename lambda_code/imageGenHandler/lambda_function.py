@@ -421,13 +421,13 @@ def lambda_handler(event, _ctx):
         
         # Environment variable fallback for dates (for production scheduling)
         if event.get("worker_mode"):
-            # Worker mode - process single model/date combination with minimal output
+            # Worker mode - process single model/date combination for ALL image prompts
             dates = [event.get("date", today_iso())]
             model_ids = [event.get("model_id", DEFAULT_MODELS[0])]
-            prompt_ids = [event.get("prompt_id", "img_01")]
+            prompt_ids = [f"img_{i:02}" for i in range(1, 9)]  # Process ALL image prompts
             
-            log.info("Worker mode: Processing %s with %s for %s", 
-                     prompt_ids[0], model_ids[0], dates[0])
+            log.info("Worker mode: Processing ALL image prompts with %s for %s", 
+                     model_ids[0], dates[0])
         else:
             # Legacy mode - handle multiple dates/models/prompts
             START_DATE = os.getenv("START_DATE")
@@ -598,6 +598,7 @@ def lambda_handler(event, _ctx):
                         # All slots now use the same structure: store under specific prompt_id (pid)
                         model_specific_outputs[pid] = entry
                         results_summary["total_images"] += 1
+                        log.info(f"✅ Generated image {pid} for {model_id} → {fname}")
 
                 save_paper_json(paper_key, paper)
                 results_summary["successful_dates"] += 1
