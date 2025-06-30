@@ -57,7 +57,12 @@ lambda_client = boto3.client('lambda')
 # Configuration
 LLM_WORKER_FUNCTION = os.environ.get("LLM_WORKER_FUNCTION", "craicgptie_llm_runner")
 IMAGE_WORKER_FUNCTION = os.environ.get("IMAGE_WORKER_FUNCTION", "craicgptie_image_runner") 
-MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "1"))  # Further reduced to avoid Lambda limits
+MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "1"))  # Sequential processing
+
+# AWS Lambda account-wide concurrency limits
+MAX_ACCOUNT_CONCURRENT = int(os.environ.get("MAX_ACCOUNT_CONCURRENT", "9"))  # Stay under 10 limit
+CONCURRENCY_CHECK_ENABLED = os.environ.get("CONCURRENCY_CHECK_ENABLED", "true").lower() == "true"
+CONCURRENCY_BACKOFF_DELAY = float(os.environ.get("CONCURRENCY_BACKOFF_DELAY", "30.0"))  # seconds
 
 # Model-specific throttling configuration (requests per minute)
 MODEL_RATE_LIMITS = {
@@ -130,6 +135,9 @@ def create_work_items(dates: List[str]) -> List[Dict[str, Any]]:
 # In-memory throttling state (per orchestrator execution)
 _model_last_call = defaultdict(float)
 
+# AWS CloudWatch client for concurrency monitoring
+cloudwatch = boto3.client('cloudwatch')
+
 def get_throttling_delay(model: str) -> float:
     """Calculate delay needed before calling this model again"""
     rate_limit = MODEL_RATE_LIMITS.get(model, MODEL_RATE_LIMITS["default"])
@@ -151,20 +159,84 @@ def update_throttling_state(model: str):
     """Update in-memory throttling state after making a call"""
     _model_last_call[model] = time.time()
 
+def get_current_lambda_concurrency() -> int:
+    """Get current concurrent Lambda executions using CloudWatch metrics"""
+    if not CONCURRENCY_CHECK_ENABLED:
+        return 0
+    
+    try:
+        # Get current concurrent executions metric
+        response = cloudwatch.get_metric_statistics(
+            Namespace='AWS/Lambda',
+            MetricName='ConcurrentExecutions',
+            Dimensions=[],  # Account-wide
+            StartTime=datetime.now(ZoneInfo("UTC")) - timedelta(minutes=1),
+            EndTime=datetime.now(ZoneInfo("UTC")),
+            Period=60,
+            Statistics=['Maximum']
+        )
+        
+        if response['Datapoints']:
+            # Get the most recent datapoint
+            latest = max(response['Datapoints'], key=lambda x: x['Timestamp'])
+            concurrent = int(latest['Maximum'])
+            log.info(f"🔢 Current Lambda concurrency: {concurrent}")
+            return concurrent
+        else:
+            # No data available, assume low concurrency
+            log.info(f"🔢 No concurrency data available, assuming low usage")
+            return 2  # Conservative estimate
+            
+    except Exception as e:
+        log.warning(f"⚠️  Failed to check Lambda concurrency: {e}")
+        return 2  # Conservative fallback
+
+def wait_for_concurrency_slot(target_function: str, max_wait_minutes: int = 5) -> bool:
+    """Wait for a concurrency slot to become available"""
+    if not CONCURRENCY_CHECK_ENABLED:
+        return True
+    
+    max_wait_seconds = max_wait_minutes * 60
+    start_time = time.time()
+    
+    while (time.time() - start_time) < max_wait_seconds:
+        current_concurrent = get_current_lambda_concurrency()
+        
+        if current_concurrent < MAX_ACCOUNT_CONCURRENT:
+            log.info(f"✅ Concurrency slot available ({current_concurrent}/{MAX_ACCOUNT_CONCURRENT})")
+            return True
+        
+        log.info(f"⏳ Waiting for concurrency slot: {current_concurrent}/{MAX_ACCOUNT_CONCURRENT} - waiting {CONCURRENCY_BACKOFF_DELAY}s")
+        time.sleep(CONCURRENCY_BACKOFF_DELAY)
+    
+    log.warning(f"⚠️  Timeout waiting for concurrency slot after {max_wait_minutes} minutes")
+    return False
+
 def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
     """Invoke a worker lambda for a single work item"""
     model = work_item["model"]
     date_str = work_item["date"]
     function_name = work_item["function_name"]
     
+    # Check concurrency limits before invoking
+    if CONCURRENCY_CHECK_ENABLED:
+        log.info(f"🔍 Checking concurrency before invoking {function_name} for {model}")
+        if not wait_for_concurrency_slot(function_name, max_wait_minutes=3):
+            return {
+                "work_item": work_item,
+                "status": "error",
+                "error": f"Timeout waiting for concurrency slot (limit: {MAX_ACCOUNT_CONCURRENT})",
+                "status_code": 429
+            }
+    
     # Apply throttling delay for Bedrock models
     delay = get_throttling_delay(model)
     if delay > 0:
-        log.info(f"Throttling delay for {model}: {delay:.2f}s")
+        log.info(f"⏳ Model throttling delay for {model}: {delay:.2f}s")
         time.sleep(delay)
     
     # Add additional Lambda invocation delay to prevent concurrency saturation
-    lambda_delay = 5.0  # 5 second delay between Lambda invocations for rate limiting
+    lambda_delay = 8.0  # Increased delay for better concurrency management
     log.info(f"⏳ Lambda invocation delay: {lambda_delay}s...")
     time.sleep(lambda_delay)
     
@@ -389,9 +461,23 @@ def lambda_handler(event, context):
     """
     start_time = time.time()
     
-    # Get date range from environment variables
-    START_DATE = os.getenv("START_DATE")
-    END_DATE = os.getenv("END_DATE")
+    # Get date range from event payload, fallback to environment variables, then default
+    event_start = event.get("START_DATE")
+    event_end = event.get("END_DATE")
+    env_start = os.getenv("START_DATE")
+    env_end = os.getenv("END_DATE")
+    
+    # Debug logging
+    log.info(f"🔍 Date parameter debugging:")
+    log.info(f"   Event START_DATE: {event_start}")
+    log.info(f"   Event END_DATE: {event_end}")
+    log.info(f"   Env START_DATE: {env_start}")
+    log.info(f"   Env END_DATE: {env_end}")
+    log.info(f"   Full event payload: {json.dumps(event)}")
+    
+    # Priority: event payload first, then environment variables
+    START_DATE = event_start or env_start
+    END_DATE = event_end or env_end
     
     # Default to current date if START_DATE not provided
     if not START_DATE:
@@ -401,6 +487,8 @@ def lambda_handler(event, context):
     # Default END_DATE to START_DATE if not specified
     if not END_DATE:
         END_DATE = START_DATE
+    
+    log.info(f"✅ Final resolved dates: START_DATE={START_DATE}, END_DATE={END_DATE}")
     
     try:
         # Generate date range
@@ -413,8 +501,17 @@ def lambda_handler(event, context):
         log.info(f"   📝 LLM models ({len(LLM_MODELS)}): {LLM_MODELS}")
         log.info(f"   🖼️  Image models ({len(IMAGE_MODELS)}): {IMAGE_MODELS}")
         log.info(f"   🔢 Total combinations: {len(dates)} dates × {len(LLM_MODELS + IMAGE_MODELS)} models")
-        log.info(f"⏱️  Estimated completion time: {len(work_items) * 6 / 60:.1f} minutes (sequential processing)")
-        log.info(f"🚀 Starting orchestration with {MAX_CONCURRENT_WORKERS} max workers...")
+        
+        # Log concurrency configuration
+        log.info(f"🚦 Concurrency configuration:")
+        log.info(f"   Max account concurrent: {MAX_ACCOUNT_CONCURRENT}")
+        log.info(f"   Concurrency checking: {'enabled' if CONCURRENCY_CHECK_ENABLED else 'disabled'}")
+        log.info(f"   Backoff delay: {CONCURRENCY_BACKOFF_DELAY}s")
+        log.info(f"   Worker delay: 8.0s between invocations")
+        
+        estimated_time = len(work_items) * 8 / 60  # Updated for 8s delays
+        log.info(f"⏱️  Estimated completion time: {estimated_time:.1f} minutes (sequential + concurrency control)")
+        log.info(f"🚀 Starting orchestration with concurrency-controlled worker invocations...")
         
         # Execute work items
         results = execute_work_items(work_items)
@@ -442,6 +539,9 @@ def lambda_handler(event, context):
                     "llm_models": LLM_MODELS,
                     "image_models": IMAGE_MODELS,
                     "max_concurrent_workers": MAX_CONCURRENT_WORKERS,
+                    "max_account_concurrent": MAX_ACCOUNT_CONCURRENT,
+                    "concurrency_check_enabled": CONCURRENCY_CHECK_ENABLED,
+                    "concurrency_backoff_delay": CONCURRENCY_BACKOFF_DELAY,
                     "llm_worker_function": LLM_WORKER_FUNCTION,
                     "image_worker_function": IMAGE_WORKER_FUNCTION
                 },

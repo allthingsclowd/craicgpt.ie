@@ -37,9 +37,8 @@ PROMPT_BUCKET = os.environ["PROMPT_BUCKET"]
 BASE_PROMPT_PREFIX = "static_assets/content/prompts"
 s3 = boto3.client("s3")
 
-# Date Configuration from Environment Variables
-START_DATE = os.getenv("START_DATE")  # Format: YYYY-MM-DD
-END_DATE = os.getenv("END_DATE")      # Format: YYYY-MM-DD
+# Date Configuration - will be read at runtime to allow event payload override
+# Removed module-level environment variable reads to prevent conflicts
 
 # Model Configuration
 LLM_MODELS = [m.strip() for m in os.getenv(
@@ -874,19 +873,31 @@ def lambda_handler(event, context):
     Default:     Today's date
     """
     
-    # Determine date range from environment variables first, then event, then default
-    if START_DATE and END_DATE:
-        dates = generate_date_range(START_DATE, END_DATE)
-        print(f"Using environment variable dates: {START_DATE} to {END_DATE}")
-    elif START_DATE:
-        dates = [START_DATE]
-        print(f"Using environment variable single date: {START_DATE}")
+    # Get date range from event payload first, fallback to environment variables, then default
+    event_start = event.get("START_DATE")
+    event_end = event.get("END_DATE")
+    env_start = os.getenv("START_DATE")
+    env_end = os.getenv("END_DATE")
+    
+    # Priority: event payload -> environment -> event legacy fields -> default
+    if event_start and event_end:
+        dates = generate_date_range(event_start, event_end)
+        print(f"Using event payload dates: {event_start} to {event_end}")
+    elif event_start:
+        dates = [event_start]
+        print(f"Using event payload single date: {event_start}")
+    elif env_start and env_end:
+        dates = generate_date_range(env_start, env_end)
+        print(f"Using environment variable dates: {env_start} to {env_end}")
+    elif env_start:
+        dates = [env_start]
+        print(f"Using environment variable single date: {env_start}")
     elif "start_date" in event and "end_date" in event:
         dates = generate_date_range(event["start_date"], event["end_date"])
-        print(f"Using event date range: {event['start_date']} to {event['end_date']}")
+        print(f"Using event legacy date range: {event['start_date']} to {event['end_date']}")
     elif "date" in event:
         dates = [event["date"]]
-        print(f"Using event single date: {event['date']}")
+        print(f"Using event legacy single date: {event['date']}")
     else:
         dates = [datetime.now(ZoneInfo("Europe/London")).date().isoformat()]
         print(f"Using default date: {dates[0]}")
@@ -1037,7 +1048,7 @@ def lambda_handler(event, context):
             "by_date": {date: len([p for p in prompt_details if p['date'] == date]) for date in dates}
         },
         "configuration": {
-            "date_source": "environment_variables" if (START_DATE or END_DATE) else "event_or_default",
+            "date_source": "environment_variables" if (env_start or env_end) else "event_or_default",
             "fresh_context_enabled": ENABLE_FRESH_CONTEXT,
             "historical_weather_enabled": ENABLE_HISTORICAL_WEATHER,
             "base_contexts_loaded": len(BASE_CONTEXTS),

@@ -225,36 +225,45 @@ def lambda_handler(event, _ctx):
     
     try:
         # Check if this is single model worker mode (called by orchestrator)
-        if event.get("worker_mode") and "model" in event and "date" in event:
+        if event.get("worker_mode") and "model_id" in event and "date" in event:
             log.info("Running in WORKER MODE for single model/date combination")
             dates = [event["date"]]
-            model_ids = [event["model"]]
-            log.info("Processing: %s on %s", event["model"], event["date"])
+            model_ids = [event["model_id"]]
+            log.info("Processing: %s on %s", event["model_id"], event["date"])
         else:
             log.info("Running in LEGACY MODE with date range processing")
             
-            # Get environment variables for date range
-            START_DATE = os.getenv("START_DATE")
-            END_DATE = os.getenv("END_DATE")
+            # Get date range from event payload first, fallback to environment variables, then default
+            event_start = event.get("START_DATE")
+            event_end = event.get("END_DATE")
+            env_start = os.getenv("START_DATE")
+            env_end = os.getenv("END_DATE")
             
-            # Determine date range from environment variables first, then event, then default
-            if START_DATE and END_DATE:
-                dates = generate_date_range(START_DATE, END_DATE)
+            # Priority: event payload -> environment -> event legacy fields -> default
+            if event_start and event_end:
+                dates = generate_date_range(event_start, event_end)
+                log.info("Using event payload dates: %s to %s (%d dates)", 
+                         event_start, event_end, len(dates))
+            elif event_start:
+                dates = [event_start]
+                log.info("Using event payload single date: %s", event_start)
+            elif env_start and env_end:
+                dates = generate_date_range(env_start, env_end)
                 log.info("Using environment variable dates: %s to %s (%d dates)", 
-                         START_DATE, END_DATE, len(dates))
-            elif START_DATE:
-                dates = [START_DATE]
-                log.info("Using environment variable single date: %s", START_DATE)
+                         env_start, env_end, len(dates))
+            elif env_start:
+                dates = [env_start]
+                log.info("Using environment variable single date: %s", env_start)
             elif "start_date" in event and "end_date" in event:
                 dates = generate_date_range(event["start_date"], event["end_date"])
-                log.info("Processing event date range: %s to %s (%d dates)", 
+                log.info("Processing event legacy date range: %s to %s (%d dates)", 
                          event["start_date"], event["end_date"], len(dates))
             elif "dates" in event:
                 dates = event["dates"]
                 log.info("Processing custom event date list: %d dates", len(dates))
             elif "date" in event:
                 dates = [event["date"]]
-                log.info("Processing single event date: %s", event["date"])
+                log.info("Processing single event legacy date: %s", event["date"])
             else:
                 dates = [today_iso()]
                 log.info("Processing default date (today): %s", dates[0])
