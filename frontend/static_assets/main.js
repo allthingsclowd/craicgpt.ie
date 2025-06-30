@@ -502,29 +502,32 @@ function createPromptTooltip() {
 function positionTooltip(event) {
     if (!promptTooltip) return;
     
-    const rect = promptTooltip.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    
-    let x = event.clientX + 15;
-    let y = event.clientY + 15;
-    
-    // Adjust if tooltip would go off right edge
-    if (x + rect.width > viewportWidth) {
-        x = event.clientX - rect.width - 15;
-    }
-    
-    // Adjust if tooltip would go off bottom edge
-    if (y + rect.height > viewportHeight) {
-        y = event.clientY - rect.height - 15;
-    }
-    
-    // Ensure tooltip doesn't go off top or left edges
-    x = Math.max(10, x);
-    y = Math.max(10, y);
-    
-    promptTooltip.style.left = x + 'px';
-    promptTooltip.style.top = y + 'px';
+    // Wait a moment for content to render (especially images)
+    setTimeout(() => {
+        const rect = promptTooltip.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        let x = event.clientX + 15;
+        let y = event.clientY + 15;
+        
+        // Adjust if tooltip would go off right edge
+        if (x + rect.width > viewportWidth) {
+            x = event.clientX - rect.width - 15;
+        }
+        
+        // Adjust if tooltip would go off bottom edge
+        if (y + rect.height > viewportHeight) {
+            y = event.clientY - rect.height - 15;
+        }
+        
+        // Ensure tooltip doesn't go off top or left edges
+        x = Math.max(10, x);
+        y = Math.max(10, y);
+        
+        promptTooltip.style.left = x + 'px';
+        promptTooltip.style.top = y + 'px';
+    }, 50);
 }
 
 // Fetch prompt data from S3
@@ -579,8 +582,9 @@ async function showPromptTooltip(element, event) {
     
     const promptType = element.dataset.promptType;
     const promptFile = element.dataset.promptFile;
+    const sourceImage = element.dataset.sourceImage;
     
-    if (!promptType || !promptFile) return;
+    if (!promptType) return;
     
     // Clear any existing timeout
     clearTimeout(tooltipTimeout);
@@ -588,6 +592,36 @@ async function showPromptTooltip(element, event) {
     // Show loading state
     const header = promptTooltip.querySelector('.prompt-tooltip-header');
     const content = promptTooltip.querySelector('.prompt-tooltip-content');
+    
+    // Handle special branding type
+    if (promptType === 'branding') {
+        header.textContent = 'Logo Creation Brief';
+        
+        // Create content with source image and creative brief
+        const brandingContent = `
+            <div>
+                ${sourceImage ? `<img src="${sourceImage}" class="prompt-tooltip-image" alt="Source selfie for logo creation" onerror="this.style.display='none'">` : ''}
+                <div style="font-style: italic; color: #ffd700; margin-bottom: 10px;">Creative Brief:</div>
+                <div>Given the attached selfie create a new image with a transparent background that I can use as branding for my work and websites. I will use the image in formats as small as favicons and as large as website branding and stamps. Colourful images make me happy, like Google's logo. I would like to ensure the image is colourful but can be used across the different mediums/formats. My current website is https://allthingscloud.eu and my github registry can be found at https://github.com/allthingsclowd. I'm about to launch a new "Agentic AI" based website called https://CraicGPT.ie. I would like the image to have a cartoon theme and be humorous/happy tone. If we could ensure to capture the fact that I wear a Donegal tweed peak cap and my personal branding will be "The Geek with the Peak". Please encorporate this into the image/logo.</div>
+            </div>
+        `;
+        
+        content.innerHTML = brandingContent;
+        
+        // Position and show tooltip
+        positionTooltip(event);
+        promptTooltip.classList.add('visible');
+        
+        // Set auto-hide timeout (10 seconds)
+        tooltipTimeout = setTimeout(() => {
+            hidePromptTooltip();
+        }, 10000);
+        
+        return;
+    }
+    
+    // Handle regular prompt types (llm, image)
+    if (!promptFile) return;
     
     header.textContent = `${promptType.toUpperCase()} Prompt - Loading...`;
     content.textContent = 'Fetching prompt data...';
