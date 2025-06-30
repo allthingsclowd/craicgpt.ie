@@ -1,269 +1,196 @@
-# Local .terraform directories
-.terraform/
+# =============================================================================
+# CraicGPT.ie Project .gitignore
+# =============================================================================
 
-# .tfstate files
+# -----------------------------------------------------------------------------
+# Python / Lambda Functions
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# AWS Lambda deployment packages
+*.zip
+function.zip
+deployment-package.zip
+
+# -----------------------------------------------------------------------------
+# JavaScript / Node.js / Frontend
+# -----------------------------------------------------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn/
+*.tgz
+package-lock.json.bak
+
+# Build outputs
+dist/
+build/
+out/
+.cache/
+.next/
+.nuxt/
+.parcel-cache/
+
+# -----------------------------------------------------------------------------
+# Terraform Infrastructure  
+# -----------------------------------------------------------------------------
+.terraform/
+.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
-
-# Crash log files
-crash.log
-crash.*.log
-
-# Exclude all .tfvars files, which are likely to contain sensitive data, such as
-# password, private keys, and other secrets. These should not be part of version 
-# control as they are data points which are potentially sensitive and subject 
-# to change depending on the environment.
+*.tfplan
 *.tfvars
 *.tfvars.json
-
-# Ignore override files as they are usually used to override resources locally and so
-# are not checked in
+!terraform.tfvars.example
+crash.log
+crash.*.log
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-
-# Ignore transient lock info files created by terraform apply
 .terraform.tfstate.lock.info
-
-# Include override files you do wish to add to version control using negated pattern
-# !example_override.tf
-
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
-
-# Ignore CLI configuration files
 .terraformrc
 terraform.rc
 
-# Node.js and npm related
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.npm
-.yarn/
-*.tgz              # Output of 'npm pack'
-
-# Build/Output directories
-# Common names for compiled JavaScript/TypeScript output
-dist/
-build/
-out/
-es/
-lib/
-public/build/      # If your build output goes into a public/build folder
-/dist              # For cases where 'dist' might be at the root of a sub-project
-
-# TypeScript specific
-*.js               # Ignore all generated JavaScript files
-*.js.map           # Ignore all JavaScript sourcemap files
-*.d.ts             # Ignore all generated declaration files (if not intended for publishing)
-!*.d.ts            # UNCOMMENT THIS LINE IF YOU INTEND TO PUBLISH YOUR TYPESCRIPT DECLARATIONS!
-                   # This line negates the previous *.d.ts and allows .d.ts files to be committed.
-                   # Only do this if your library publishes its types.
-
-# Log files
-logs/
-*.log
-
-# Environment variables
+# -----------------------------------------------------------------------------
+# Environment & Configuration
+# -----------------------------------------------------------------------------
 .env
 .env.*
-!.env.example      # Allow an example .env file to be committed for configuration guidance
+!.env.example
+.envrc
 
-# Testing and Coverage
-coverage/
-.nyc_output/       # Output from nyc (Istanbul)
-lcov-report/
+# AWS credentials and config
+.aws/
+aws-exports.js
 
-# Editor/IDE specific files
-.vscode/           # Visual Studio Code settings (can be useful to share some, but often ignored)
-.idea/             # IntelliJ/WebStorm IDE files
-*.iml              # IntelliJ IDEA module files
-.DS_Store          # macOS specific file
-Thumbs.db          # Windows specific file
-*.sublime-project
-*.sublime-workspace
+# -----------------------------------------------------------------------------
+# Operating System Files
+# -----------------------------------------------------------------------------
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.nfs*
+
+# -----------------------------------------------------------------------------
+# Editor / IDE Files
+# -----------------------------------------------------------------------------
+# Visual Studio Code
+.vscode/
 *.code-workspace
 
-# Temporary files
-*.tmp
-*~                 # Backup files created by some editors
-*.swp              # Vim swap files
-*.swo              # Vim swap files
-
-# Dependency management and lock files (usually you *want* to commit these for consistency)
-# package-lock.json    # UNCOMMENT TO IGNORE: Only ignore if you are making a library and
-# yarn.lock            # do not want to force specific dependency versions on consumers.
-                       # For applications, you almost always want to commit these.
-
-# Miscellaneous
-.DS_Store
-.cache/            # For frameworks like Next.js, Gatsby, etc.
-.next/             # Next.js build output
-.svelte-kit/       # SvelteKit build output
-vite.config.js.timestamp-* # Vite related temporary files
-vite.config.ts.timestamp-*
-
-# Specific framework/library outputs (add as needed)
-# Angular
-.angular/
-/node_modules
-/dist
-/tmp
-/.sass-cache
-/coverage
-/e2e/
-/.cache
-
-# React Native
-ios/build/
-android/app/build/
-android/.gradle/
-*.iml
-*.keystore
+# IntelliJ IDEA / PyCharm / WebStorm
 .idea/
+*.iml
+*.ipr
+*.iws
 
-# Electron
-out/
-release/
-dist/
+# Vim
+*.swp
+*.swo
+*~
 
-# AWS Amplify
-amplify/.config/
-amplify/backend/amplify-meta.json
-amplify/backend/awscloudformation/
-amplify/backend/local-env-info.json
-amplify/backend/package.json
-amplify/backend/yarn.lock
-amplify/backend/node_modules/
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
 
-# Cloudflare Workers
-.wrangler/
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
 
-# Terraform (if your project includes Terraform configs)
-.terraform/
-.terraform.lock.hcl
-*.tfplan
-*.tfstate
-*.tfstate.backup
-
-# Add more as needed based on your specific tools and frameworks
-
-# Node.js and npm related
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.npm
-.yarn/
-*.tgz              # Output of 'npm pack'
-
-# Build/Output directories
-# Common names for compiled JavaScript/TypeScript output
-dist/
-build/
-out/
-es/
-lib/
-public/build/      # If your build output goes into a public/build folder
-/dist              # For cases where 'dist' might be at the root of a sub-project
-
-# TypeScript specific
-*.js               # Ignore all generated JavaScript files
-*.js.map           # Ignore all JavaScript sourcemap files
-*.d.ts             # Ignore all generated declaration files (if not intended for publishing)
-!*.d.ts            # UNCOMMENT THIS LINE IF YOU INTEND TO PUBLISH YOUR TYPESCRIPT DECLARATIONS!
-                   # This line negates the previous *.d.ts and allows .d.ts files to be committed.
-                   # Only do this if your library publishes its types.
-
-# Log files
+# -----------------------------------------------------------------------------
+# Logs & Temporary Files
+# -----------------------------------------------------------------------------
 logs/
 *.log
-
-# Environment variables
-.env
-.env.*
-!.env.example      # Allow an example .env file to be committed for configuration guidance
-
-# Testing and Coverage
-coverage/
-.nyc_output/       # Output from nyc (Istanbul)
-lcov-report/
-
-# Editor/IDE specific files
-.vscode/           # Visual Studio Code settings (can be useful to share some, but often ignored)
-.idea/             # IntelliJ/WebStorm IDE files
-*.iml              # IntelliJ IDEA module files
-.DS_Store          # macOS specific file
-Thumbs.db          # Windows specific file
-*.sublime-project
-*.sublime-workspace
-*.code-workspace
-
-# Temporary files
 *.tmp
-*~                 # Backup files created by some editors
-*.swp              # Vim swap files
-*.swo              # Vim swap files
+*.temp
+*.pid
+*.seed
+*.pid.lock
 
-# Dependency management and lock files (usually you *want* to commit these for consistency)
-# package-lock.json    # UNCOMMENT TO IGNORE: Only ignore if you are making a library and
-# yarn.lock            # do not want to force specific dependency versions on consumers.
-                       # For applications, you almost always want to commit these.
+# -----------------------------------------------------------------------------
+# Testing & Coverage
+# -----------------------------------------------------------------------------
+coverage/
+.nyc_output/
+lcov-report/
+htmlcov/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
 
-# Miscellaneous
-.DS_Store
-.cache/            # For frameworks like Next.js, Gatsby, etc.
-.next/             # Next.js build output
-.svelte-kit/       # SvelteKit build output
-vite.config.js.timestamp-* # Vite related temporary files
-vite.config.ts.timestamp-*
+# -----------------------------------------------------------------------------
+# Database Files
+# -----------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
 
-# Specific framework/library outputs (add as needed)
-# Angular
-.angular/
-/node_modules
-/dist
-/tmp
-/.sass-cache
-/coverage
-/e2e/
-/.cache
+# -----------------------------------------------------------------------------
+# Backup Files
+# -----------------------------------------------------------------------------
+*.bak
+*.backup
+*.old
+*.orig
 
-# React Native
-ios/build/
-android/app/build/
-android/.gradle/
-*.iml
-*.keystore
-.idea/
+# -----------------------------------------------------------------------------
+# Compressed Files (unless intentionally tracked)
+# -----------------------------------------------------------------------------
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+!static_assets/**/*.zip  # Allow zips in static assets if needed
 
-# Electron
-out/
-release/
-dist/
-
-# AWS Amplify
-amplify/.config/
-amplify/backend/amplify-meta.json
-amplify/backend/awscloudformation/
-amplify/backend/local-env-info.json
-amplify/backend/package.json
-amplify/backend/yarn.lock
-amplify/backend/node_modules/
-
-# Cloudflare Workers
-.wrangler/
-
-# Terraform (if your project includes Terraform configs)
-.terraform/
-.terraform.lock.hcl
-*.tfplan
-*.tfstate
-*.tfstate.backup
-
-# Add more as needed based on your specific tools and frameworks
-
-*.png
+# -----------------------------------------------------------------------------
+# Project Specific
+# -----------------------------------------------------------------------------
+# Add any project-specific patterns here
+# Example: generated content, compiled assets, etc.
