@@ -583,6 +583,7 @@ async function showPromptTooltip(element, event) {
     const promptType = element.dataset.promptType;
     const promptFile = element.dataset.promptFile;
     const sourceImage = element.dataset.sourceImage;
+    const promptText = element.dataset.promptText;
     
     if (!promptType) return;
     
@@ -593,7 +594,7 @@ async function showPromptTooltip(element, event) {
     const header = promptTooltip.querySelector('.prompt-tooltip-header');
     const content = promptTooltip.querySelector('.prompt-tooltip-content');
     
-    // Handle special branding type
+    // Handle special branding types
     if (promptType === 'branding') {
         header.textContent = 'Logo Creation Brief';
         
@@ -607,6 +608,31 @@ async function showPromptTooltip(element, event) {
         `;
         
         content.innerHTML = brandingContent;
+        
+        // Position and show tooltip
+        positionTooltip(event);
+        promptTooltip.classList.add('visible');
+        
+        // Set auto-hide timeout (10 seconds)
+        tooltipTimeout = setTimeout(() => {
+            hidePromptTooltip();
+        }, 10000);
+        
+        return;
+    }
+    
+    // Handle branding-text type (no source image, just prompt text)
+    if (promptType === 'branding-text') {
+        header.textContent = 'CraicGPT Banner Creation Brief';
+        
+        const brandingTextContent = `
+            <div>
+                <div style="font-style: italic; color: #ffd700; margin-bottom: 10px;">Creative Brief:</div>
+                <div>${promptText || 'No prompt text available'}</div>
+            </div>
+        `;
+        
+        content.innerHTML = brandingTextContent;
         
         // Position and show tooltip
         positionTooltip(event);
