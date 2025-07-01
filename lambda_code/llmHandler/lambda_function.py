@@ -39,7 +39,7 @@
 #
 #  RUNTIME: Python 3.12   •   AWS Region default: eu-west-1
 # ╚══════════════════════════════════════════════════════════════════════════╝
-import os, json, re, time, random, logging
+import os, json, re, time, random, logging, requests
 import boto3, botocore.exceptions
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
@@ -51,17 +51,31 @@ PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
 PROMPT_ROOT         = "static_assets/content/prompts"
 PAPER_CONTENT_DIR = "static_assets/content/website" # Renamed from WEBSITE_ROOT
 
-DEFAULT_MODELS = [
+BEDROCK_MODELS = [
     m.strip() for m in os.getenv(
         "BEDROCK_MODEL_IDS",
         "anthropic.claude-3-sonnet-20240229-v1:0"
     ).split(",") if m.strip()
 ]
+
+OPENAI_MODELS = [
+    m.strip() for m in os.getenv(
+        "OPENAI_MODEL_IDS",
+        ""
+    ).split(",") if m.strip()
+]
+
+DEFAULT_MODELS = BEDROCK_MODELS + OPENAI_MODELS
 AWS_REGION   = os.getenv("AWS_REGION", "eu-west-1")
 ALLOW_EMBED  = os.getenv("ALLOW_EMBED_MODELS", "").lower() == "true"
+OPENAI_API_KEY_SECRET_ARN = os.getenv("OPENAI_API_KEY_SECRET_ARN")
 
 s3       = boto3.client("s3")
 bedrock  = boto3.client("bedrock-runtime", region_name=AWS_REGION)
+secrets  = boto3.client("secretsmanager", region_name=AWS_REGION)
+
+# Cache for OpenAI API key
+_openai_api_key = None
 
 slug = lambda m: re.sub(r'[:.\/]', '_', m)       # safe filename helper
 
@@ -121,8 +135,46 @@ PROMPT_TO_SLOT = {
     "llm_05": ("authorBio",          "content")
 }
 
+# ─── Get OpenAI API key from AWS Secrets Manager ──────────────────────
+def get_openai_api_key() -> str:
+    """Get OpenAI API key from AWS Secrets Manager with caching"""
+    global _openai_api_key
+    
+    if _openai_api_key is not None:
+        return _openai_api_key
+    
+    if not OPENAI_API_KEY_SECRET_ARN:
+        raise ValueError("OPENAI_API_KEY_SECRET_ARN environment variable not set")
+    
+    try:
+        response = secrets.get_secret_value(SecretId=OPENAI_API_KEY_SECRET_ARN)
+        secret_data = json.loads(response['SecretString'])
+        _openai_api_key = secret_data.get('api_key') or secret_data.get('OPENAI_API_KEY')
+        
+        if not _openai_api_key:
+            raise ValueError("OpenAI API key not found in secret")
+            
+        return _openai_api_key
+    except Exception as e:
+        log.error("Failed to retrieve OpenAI API key: %s", e)
+        raise
+
 # ─── Request body builder – family-aware schemas ────────────────────────
 def build_body(model_id: str, prompt: str, *, chat: bool) -> str:
+    # OpenAI models (gpt-4, gpt-3.5-turbo, etc.)
+    if model_id.startswith("gpt-") or model_id in ["gpt-4", "gpt-3.5-turbo", "gpt-4-turbo"]:
+        return json.dumps({
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": "Generate the requested content."}
+            ],
+            "max_tokens": 800,
+            "temperature": 0.7,
+            "top_p": 0.9
+        })
+    
+    # Bedrock models
     if chat:
         if model_id.startswith("anthropic."):
             return json.dumps({

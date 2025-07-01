@@ -61,10 +61,11 @@ MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "1"))  # S
 
 # AWS Lambda account-wide concurrency limits
 MAX_ACCOUNT_CONCURRENT = int(os.environ.get("MAX_ACCOUNT_CONCURRENT", "9"))  # Stay under 10 limit
-CONCURRENCY_CHECK_ENABLED = os.environ.get("CONCURRENCY_CHECK_ENABLED", "true").lower() == "true"
-CONCURRENCY_BACKOFF_DELAY = float(os.environ.get("CONCURRENCY_BACKOFF_DELAY", "30.0"))  # seconds
+CONCURRENCY_CHECK_ENABLED = os.environ.get("CONCURRENCY_CHECK_ENABLED", "false").lower() == "true"  # Disabled by default for speed
+CONCURRENCY_BACKOFF_DELAY = float(os.environ.get("CONCURRENCY_BACKOFF_DELAY", "10.0"))  # Reduced from 30s to 10s
 
-# Model-specific throttling configuration (requests per minute)
+# Model-specific throttling configuration (requests per minute) - DISABLED BY DEFAULT
+MODEL_RATE_LIMITING_ENABLED = os.environ.get("MODEL_RATE_LIMITING_ENABLED", "false").lower() == "true"
 MODEL_RATE_LIMITS = {
     # Anthropic models
     "anthropic.claude-3-sonnet-20240229-v1:0": 100,
@@ -139,7 +140,10 @@ _model_last_call = defaultdict(float)
 cloudwatch = boto3.client('cloudwatch')
 
 def get_throttling_delay(model: str) -> float:
-    """Calculate delay needed before calling this model again"""
+    """Calculate delay needed before calling this model again (only if rate limiting enabled)"""
+    if not MODEL_RATE_LIMITING_ENABLED:
+        return 0  # No proactive delays - only react to actual throttling
+    
     rate_limit = MODEL_RATE_LIMITS.get(model, MODEL_RATE_LIMITS["default"])
     min_delay = 60.0 / rate_limit  # seconds between calls
     
@@ -229,16 +233,13 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
                 "status_code": 429
             }
     
-    # Apply throttling delay for Bedrock models
+    # Apply throttling delay for Bedrock models (only if rate limiting enabled)
     delay = get_throttling_delay(model)
     if delay > 0:
         log.info(f"⏳ Model throttling delay for {model}: {delay:.2f}s")
         time.sleep(delay)
     
-    # Add additional Lambda invocation delay to prevent concurrency saturation
-    lambda_delay = 8.0  # Increased delay for better concurrency management
-    log.info(f"⏳ Lambda invocation delay: {lambda_delay}s...")
-    time.sleep(lambda_delay)
+    # No proactive Lambda delay - only react to actual throttling errors
     
     # Prepare payload for worker
     payload = {
@@ -247,9 +248,9 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
         "worker_mode": True  # Tell worker to process only this model
     }
     
-    # Retry logic with exponential backoff for Lambda throttling
+    # Retry logic with exponential backoff for Lambda throttling (only when actually throttled)
     max_retries = 3
-    base_delay = 10.0
+    base_delay = 2.0  # Reduced from 10s to 2s for faster recovery
     
     for attempt in range(max_retries + 1):
         try:
@@ -503,15 +504,18 @@ def lambda_handler(event, context):
         log.info(f"   🔢 Total combinations: {len(dates)} dates × {len(LLM_MODELS + IMAGE_MODELS)} models")
         
         # Log concurrency configuration
-        log.info(f"🚦 Concurrency configuration:")
+        log.info(f"🚦 Performance configuration:")
         log.info(f"   Max account concurrent: {MAX_ACCOUNT_CONCURRENT}")
         log.info(f"   Concurrency checking: {'enabled' if CONCURRENCY_CHECK_ENABLED else 'disabled'}")
-        log.info(f"   Backoff delay: {CONCURRENCY_BACKOFF_DELAY}s")
-        log.info(f"   Worker delay: 8.0s between invocations")
+        log.info(f"   Model rate limiting: {'enabled' if MODEL_RATE_LIMITING_ENABLED else 'disabled'}")
+        log.info(f"   Backoff delay (when throttled): {CONCURRENCY_BACKOFF_DELAY}s")
+        log.info(f"   Strategy: Reactive delays only - no proactive throttling")
         
-        estimated_time = len(work_items) * 8 / 60  # Updated for 8s delays
-        log.info(f"⏱️  Estimated completion time: {estimated_time:.1f} minutes (sequential + concurrency control)")
-        log.info(f"🚀 Starting orchestration with concurrency-controlled worker invocations...")
+        # Estimate based on average Lambda execution time (no artificial delays)
+        avg_execution_time = 45  # seconds per model/date combination
+        estimated_time = len(work_items) * avg_execution_time / 60  
+        log.info(f"⏱️  Estimated completion time: {estimated_time:.1f} minutes (reactive performance mode)")
+        log.info(f"🚀 Starting high-speed orchestration with reactive throttling...")
         
         # Execute work items
         results = execute_work_items(work_items)
@@ -541,7 +545,9 @@ def lambda_handler(event, context):
                     "max_concurrent_workers": MAX_CONCURRENT_WORKERS,
                     "max_account_concurrent": MAX_ACCOUNT_CONCURRENT,
                     "concurrency_check_enabled": CONCURRENCY_CHECK_ENABLED,
+                    "model_rate_limiting_enabled": MODEL_RATE_LIMITING_ENABLED,
                     "concurrency_backoff_delay": CONCURRENCY_BACKOFF_DELAY,
+                    "performance_mode": "reactive_throttling",
                     "llm_worker_function": LLM_WORKER_FUNCTION,
                     "image_worker_function": IMAGE_WORKER_FUNCTION
                 },
