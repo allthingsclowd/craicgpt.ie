@@ -483,20 +483,38 @@ def lambda_handler(event, _ctx):
                             slot_dict = paper["contentSlots"][slot]["llmOutputs"]
                             if ftype == "title_text":
                                 # Enhanced processing for comparison articles that may return JSON
-                                if slot == "comparisonArticle" and text.strip().startswith('{') and text.strip().endswith('}'):
-                                    # This is JSON from comparison article - store as-is for frontend parsing
-                                    log.info(f"✅ Detected JSON response for comparison article from {model_id}")
-                                    slot_dict[mdl_key] = {
-                                        "title": "LLM Comparison Ranking",
-                                        "text": text.strip()  # Store raw JSON without HTML wrapping
-                                    }
-                                else:
-                                    # Traditional title_text processing for other articles
-                                    first, *rest = text.splitlines()
-                                    slot_dict[mdl_key] = {
-                                        "title": first.strip(),
-                                        "text":  "<p>" + "\n".join(rest).strip() + "</p>"
-                                    }
+                                if slot == "comparisonArticle":
+                                    json_blob = None
+                                    try:
+                                        # Remove simple <p> wrappers if present
+                                        cleaned = text.strip()
+                                        if cleaned.lower().startswith("<p>") and cleaned.lower().endswith("</p>"):
+                                            cleaned = cleaned[3:-4].strip()
+
+                                        # Grab the section between the first '{' and the last '}'
+                                        start_idx = cleaned.find('{')
+                                        end_idx   = cleaned.rfind('}') + 1 if '}' in cleaned else -1
+                                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                                            candidate = cleaned[start_idx:end_idx]
+                                            # Validate it is JSON
+                                            json.loads(candidate)
+                                            json_blob = candidate
+                                    except Exception:
+                                        json_blob = None  # Not valid JSON – fall back to HTML mode
+
+                                    if json_blob:
+                                        log.info(f"✅ Detected JSON response for comparison article from {model_id}")
+                                        slot_dict[mdl_key] = {
+                                            "title": "LLM Comparison Ranking",
+                                            "text": json_blob  # Store raw JSON without HTML wrapping
+                                        }
+                                    else:
+                                        # Traditional title_text processing (HTML)
+                                        first, *rest = text.splitlines()
+                                        slot_dict[mdl_key] = {
+                                            "title": first.strip(),
+                                            "text":  "<p>" + "\n".join(rest).strip() + "</p>"
+                                        }
                             else:
                                 slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
 
