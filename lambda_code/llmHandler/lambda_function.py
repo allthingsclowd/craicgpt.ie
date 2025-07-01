@@ -470,25 +470,59 @@ def lambda_handler(event, _ctx):
         processing_time = time.time() - start_time
         successful_dates = [d for d in result_map.keys() if "error" not in result_map[d]]
         
-        # Worker mode returns simple success response
+        # Worker mode returns success/failure based on actual results
         if event.get("worker_mode"):
-            prompts_processed = sum(
-                len([1 for pid_results in day_results.values() 
-                     for model_result in pid_results.values() 
-                     if not str(model_result).startswith("ERROR")])
-                for day_results in result_map.values()
-                if "error" not in day_results
-            )
-            return {
-                "statusCode": 200,
-                "body": json.dumps({
-                    "status": "success",
-                    "prompts_processed": prompts_processed,
-                    "processing_time": round(processing_time, 2),
-                    "model": model_ids[0] if len(model_ids) == 1 else model_ids,
-                    "date": dates[0] if len(dates) == 1 else dates
-                })
-            }
+            # Count successful vs failed prompts
+            successful_prompts = 0
+            failed_prompts = 0
+            total_expected = len(prompt_ids) * len(model_ids) * len(dates)
+            
+            for day_results in result_map.values():
+                if "error" in day_results:
+                    failed_prompts += len(prompt_ids) * len(model_ids)
+                    continue
+                    
+                for pid_results in day_results.values():
+                    for model_result in pid_results.values():
+                        if str(model_result).startswith("ERROR"):
+                            failed_prompts += 1
+                        elif str(model_result).startswith("SKIPPED"):
+                            # Skipped content counts as success if content already exists
+                            successful_prompts += 1
+                        else:
+                            successful_prompts += 1
+            
+            # Determine if worker should report success or failure
+            success_rate = successful_prompts / total_expected if total_expected > 0 else 0
+            
+            # Fail if less than 80% of expected content was generated/existed
+            if success_rate < 0.8:
+                return {
+                    "statusCode": 500,
+                    "body": json.dumps({
+                        "status": "error",
+                        "error": f"Low success rate: {successful_prompts}/{total_expected} ({success_rate:.1%}) successful",
+                        "prompts_processed": successful_prompts,
+                        "prompts_failed": failed_prompts,
+                        "success_rate": round(success_rate * 100, 1),
+                        "processing_time": round(processing_time, 2),
+                        "model": model_ids[0] if len(model_ids) == 1 else model_ids,
+                        "date": dates[0] if len(dates) == 1 else dates
+                    })
+                }
+            else:
+                return {
+                    "statusCode": 200,
+                    "body": json.dumps({
+                        "status": "success",
+                        "prompts_processed": successful_prompts,
+                        "prompts_failed": failed_prompts,
+                        "success_rate": round(success_rate * 100, 1),
+                        "processing_time": round(processing_time, 2),
+                        "model": model_ids[0] if len(model_ids) == 1 else model_ids,
+                        "date": dates[0] if len(dates) == 1 else dates
+                    })
+                }
         
         # Legacy mode returns detailed response
         return {
