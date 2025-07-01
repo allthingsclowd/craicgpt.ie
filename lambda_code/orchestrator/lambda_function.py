@@ -344,6 +344,7 @@ def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         log.info(f"🖼️  Image models to process: {[item['model'] for item in image_items]}")
         
         # Phase 1: Execute ALL LLM work items for this date
+        llm_success = True  # Track overall LLM success for dependency enforcement
         if llm_items:
             log.info(f"🔸 Phase 1 - LLM processing for {date_str}: {len(llm_items)} items")
             llm_results = execute_work_phase(llm_items, f"LLM-{date_str}")
@@ -351,13 +352,16 @@ def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
             
             # Check if LLM processing succeeded
             llm_success_count = len([r for r in llm_results if r["status"] == "success"])
-            if llm_success_count == len(llm_items):
+            llm_success = (llm_success_count == len(llm_items))
+            
+            if llm_success:
                 log.info(f"✅ LLM phase completed for {date_str}: {llm_success_count}/{len(llm_items)} successful")
             else:
-                log.warning(f"⚠️  LLM phase completed for {date_str}: {llm_success_count}/{len(llm_items)} successful")
+                log.error(f"❌ LLM phase FAILED for {date_str}: {llm_success_count}/{len(llm_items)} successful")
+                log.error(f"🚫 Skipping Image phase for {date_str} due to LLM failures")
         
-        # Phase 2: Execute ALL Image work items for this date (only after LLM completes)
-        if image_items:
+        # Phase 2: Execute ALL Image work items for this date (only if LLM succeeded)
+        if image_items and llm_success:
             log.info(f"🔹 Phase 2 - Image processing for {date_str}: {len(image_items)} items")
             image_results = execute_work_phase(image_items, f"Image-{date_str}")
             results.extend(image_results)
@@ -368,6 +372,16 @@ def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                 log.info(f"✅ Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
             else:
                 log.warning(f"⚠️  Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
+        elif image_items and not llm_success:
+            log.warning(f"🚫 Skipping {len(image_items)} image work items for {date_str} - LLM dependency not met")
+            # Add skipped image items to results for accurate reporting
+            for item in image_items:
+                results.append({
+                    "work_item": item,
+                    "status": "skipped",
+                    "error": "LLM dependency failed",
+                    "status_code": 424  # Failed dependency
+                })
         
         # Log overall progress
         completed = len(results)
@@ -412,6 +426,7 @@ def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Analyze execution results and create summary"""
     successful = [r for r in results if r["status"] == "success"]
     failed = [r for r in results if r["status"] == "error"]
+    skipped = [r for r in results if r["status"] == "skipped"]
     
     # Group by type
     llm_results = [r for r in results if r["work_item"]["type"] == "llm"]
@@ -422,24 +437,27 @@ def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     
     # Error analysis
     error_summary = {}
-    for failed_item in failed:
+    for failed_item in failed + skipped:
         error = failed_item.get("error", "Unknown error")
         error_summary[error] = error_summary.get(error, 0) + 1
     
     return {
         "total_work_items": len(results),
         "successful": len(successful),
-        "failed": len(failed), 
+        "failed": len(failed),
+        "skipped": len(skipped), 
         "success_rate": len(successful) / len(results) * 100 if results else 0,
         "llm_processing": {
             "total": len(llm_results),
             "successful": len([r for r in llm_results if r["status"] == "success"]),
-            "failed": len([r for r in llm_results if r["status"] == "error"])
+            "failed": len([r for r in llm_results if r["status"] == "error"]),
+            "skipped": len([r for r in llm_results if r["status"] == "skipped"])
         },
         "image_processing": {
             "total": len(image_results),
             "successful": len([r for r in image_results if r["status"] == "success"]), 
-            "failed": len([r for r in image_results if r["status"] == "error"])
+            "failed": len([r for r in image_results if r["status"] == "error"]),
+            "skipped": len([r for r in image_results if r["status"] == "skipped"])
         },
         "dates_processed": sorted(list(dates_processed)),
         "error_summary": error_summary,
@@ -448,8 +466,9 @@ def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "type": r["work_item"]["type"],
                 "date": r["work_item"]["date"], 
                 "model": r["work_item"]["model"],
-                "error": r.get("error", "Unknown")
-            } for r in failed
+                "error": r.get("error", "Unknown"),
+                "status": r["status"]
+            } for r in failed + skipped
         ]
     }
 
@@ -527,7 +546,8 @@ def lambda_handler(event, context):
         
         log.info(f"🎉 Orchestration completed in {processing_time:.2f} seconds ({processing_time/60:.1f} minutes)")
         log.info(f"📈 Final success rate: {analysis['success_rate']:.1f}%")
-        log.info(f"📊 Final results: {analysis['successful']}/{len(work_items)} successful, {analysis['failed']} failed")
+        log.info(f"📊 Final results: {analysis['successful']}/{len(work_items)} successful, {analysis['failed']} failed, {analysis['skipped']} skipped")
+        log.info(f"🔗 Dependency enforcement: LLM → Image dependency properly enforced")
         
         return {
             "statusCode": 200,
