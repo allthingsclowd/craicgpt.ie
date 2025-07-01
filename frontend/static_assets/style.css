@@ -400,6 +400,51 @@ body{
   transition: background-color 0.2s ease;
 }
 
+/* ========== 7.5. PLAIN TEXT LIST FORMATTING ==================== */
+/* Styling for plain text comparison lists when JSON parsing fails */
+.comparison-list {
+    margin: 15px 0;
+}
+
+.list-subtitle {
+    margin: 0 0 10px 0;
+    color: #34495e;
+    font-size: 1rem;
+    font-weight: 600;
+    text-align: center;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #ecf0f1;
+}
+
+.formatted-comparison-list {
+    padding-left: 20px;
+    line-height: 1.6;
+}
+
+.formatted-comparison-list li {
+    margin-bottom: 12px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-left: 3px solid #3498db;
+    border-radius: 0 4px 4px 0;
+}
+
+.formatted-comparison-list li strong {
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+@media (max-width: 768px) {
+    .formatted-comparison-list {
+        padding-left: 15px;
+    }
+    
+    .formatted-comparison-list li {
+        padding: 6px;
+        font-size: 0.9rem;
+    }
+}
+
 /* ========== 8. FOOTER ============================================== */
 .page-footer{
   text-align:center;

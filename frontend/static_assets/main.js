@@ -121,45 +121,82 @@ function renderComparisonArticleContent(content) {
     } catch (e) {
         console.log('Direct JSON parse failed, trying fallback strategies...');
         
-        // Strategy 2: Remove markdown code blocks
-        let cleanContent = content.replace(/^```[a-z]*\n?/gm, '').replace(/\n?```$/gm, '');
+        // Strategy 2: Handle HTML-wrapped content (common issue)
+        let cleanContent = content;
+        
+        // Remove HTML paragraph tags and decode entities
+        if (content.includes('<p>') || content.includes('</p>')) {
+            cleanContent = content.replace(/<\/?p[^>]*>/gi, '').trim();
+            console.log('Removed HTML paragraph tags');
+        }
+        
+        // Unescape common HTML entities and newlines
+        cleanContent = cleanContent
+            .replace(/&quot;/g, '"')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/\\n/g, '\n')
+            .replace(/\\\"/g, '"');
         
         try {
             jsonData = JSON.parse(cleanContent);
-            console.log('Cleaned JSON parse successful (removed code blocks)');
+            console.log('HTML-cleaned JSON parse successful');
         } catch (e2) {
-            console.log('Cleaned JSON parse failed, trying more fixes...');
+            console.log('HTML-cleaned JSON parse failed, trying more strategies...');
             
-            // Strategy 3: Handle incomplete JSON with missing opening brace
-            if (cleanContent.trim().startsWith('"comparison_article"')) {
-                cleanContent = '{' + cleanContent;
-                try {
-                    jsonData = JSON.parse(cleanContent);
-                    console.log('Fixed incomplete JSON (added opening brace)');
-                } catch (e3) {
-                    console.log('Still failed after adding opening brace');
-                }
-            }
+            // Strategy 3: Remove markdown code blocks
+            cleanContent = cleanContent.replace(/^```[a-z]*\n?/gm, '').replace(/\n?```$/gm, '');
             
-            // Strategy 4: Handle raw array data (like the Titan response)
-            if (!jsonData && cleanContent.includes('**GPT-4') && cleanContent.includes('[')) {
-                try {
-                    // Extract array data and wrap it properly
-                    const arrayMatch = cleanContent.match(/\[[\s\S]*\]/);
-                    if (arrayMatch) {
-                        const arrayData = JSON.parse(arrayMatch[0]);
-                        jsonData = {
-                            comparison_article: {
-                                topic: "Top-10 LLMs ranking (mid-2025)",
-                                format: "table",
-                                columns: ["Model name & vendor (bolded)", "Genuine strength", "Cynical 'what it's really used for'"],
-                                rows: arrayData
+            try {
+                jsonData = JSON.parse(cleanContent);
+                console.log('Cleaned JSON parse successful (removed code blocks)');
+            } catch (e3) {
+                console.log('Cleaned JSON parse failed, trying more fixes...');
+                
+                // Strategy 4: Handle incomplete JSON with missing opening brace
+                if (cleanContent.trim().startsWith('"comparison_article"')) {
+                    cleanContent = '{' + cleanContent;
+                    try {
+                        jsonData = JSON.parse(cleanContent);
+                        console.log('Fixed incomplete JSON (added opening brace)');
+                    } catch (e4) {
+                        console.log('Still failed after adding opening brace');
+                        
+                        // Strategy 5: Try to fix incomplete JSON by finding the cut-off point
+                        const lastCompleteIndex = cleanContent.lastIndexOf(']}');
+                        if (lastCompleteIndex > -1) {
+                            const truncatedContent = cleanContent.substring(0, lastCompleteIndex + 2) + '}';
+                            try {
+                                jsonData = JSON.parse(truncatedContent);
+                                console.log('Fixed truncated JSON');
+                            } catch (e5) {
+                                console.log('Failed to fix truncated JSON');
                             }
-                        };
-                        console.log('Successfully parsed raw array data and wrapped it');
+                        }
                     }
-                } catch (e4) {
-                    console.log('Failed to parse raw array data');
+                }
+                
+                // Strategy 6: Handle raw array data (like the Titan response)
+                if (!jsonData && cleanContent.includes('**GPT-4') && cleanContent.includes('[')) {
+                    try {
+                        // Extract array data and wrap it properly
+                        const arrayMatch = cleanContent.match(/\[[\s\S]*\]/);
+                        if (arrayMatch) {
+                            const arrayData = JSON.parse(arrayMatch[0]);
+                            jsonData = {
+                                comparison_article: {
+                                    topic: "Top-10 LLMs ranking (mid-2025)",
+                                    format: "table",
+                                    columns: ["Model name & vendor (bolded)", "Genuine strength", "Cynical 'what it's really used for'"],
+                                    rows: arrayData
+                                }
+                            };
+                            console.log('Successfully parsed raw array data and wrapped it');
+                        }
+                    } catch (e6) {
+                        console.log('Failed to parse raw array data');
+                    }
                 }
             }
         }
@@ -177,8 +214,15 @@ function renderComparisonArticleContent(content) {
         return;
     }
     
+    // Strategy 7: Handle current plain text format gracefully
+    if (content.includes('**') && (content.includes('What it\'s really used for') || content.includes('used for:'))) {
+        console.log('Detected plain text list format, rendering as formatted list');
+        element.innerHTML = renderPlainTextAsList(content);
+        return;
+    }
+    
     // Final fallback: render as regular text/HTML
-    console.log('All JSON parsing strategies failed, rendering as text');
+    console.log('All parsing strategies failed, rendering as text');
     element.innerHTML = String(content);
 }
 
@@ -268,6 +312,33 @@ function escapeHtml(text) {
 // Helper function to convert markdown bold (**text**) to HTML <strong>text</strong>
 function convertMarkdownBold(text) {
     return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+}
+
+// New function to format the current plain text as a nice list
+function renderPlainTextAsList(content) {
+    // Remove HTML tags
+    let cleanContent = content.replace(/<\/?p[^>]*>/gi, '').trim();
+    
+    // Split by numbered items (1., 2., 3., etc.)
+    const items = cleanContent.split(/\d+\.\s+/).filter(item => item.trim());
+    
+    if (items.length === 0) return content;
+    
+    let html = '<div class="comparison-list">';
+    html += '<h4 class="list-subtitle">LLM Comparison (Current Format)</h4>';
+    html += '<ol class="formatted-comparison-list">';
+    
+    items.forEach(item => {
+        const cleanItem = item.trim();
+        if (cleanItem) {
+            // Convert **bold** to <strong>
+            const formattedItem = cleanItem.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            html += `<li>${formattedItem}</li>`;
+        }
+    });
+    
+    html += '</ol></div>';
+    return html;
 }
 
 // Function to update the source and alt text of an image element

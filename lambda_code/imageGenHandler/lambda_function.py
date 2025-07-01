@@ -144,6 +144,56 @@ def load_paper_json(y, m, d):
 def save_paper_json(key, obj):
     s3_put(key, json.dumps(obj, indent=2).encode(), "application/json")
 
+def save_paper_json_atomic(key, paper_to_save, worker_model_id, max_retries=3):
+    """
+    Atomic save with race condition protection.
+    Reloads the file before saving to merge changes from other workers.
+    """
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                log.info(f"🔄 Retry {attempt}/{max_retries} for atomic save of {key} (worker: {worker_model_id})")
+                time.sleep(0.5 * attempt)  # Brief backoff
+            
+            # Reload the current file to get any changes from other workers
+            try:
+                current_content = s3_read(key)
+                current_paper = json.loads(current_content)
+                log.info(f"🔄 Atomic save: Loaded current version of {key} for merge (worker: {worker_model_id})")
+            except Exception as e:
+                # File might not exist or be corrupted, use our version
+                log.info(f"📝 Atomic save: Using our version of {key} (no current file found) (worker: {worker_model_id})")
+                current_paper = paper_to_save
+            
+            # Merge our imageOutputs into the current file
+            # Only update the sections that our worker model processed
+            for slot_name, slot_data in paper_to_save["contentSlots"].items():
+                if "imageOutputs" in slot_data:
+                    # Ensure the slot exists in current paper
+                    if slot_name not in current_paper["contentSlots"]:
+                        current_paper["contentSlots"][slot_name] = {"llmOutputs": {}, "imageOutputs": {}}
+                    
+                    # Ensure imageOutputs exists in current paper slot
+                    if "imageOutputs" not in current_paper["contentSlots"][slot_name]:
+                        current_paper["contentSlots"][slot_name]["imageOutputs"] = {}
+                    
+                    # Only merge our worker's model data, preserve others
+                    for model_id, model_outputs in slot_data["imageOutputs"].items():
+                        if model_id == worker_model_id:
+                            current_paper["contentSlots"][slot_name]["imageOutputs"][model_id] = model_outputs
+                            log.info(f"🔄 Merged {model_id} imageOutputs for slot {slot_name}")
+            
+            # Save the merged version
+            save_paper_json(key, current_paper)
+            log.info(f"✅ Atomic save completed for {key} (worker: {worker_model_id})")
+            return
+            
+        except Exception as e:
+            log.warning(f"⚠️  Atomic save attempt {attempt + 1} failed for {key} (worker: {worker_model_id}): {e}")
+            if attempt == max_retries - 1:
+                log.error(f"❌ Atomic save failed after {max_retries} attempts, falling back to direct save")
+                save_paper_json(key, paper_to_save)
+
 # ─── Prompt → slot mapping ──────────────────────────────────────────────
 PROMPT_TO_SLOT = {
     "img_01": "mainArticle",
@@ -350,32 +400,66 @@ def extract_base64(payload, model_id):
     Robust extraction of base64 PNG from payload.
     Handles dict, list, or string payloads from Bedrock.
     """
+    # Enhanced debugging for Nova Canvas
+    if "nova" in model_id.lower():
+        log.info(f"🔍 NOVA DEBUG - Payload type: {type(payload)}")
+        if isinstance(payload, dict):
+            log.info(f"🔍 NOVA DEBUG - Payload keys: {list(payload.keys())}")
+            log.info(f"🔍 NOVA DEBUG - Full payload: {payload}")
+        else:
+            log.info(f"🔍 NOVA DEBUG - Payload content: {payload}")
+    
     if isinstance(payload, str):
+        log.info(f"✅ {model_id} - Found base64 as direct string")
         return payload
 
     if isinstance(payload, list):
         # Handles direct list-of-strings response
-        return payload[0] if payload else None
+        result = payload[0] if payload else None
+        if result:
+            log.info(f"✅ {model_id} - Found base64 in list[0]")
+        return result
 
     if isinstance(payload, dict):
         # Handle known dict structures from Bedrock
         if "base64" in payload:
+            log.info(f"✅ {model_id} - Found base64 in payload['base64']")
             return payload["base64"]
+        
         for key in ["images", "artifacts"]:
             if key in payload and isinstance(payload[key], list):
                 for item in payload[key]:
-                    if "base64" in item:
+                    if isinstance(item, dict) and "base64" in item:
+                        log.info(f"✅ {model_id} - Found base64 in payload['{key}'][item]['base64']")
                         return item["base64"]
                     elif isinstance(item, str):
+                        log.info(f"✅ {model_id} - Found base64 string in payload['{key}'][item]")
                         return item
+        
+        # Nova Canvas specific check - it might use a different structure
+        if "nova" in model_id.lower():
+            # Check for any key that contains image data
+            for key, value in payload.items():
+                if isinstance(value, str) and len(value) > 1000:  # Likely base64 image
+                    log.info(f"✅ NOVA - Found potential base64 in payload['{key}'] (length: {len(value)})")
+                    return value
+                elif isinstance(value, dict) and "data" in value:
+                    log.info(f"✅ NOVA - Found base64 in payload['{key}']['data']")
+                    return value["data"]
+        
         # Special case: directly a list under an unknown key
-        for value in payload.values():
+        for key, value in payload.items():
             if isinstance(value, list) and value:
                 if isinstance(value[0], str):
+                    log.info(f"✅ {model_id} - Found base64 string in payload['{key}'][0]")
                     return value[0]
 
     # If nothing matches, return None explicitly
-    log.warning(f"⚠️ Unhandled payload structure for {model_id}: {payload}")
+    log.warning(f"⚠️ FAILED TO EXTRACT for {model_id}")
+    log.warning(f"   Payload type: {type(payload)}")
+    if isinstance(payload, dict):
+        log.warning(f"   Payload keys: {list(payload.keys())}")
+        log.warning(f"   Payload sample: {str(payload)[:500]}...")
     return None
 
 
@@ -611,7 +695,8 @@ def lambda_handler(event, _ctx):
                         results_summary["total_images"] += 1
                         log.info(f"✅ Generated image {pid} for {model_id} → {fname}")
 
-                save_paper_json(paper_key, paper)
+                # Atomic save with race condition protection
+                save_paper_json_atomic(paper_key, paper, model_ids[0] if len(model_ids) == 1 else "multi-model")
                 results_summary["successful_dates"] += 1
                 log.info("✅ Completed processing for %s", day)
                 

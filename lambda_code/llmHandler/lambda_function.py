@@ -442,11 +442,21 @@ def lambda_handler(event, _ctx):
                             
                             slot_dict = paper["contentSlots"][slot]["llmOutputs"]
                             if ftype == "title_text":
-                                first, *rest = text.splitlines()
-                                slot_dict[mdl_key] = {
-                                    "title": first.strip(),
-                                    "text":  "<p>" + "\n".join(rest).strip() + "</p>"
-                                }
+                                # Enhanced processing for comparison articles that may return JSON
+                                if slot == "comparisonArticle" and text.strip().startswith('{') and text.strip().endswith('}'):
+                                    # This is JSON from comparison article - store as-is for frontend parsing
+                                    log.info(f"✅ Detected JSON response for comparison article from {model_id}")
+                                    slot_dict[mdl_key] = {
+                                        "title": "LLM Comparison Ranking",
+                                        "text": text.strip()  # Store raw JSON without HTML wrapping
+                                    }
+                                else:
+                                    # Traditional title_text processing for other articles
+                                    first, *rest = text.splitlines()
+                                    slot_dict[mdl_key] = {
+                                        "title": first.strip(),
+                                        "text":  "<p>" + "\n".join(rest).strip() + "</p>"
+                                    }
                             else:
                                 slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
 
