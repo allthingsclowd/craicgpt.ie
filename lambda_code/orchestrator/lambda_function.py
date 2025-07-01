@@ -273,12 +273,52 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
             # Parse response
             response_payload = json.loads(response['Payload'].read().decode())
             
+            # Check if worker actually succeeded (Lambda call success ≠ worker success)
+            worker_status = "success"
+            worker_error = None
+            
+            # Check for Lambda-level errors
+            if response['StatusCode'] != 200:
+                worker_status = "error"
+                worker_error = f"Lambda returned status {response['StatusCode']}"
+            
+            # Check for worker-level errors in response
+            elif "errorMessage" in response_payload:
+                worker_status = "error"  
+                worker_error = response_payload.get("errorMessage", "Unknown worker error")
+            
+            # Check for HTTP-style error responses
+            elif isinstance(response_payload, dict):
+                status_code = response_payload.get("statusCode")
+                if status_code and status_code != 200:
+                    worker_status = "error"
+                    worker_error = response_payload.get("body", f"Worker returned status {status_code}")
+                
+                # Check body for error indicators
+                body = response_payload.get("body", {})
+                if isinstance(body, str):
+                    try:
+                        body = json.loads(body)
+                    except:
+                        pass
+                
+                if isinstance(body, dict):
+                    if body.get("status") == "error" or "error" in body:
+                        worker_status = "error"
+                        worker_error = body.get("error", "Worker reported error")
+            
             result = {
                 "work_item": work_item,
-                "status": "success",
+                "status": worker_status,
                 "response": response_payload,
                 "status_code": response['StatusCode']
             }
+            
+            if worker_error:
+                result["error"] = worker_error
+                log.error(f"❌ Worker failed for {model} on {date_str}: {worker_error}")
+            else:
+                log.info(f"✅ Worker succeeded for {model} on {date_str}")
             
             # Extract worker details for progress reporting
             worker_response = response_payload.get("body", {})

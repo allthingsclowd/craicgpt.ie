@@ -120,22 +120,23 @@ def load_paper_json(y, m, d):
         log.info(f"📄 Found existing paper_content.json for {y}-{m}-{d}")
         return key, existing_paper, True  # True = file existed
     except s3.exceptions.NoSuchKey:
-        log.info(f"📄 Creating minimal paper_content.json structure for {y}-{m}-{d}")
-        # Create minimal shell for image-only processing
+        log.info(f"📄 Creating complete paper_content.json structure for {y}-{m}-{d}")
+        # Create complete structure compatible with LLM handler (CRITICAL: must include llmOutputs)
         paper = {
             "publicationDate": f"{y}-{m}-{d}",
             "metadata": { "bannerTitle": "The Artificially Intelligent Times",
                           "defaultLLM": "anthropic.claude-3-sonnet-20240229-v1:0",
                           "defaultImageGen": "amazon.titan-image-generator-v1" },
             "contentSlots": {
-                "mainArticle": {"imageOutputs": {}}, 
-                "comparisonArticle": {"imageOutputs": {}}, 
-                "llmStory": {"imageOutputs": {}}, 
-                "joke": {"imageOutputs": {}}, 
-                "advertisement1": {"imageOutputs": {}},
-                "advertisement2": {"imageOutputs": {}},
-                "advertisement3": {"imageOutputs": {}},
-                "advertisement4": {"imageOutputs": {}}
+                "mainArticle":       { "llmOutputs": {}, "imageOutputs": {} },
+                "authorBio":         { "llmOutputs": {}, "imageOutputs": {} },
+                "comparisonArticle": { "llmOutputs": {}, "imageOutputs": {} },
+                "llmStory":          { "llmOutputs": {}, "imageOutputs": {} },
+                "joke":              { "llmOutputs": {}, "imageOutputs": {} },
+                "advertisement1":    { "imageOutputs": {} },
+                "advertisement2":    { "imageOutputs": {} },
+                "advertisement3":    { "imageOutputs": {} },
+                "advertisement4":    { "imageOutputs": {} }
             }
         }
         return key, paper, False  # False = file was created new

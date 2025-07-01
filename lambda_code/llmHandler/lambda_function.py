@@ -39,7 +39,15 @@
 #
 #  RUNTIME: Python 3.12   •   AWS Region default: eu-west-1
 # ╚══════════════════════════════════════════════════════════════════════════╝
-import os, json, re, time, random, logging, requests
+import os, json, re, time, random, logging
+
+# Conditional import for OpenAI support (not required for core functionality)
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+    # requests is only needed for OpenAI API calls, which are not implemented yet
 import boto3, botocore.exceptions
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
@@ -427,6 +435,11 @@ def lambda_handler(event, _ctx):
                             mdl_key = model_id
                             
                             # Store content in model-specific llmOutputs (all slots treated equally)
+                            if "llmOutputs" not in paper["contentSlots"][slot]:
+                                log.error(f"❌ CRITICAL: Missing llmOutputs section for slot '{slot}' - paper_content.json was created incompletely!")
+                                log.error(f"Available keys in slot: {list(paper['contentSlots'][slot].keys())}")
+                                raise RuntimeError(f"Missing llmOutputs section for slot '{slot}' - incomplete paper_content.json structure")
+                            
                             slot_dict = paper["contentSlots"][slot]["llmOutputs"]
                             if ftype == "title_text":
                                 first, *rest = text.splitlines()
