@@ -35,28 +35,34 @@ Environment Variables:
 - BEDROCK_IMAGE_MODEL_IDS: Comma-separated image model IDs
 """
 
-import os
-import json
-import boto3
-import time
-import random
+import os, json, time, random, logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
-# Removed concurrent.futures - using sequential processing to avoid Lambda limits
 from typing import List, Dict, Any, Tuple
-import logging
 from collections import defaultdict
 
+try:
+    from botocore.exceptions import ClientError  # type: ignore
+except ImportError:  # local linting env
+    class ClientError(Exception):
+        def __init__(self, *args, **kwargs):
+            self.response = {}
+            super().__init__(*args)
+
+import boto3
+
 # Configure logging
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s", force=True)
 log = logging.getLogger("orchestrator")
 
 # AWS Clients
 lambda_client = boto3.client('lambda')
+s3            = boto3.client('s3')
 
 # Configuration
-LLM_WORKER_FUNCTION = os.environ.get("LLM_WORKER_FUNCTION", "craicgptie_llm_runner")
-IMAGE_WORKER_FUNCTION = os.environ.get("IMAGE_WORKER_FUNCTION", "craicgptie_image_runner") 
+LLM_WORKER_FUNCTION   = os.environ.get("LLM_WORKER_FUNCTION",   "craicgptie_llm_runner")
+IMAGE_WORKER_FUNCTION = os.environ.get("IMAGE_WORKER_FUNCTION", "craicgptie_image_runner")
+PROMPT_GENERATOR_FUNCTION = os.environ.get("PROMPT_GENERATOR_FUNCTION", "craicgptie_prompt_generator")
 MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "1"))  # Sequential processing
 
 # AWS Lambda account-wide concurrency limits
@@ -92,45 +98,220 @@ IMAGE_MODELS = [m.strip() for m in os.getenv(
     "amazon.titan-image-generator-v1,amazon.nova-canvas-v1:0"
 ).split(",") if m.strip()]
 
+# Utility – inclusive date range generator
+
 def generate_date_range(start_date: str, end_date: str) -> List[str]:
-    """Generate list of dates between start and end (inclusive)"""
     start = date.fromisoformat(start_date)
     end = date.fromisoformat(end_date)
-    
-    dates = []
-    current = start
-    while current <= end:
-        dates.append(current.isoformat())
-        current += timedelta(days=1)
-    
-    return dates
+    out: list[str] = []
+    cur = start
+    while cur <= end:
+        out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
+
+# ---------- S3 helpers -------------------------------------------------------
+
+PROMPT_BUCKET = os.environ.get("PROMPT_BUCKET", "craicgpt-content")  # Same bucket as workers
+PAPER_CONTENT_DIR = "static_assets/content/website"
+
+# Mapping prompt_id → slot / field-type (copied from workers)
+LLM_PROMPT_TO_SLOT: dict[str, Tuple[str, str]] = {
+    "llm_01": ("mainArticle",        "title_text"),
+    "llm_02": ("comparisonArticle",  "title_text"),
+    "llm_03": ("llmStory",           "content"),
+    "llm_04": ("joke",               "content"),
+    "llm_05": ("authorBio",          "content")
+}
+
+IMAGE_PROMPT_TO_SLOT: dict[str, str] = {
+    "img_01": "mainArticle",
+    "img_02": "comparisonArticle",
+    "img_03": "advertisement1",
+    "img_04": "advertisement2",
+    "img_05": "advertisement3",
+    "img_06": "advertisement4",
+    "img_07": "llmStory",
+    "img_08": "joke"
+}
+
+# Helper – basic S3 existence test
+def s3_exists(key: str) -> bool:
+    try:
+        s3.head_object(Bucket=PROMPT_BUCKET, Key=key)
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
+            return False
+        # Unknown error – assume exists to be safe
+        log.warning(f"⚠️ Unexpected S3 error checking {key}: {e}")
+        return True
+
+# ---------- paper_content helpers -------------------------------------------
+
+def load_or_create_paper_json(date_str: str) -> Tuple[str, dict]:
+    """Load paper_content.json from S3 if present, otherwise create skeleton."""
+    y, m, d = date_str.split("-")
+    key = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/paper_content.json"
+
+    try:
+        body = s3.get_object(Bucket=PROMPT_BUCKET, Key=key)["Body"].read()
+        return key, json.loads(body)
+    except ClientError as e:
+        if e.response["Error"]["Code"] not in ("404", "NoSuchKey", "NotFound"):
+            raise  # real error
+
+    # Build skeleton identical to workers
+    paper = {
+        "publicationDate": date_str,
+        "metadata": {
+            "bannerTitle": "The Artificially Intelligent Times",
+            "defaultLLM": LLM_MODELS[0] if LLM_MODELS else "",
+            "defaultImageGen": IMAGE_MODELS[0] if IMAGE_MODELS else ""
+        },
+        "contentSlots": {
+            "mainArticle":       { "llmOutputs": {}, "imageOutputs": {} },
+            "authorBio":         { "llmOutputs": {}, "imageOutputs": {} },
+            "comparisonArticle": { "llmOutputs": {}, "imageOutputs": {} },
+            "llmStory":          { "llmOutputs": {}, "imageOutputs": {} },
+            "joke":              { "llmOutputs": {}, "imageOutputs": {} },
+            "advertisement1":    { "imageOutputs": {} },
+            "advertisement2":    { "imageOutputs": {} },
+            "advertisement3":    { "imageOutputs": {} },
+            "advertisement4":    { "imageOutputs": {} }
+        }
+    }
+
+    # Persist skeleton (so first worker sees it)
+    s3.put_object(
+        Bucket=PROMPT_BUCKET,
+        Key=key,
+        Body=json.dumps(paper, indent=2).encode(),
+        ContentType="application/json"
+    )
+    log.info(f"🆕 Created new paper_content.json skeleton: {key}")
+    return key, paper
+
+# ---------- idempotency helpers -------------------------------------------
+
+def _get_slot_mapping(work_item: Dict[str, Any]) -> Tuple[str, str]:
+    """Return (slot_name, field_type) for the given work item."""
+    if work_item["type"] == "llm":
+        slot, ftype = LLM_PROMPT_TO_SLOT[work_item["prompt_id"]]
+        return slot, ftype  # ftype only relevant for LLM
+    else:
+        slot = IMAGE_PROMPT_TO_SLOT[work_item["prompt_id"]]
+        return slot, "image"
+
+def task_already_done(paper: dict, work_item: Dict[str, Any]) -> bool:
+    """True if successful content exists OR the failed counter reached 3."""
+    slot, ftype = _get_slot_mapping(work_item)
+    model_id = work_item["model"]
+
+    slot_dict = paper["contentSlots"][slot]
+
+    if work_item["type"] == "llm":
+        mdict = slot_dict.get("llmOutputs", {}).get(model_id, {})
+        # success?
+        if ftype == "title_text":
+            if mdict.get("title") and mdict.get("text"):
+                return True
+        else:
+            if mdict.get("content"):
+                return True
+        # hard-failed?
+        if mdict.get("failed", 0) >= 3:
+            return True
+        return False
+    else:  # image
+        image_outputs = slot_dict.get("imageOutputs", {})
+        mdict = image_outputs.get(model_id, {})
+        entry = mdict.get(work_item["prompt_id"], {}) if isinstance(mdict, dict) else {}
+        if entry.get("imageUrl") and not entry.get("blocked", False):
+            return True
+        if entry.get("failed", 0) >= 3:
+            return True
+        return False
+
+def mark_task_failure(date_str: str, work_item: Dict[str, Any], error_msg: str):
+    """Increment failure counter inside paper_content.json for this task."""
+    key, paper = load_or_create_paper_json(date_str)
+    slot, ftype = _get_slot_mapping(work_item)
+    model_id = work_item["model"]
+
+    if work_item["type"] == "llm":
+        outputs = paper["contentSlots"][slot].setdefault("llmOutputs", {})
+        record = outputs.setdefault(model_id, {})
+    else:
+        slot_io = paper["contentSlots"][slot].setdefault("imageOutputs", {})
+        mdl_dict = slot_io.setdefault(model_id, {})
+        record = mdl_dict.setdefault(work_item["prompt_id"], {})
+
+    record["failed"] = record.get("failed", 0) + 1
+    record["error"] = error_msg[:250]
+
+    # write back
+    s3.put_object(
+        Bucket=PROMPT_BUCKET,
+        Key=key,
+        Body=json.dumps(paper, indent=2).encode(),
+        ContentType="application/json"
+    )
+
+# ---------- updated work-item generation ------------------------------------
 
 def create_work_items(dates: List[str]) -> List[Dict[str, Any]]:
-    """Create work items for each model/date combination"""
-    work_items = []
-    
-    # LLM work items
+    """Return list of atomic work items: one prompt_id × model per date."""
+    work_items: list[dict[str, Any]] = []
+
     for date_str in dates:
-        for model in LLM_MODELS:
-            work_items.append({
-                "type": "llm",
-                "date": date_str,
-                "model": model,
-                "function_name": LLM_WORKER_FUNCTION,
-                "worker_type": "llm"
-            })
-    
-    # Image work items  
-    for date_str in dates:
-        for model in IMAGE_MODELS:
-            work_items.append({
-                "type": "image", 
-                "date": date_str,
-                "model": model,
-                "function_name": IMAGE_WORKER_FUNCTION,
-                "worker_type": "image"
-            })
-    
+        _key, paper = load_or_create_paper_json(date_str)
+
+        # 1. LLM tasks
+        for prompt_id, (slot, ftype) in LLM_PROMPT_TO_SLOT.items():
+            for model_id in LLM_MODELS:
+                slot_dict = paper["contentSlots"][slot]["llmOutputs"].get(model_id, {})
+
+                has_content = False
+                if ftype == "title_text":
+                    has_content = bool(slot_dict.get("title") and slot_dict.get("text"))
+                else:
+                    has_content = bool(slot_dict.get("content"))
+
+                if not task_already_done(paper, {
+                    "type": "llm", "prompt_id": prompt_id, "model": model_id
+                }):
+                    work_items.append({
+                        "type": "llm",
+                        "date": date_str,
+                        "model": model_id,
+                        "prompt_id": prompt_id,
+                        "function_name": LLM_WORKER_FUNCTION,
+                        "worker_type": "llm"
+                    })
+
+        # 2. Image tasks
+        for prompt_id, slot in IMAGE_PROMPT_TO_SLOT.items():
+            for model_id in IMAGE_MODELS:
+                img_outputs = paper["contentSlots"][slot].get("imageOutputs", {})
+                mdl_dict = img_outputs.get(model_id, {}) if isinstance(img_outputs, dict) else {}
+                mdl_info = mdl_dict.get(prompt_id, {}) if isinstance(mdl_dict, dict) else {}
+
+                has_image = bool(mdl_info.get("imageUrl") and not mdl_info.get("blocked", False))
+
+                if not task_already_done(paper, {
+                    "type": "image", "prompt_id": prompt_id, "model": model_id
+                }):
+                    work_items.append({
+                        "type": "image",
+                        "date": date_str,
+                        "model": model_id,
+                        "prompt_id": prompt_id,
+                        "function_name": IMAGE_WORKER_FUNCTION,
+                        "worker_type": "image"
+                    })
+
+    log.info(f"📝 Work-item generation complete: {len(work_items)} tasks pending")
     return work_items
 
 # In-memory throttling state (per orchestrator execution)
@@ -244,13 +425,14 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
     # Prepare payload for worker
     payload = {
         "date": date_str,
-        "model_id": model,  # Fixed: workers expect "model_id"
-        "worker_mode": True  # Tell worker to process only this model
+        "model_id": model,  # workers expect "model_id"
+        "prompt_ids": [work_item.get("prompt_id")],
+        "worker_mode": True
     }
     
-    # Retry logic with exponential backoff for Lambda throttling (only when actually throttled)
+    # Retry logic with exponential backoff (up to 3 tries per orchestrator run)
     max_retries = 3
-    base_delay = 2.0  # Reduced from 10s to 2s for faster recovery
+    base_delay = 2.0
     
     for attempt in range(max_retries + 1):
         try:
@@ -317,6 +499,7 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
             if worker_error:
                 result["error"] = worker_error
                 log.error(f"❌ Worker failed for {model} on {date_str}: {worker_error}")
+                mark_task_failure(date_str, work_item, worker_error)
             else:
                 log.info(f"✅ Worker succeeded for {model} on {date_str}")
             
@@ -345,121 +528,50 @@ def invoke_worker(work_item: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             else:
                 log.error(f"❌ Failed {model} on {date_str} after {attempt + 1} attempts: {error_msg}")
+                mark_task_failure(date_str, work_item, error_msg)
                 return {
                     "work_item": work_item,
-                    "status": "error", 
+                    "status": "error",
                     "error": error_msg,
                     "status_code": 500
                 }
     
-    # This should never be reached, but handle it for completeness
+    mark_task_failure(date_str, work_item, "retry loop exited without result")
     return {
         "work_item": work_item,
-        "status": "error", 
-        "error": "Unexpected error: retry loop exited without result",
+        "status": "error",
+        "error": "retry loop exited without result",
         "status_code": 500
     }
 
 def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Execute work items with dependency-aware scheduling (LLM before Image per date)"""
-    results = []
-    
-    # Group work items by date and type for dependency management
-    work_by_date = defaultdict(lambda: {"llm": [], "image": []})
-    for item in work_items:
-        work_by_date[item["date"]][item["type"]].append(item)
-    
-    dates = sorted(work_by_date.keys())
-    log.info(f"Executing {len(work_items)} work items across {len(dates)} dates")
-    log.info(f"Dependency constraint: LLM must complete before Image for each date")
-    
-    # Process each date with proper dependency ordering
-    for date_str in dates:
-        date_work = work_by_date[date_str]
-        llm_items = date_work["llm"]
-        image_items = date_work["image"]
-        
-        log.info(f"🗓️  Processing {date_str}: {len(llm_items)} LLM + {len(image_items)} Image work items")
-        log.info(f"📋 LLM models to process: {[item['model'] for item in llm_items]}")
-        log.info(f"🖼️  Image models to process: {[item['model'] for item in image_items]}")
-        
-        # Phase 1: Execute ALL LLM work items for this date
-        llm_success = True  # Track overall LLM success for dependency enforcement
-        if llm_items:
-            log.info(f"🔸 Phase 1 - LLM processing for {date_str}: {len(llm_items)} items")
-            llm_results = execute_work_phase(llm_items, f"LLM-{date_str}")
-            results.extend(llm_results)
-            
-            # Check if LLM processing succeeded
-            llm_success_count = len([r for r in llm_results if r["status"] == "success"])
-            llm_success = (llm_success_count == len(llm_items))
-            
-            if llm_success:
-                log.info(f"✅ LLM phase completed for {date_str}: {llm_success_count}/{len(llm_items)} successful")
-            else:
-                log.error(f"❌ LLM phase FAILED for {date_str}: {llm_success_count}/{len(llm_items)} successful")
-                log.error(f"🚫 Skipping Image phase for {date_str} due to LLM failures")
-        
-        # Phase 2: Execute ALL Image work items for this date (only if LLM succeeded)
-        if image_items and llm_success:
-            log.info(f"🔹 Phase 2 - Image processing for {date_str}: {len(image_items)} items")
-            image_results = execute_work_phase(image_items, f"Image-{date_str}")
-            results.extend(image_results)
-            
-            # Check if Image processing succeeded  
-            image_success_count = len([r for r in image_results if r["status"] == "success"])
-            if image_success_count == len(image_items):
-                log.info(f"✅ Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
-            else:
-                log.warning(f"⚠️  Image phase completed for {date_str}: {image_success_count}/{len(image_items)} successful")
-        elif image_items and not llm_success:
-            log.warning(f"🚫 Skipping {len(image_items)} image work items for {date_str} - LLM dependency not met")
-            # Add skipped image items to results for accurate reporting
-            for item in image_items:
-                results.append({
-                    "work_item": item,
-                    "status": "skipped",
-                    "error": "LLM dependency failed",
-                    "status_code": 424  # Failed dependency
-                })
-        
-        # Log overall progress
-        completed = len(results)
-        total = len(work_items)
-        success_rate = len([r for r in results if r["status"] == "success"]) / completed * 100 if completed > 0 else 0
-        log.info(f"Date {date_str} completed. Overall progress: {completed}/{total} ({completed/total*100:.1f}%) - Success: {success_rate:.1f}%")
-    
-    return results
+    """Process all tasks, spreading calls across models (round-robin)."""
+    results: list[dict[str, Any]] = []
+    from collections import deque
 
-def execute_work_phase(work_items: List[Dict[str, Any]], phase_name: str) -> List[Dict[str, Any]]:
-    """Execute a phase of work items (either all LLM or all Image for a date)"""
-    results = []
-    
-    if not work_items:
-        return results
-    
-    log.info(f"Starting {phase_name} with {len(work_items)} items")
-    
-    # Process work items sequentially to avoid Lambda concurrency limits
-    for i, item in enumerate(work_items, 1):
-        log.info(f"🚀 {phase_name} progress: {i}/{len(work_items)} - Starting {item['model']}")
-        
-        start_time = time.time()
-        result = invoke_worker(item)
-        duration = time.time() - start_time
-        results.append(result)
-        
-        # Log individual result with timing
-        status_emoji = "✅" if result["status"] == "success" else "❌"
-        log.info(f"{status_emoji} {item['model']} completed in {duration:.1f}s")
-        
-        # Log overall progress
-        completed = len(results)
-        total = len(work_items)
-        success_rate = len([r for r in results if r["status"] == "success"]) / completed * 100 if completed > 0 else 0
-        log.info(f"📊 {phase_name} progress: {completed}/{total} ({completed/total*100:.1f}%) - Success: {success_rate:.1f}%")
-    
-    log.info(f"{phase_name} completed: {len([r for r in results if r['status'] == 'success'])}/{len(work_items)} successful")
+    q = deque(sorted(work_items, key=lambda w: w["model"]))
+    last_model = None
+
+    while q:
+        # pick index whose model != last_model if possible
+        idx = 0
+        if last_model is not None:
+            for i, t in enumerate(q):
+                if t["model"] != last_model:
+                    idx = i
+                    break
+        q.rotate(-idx)
+        task = q.popleft()
+
+        log.info(f"🚀 Executing {task['type'].upper()} {task['prompt_id']} "
+                 f"{task['model']} on {task['date']}  (queue left: {len(q)})")
+
+        start_t = time.time()
+        res = invoke_worker(task)
+        res["duration"] = round(time.time() - start_t, 2)
+        results.append(res)
+
+        last_model = task["model"]
     return results
 
 def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -554,6 +666,26 @@ def lambda_handler(event, context):
         # Generate date range
         dates = generate_date_range(START_DATE, END_DATE)
         log.info(f"🗓️  Processing date range: {START_DATE} to {END_DATE} ({len(dates)} dates)")
+        
+        # ------------------------------------------------------------------
+        # Phase-0: ensure prompts exist by invoking PromptGenerator (idempotent)
+        # ------------------------------------------------------------------
+        try:
+            pg_payload = {"START_DATE": START_DATE, "END_DATE": END_DATE, "worker_mode": False}
+            log.info(f"🛫 Invoking PromptGenerator ({PROMPT_GENERATOR_FUNCTION}) for {START_DATE} → {END_DATE}")
+            pg_resp = lambda_client.invoke(
+                FunctionName=PROMPT_GENERATOR_FUNCTION,
+                InvocationType="RequestResponse",
+                Payload=json.dumps(pg_payload)
+            )
+
+            if pg_resp["StatusCode"] != 200:
+                log.warning(f"⚠️ PromptGenerator returned status {pg_resp['StatusCode']} – continuing anyway")
+            else:
+                body = json.loads(pg_resp["Payload"].read().decode())
+                log.info(f"📝 PromptGenerator result: generated={body.get('prompts_generated')} skipped={body.get('prompts_skipped')}")
+        except Exception as e:
+            log.error(f"❌ Failed invoking PromptGenerator: {e}. Proceeding – workers may 404 on missing prompts")
         
         # Create work items
         work_items = create_work_items(dates)

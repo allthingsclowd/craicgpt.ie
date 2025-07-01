@@ -134,6 +134,46 @@ def load_paper_json(y, m, d):
 def save_paper_json(key, obj):
     s3_put(key, json.dumps(obj, indent=2), "application/json")
 
+# ─── Atomic save (LLM) ───────────────────────────────────────────────────
+
+def save_paper_json_atomic_llm(key: str, paper_to_save: dict, worker_model_id: str, max_retries: int = 3):
+    """Atomic save that merges only this worker's llmOutputs into the existing paper file."""
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                log.info(f"🔄 Retry {attempt}/{max_retries} atomic LLM save for {key} (worker: {worker_model_id})")
+                time.sleep(0.4 * attempt)
+
+            # Load current version if present
+            try:
+                current_raw = s3_read(key)
+                current_paper = json.loads(current_raw)
+            except Exception:
+                current_paper = paper_to_save  # File missing or unreadable
+
+            # Merge llmOutputs for this worker's model
+            for slot_name, slot_data in paper_to_save.get("contentSlots", {}).items():
+                if "llmOutputs" not in slot_data:
+                    continue
+
+                if slot_name not in current_paper.get("contentSlots", {}):
+                    current_paper.setdefault("contentSlots", {})[slot_name] = {"llmOutputs": {}, "imageOutputs": {}}
+
+                cur_slot = current_paper["contentSlots"][slot_name].setdefault("llmOutputs", {})
+                new_data = slot_data["llmOutputs"].get(worker_model_id)
+                if new_data is not None:
+                    cur_slot[worker_model_id] = new_data
+
+            # Save
+            save_paper_json(key, current_paper)
+            log.info(f"✅ Atomic LLM save complete for {key} (worker: {worker_model_id})")
+            return
+        except Exception as e:
+            log.warning(f"⚠️ Atomic LLM save attempt {attempt+1} failed for {key}: {e}")
+            if attempt == max_retries - 1:
+                log.error("❌ Falling back to direct save – may overwrite concurrent changes")
+                save_paper_json(key, paper_to_save)
+
 # ─── Prompt → slot mapping ──────────────────────────────────────────────
 PROMPT_TO_SLOT = {
     "llm_01": ("mainArticle",        "title_text"),

@@ -23,12 +23,21 @@
 #    ENABLE_HISTORICAL_WEATHER - Enable historical weather (default: true)
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-import os, re, json, html, urllib.request, random
+import os, re, json, html, urllib.request, random, logging
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import boto3
 from typing import Union, Optional, Dict, List, Tuple
 from dataclasses import dataclass
+try:
+    from botocore.exceptions import ClientError as _BotoClientError  # type: ignore
+except ImportError:  # Local linting environment may lack botocore
+    class _BotoClientError(Exception):
+        pass
+
+# Set up module-level logger (used for idempotent skip messages)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+log = logging.getLogger("prompt_generator")
 
 # ═══════════════════════════════ CONFIGURATION ════════════════════════════════
 
@@ -877,97 +886,70 @@ def build_image_prompt(prompt_type: str, base_context: str, daily_context: Daily
 
 # ═══════════════════════════════ STORAGE FUNCTIONS ═══════════════════════════
 
-def store_prompt(prompt_data: PromptData) -> str:
-    """Store prompt data to S3 with HTML placement references and enhanced context summaries"""
-    date_parts = prompt_data.date.split("-")
-    y, m, d = date_parts[0], date_parts[1], date_parts[2]
-    
+def s3_exists(key: str) -> bool:
+    """Return True iff the given key already exists in the prompt bucket."""
+    try:
+        s3.head_object(Bucket=PROMPT_BUCKET, Key=key)
+        return True
+    except _BotoClientError as e:
+        # botocore ClientError has .response; our dummy fallback may not
+        error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
+        if error_code in ("NoSuchKey", "404", "NotFound"):
+            return False  # Not present ➜ can generate
+        # For any other error, be conservative and assume it exists to avoid overwrite
+        log.warning(f"⚠️ Unexpected error in s3_exists for {key}: {error_code}")
+        return True
+
+def store_prompt_if_missing(prompt_data: PromptData) -> tuple[str, bool]:
+    """Write the prompt JSON only if it is not already present in S3.
+
+    Returns (s3_key, generated) where generated is True if the file was
+    created, False if it already existed and was therefore skipped.
+    """
+    y, m, d = prompt_data.date.split("-")
     key = f"{BASE_PROMPT_PREFIX}/{y}/{m}/{d}/{prompt_data.prompt_id}.json"
-    
-    # Determine content type from prompt ID
-    content_type = None
-    if prompt_data.prompt_id.startswith("llm_01"):
-        content_type = "main_article"
-    elif prompt_data.prompt_id.startswith("llm_02"):
-        content_type = "comparison_article"
-    elif prompt_data.prompt_id.startswith("llm_03"):
-        content_type = "llm_story"
-    elif prompt_data.prompt_id.startswith("llm_04"):
-        content_type = "joke"
-    elif prompt_data.prompt_id.startswith("img_01"):
-        content_type = "main_article"
-    elif prompt_data.prompt_id.startswith("img_02"):
-        content_type = "comparison_article"
-    elif prompt_data.prompt_id.startswith("img_07"):
-        content_type = "llm_story"
-    elif prompt_data.prompt_id.startswith("img_08"):
-        content_type = "joke"
-    elif prompt_data.prompt_id.startswith("img_03"):
-        content_type = "advertisement1"
-    elif prompt_data.prompt_id.startswith("img_04"):
-        content_type = "advertisement2"
-    elif prompt_data.prompt_id.startswith("img_05"):
-        content_type = "advertisement3"
-    elif prompt_data.prompt_id.startswith("img_06"):
-        content_type = "advertisement4"
-    
-    # Get HTML placement references
-    html_placement = {}
-    if content_type and content_type in HTML_PLACEMENTS:
-        html_placement = HTML_PLACEMENTS[content_type]
-    elif content_type and content_type.startswith("advertisement"):
-        # Map individual advertisement content types to HTML placements
-        ad_index = int(content_type[-1]) - 1  # advertisement1->0, advertisement2->1, etc.
-        if 0 <= ad_index < len(HTML_PLACEMENTS["advertisements"]):
-            html_placement = {"selector": HTML_PLACEMENTS["advertisements"][ad_index]}
-    
+
+    # Short-circuit if the file already exists (idempotent behaviour)
+    if s3_exists(key):
+        log.info(f"⏩ Prompt already exists – skipping: {key}")
+        return key, False
+
+    # Re-use original implementation to build storage document
     storage_data = {
-        "type": prompt_data.prompt_type,
-        "id": prompt_data.prompt_id,
+        "prompt_id": prompt_data.prompt_id,
+        "prompt_type": prompt_data.prompt_type,
         "date": prompt_data.date,
-        "models": prompt_data.models,
         "prompt": prompt_data.final_prompt,
-        "html_placement": html_placement,
-        "context_summary": {
-            "weather": {
-                "source": prompt_data.daily_context.weather.get('source', 'unknown'),
-                "conditions": prompt_data.daily_context.weather.get('today', 'N/A'),
-                "has_forecast": bool(prompt_data.daily_context.weather.get('tomorrow'))
-            },
-            "news": {
-                "categories": list(prompt_data.daily_context.news_headlines.keys()),
-                "total_headlines": sum(len(headlines) for headlines in prompt_data.daily_context.news_headlines.values()),
-                "sources_scraped": len([cat for cat, headlines in prompt_data.daily_context.news_headlines.items() if headlines])
-            },
-            "trending_topics": {
-                "count": len(prompt_data.daily_context.trending_topics),
-                "topics": prompt_data.daily_context.trending_topics[:5]
-            },
-            "local_events": {
-                "count": len(prompt_data.daily_context.local_events),
-                "events": prompt_data.daily_context.local_events[:3]
-            },
-            "date_context": {
-                "day_of_week": datetime.fromisoformat(prompt_data.date).strftime("%A"),
-                "formatted_date": datetime.fromisoformat(prompt_data.date).strftime("%B %d, %Y")
+        "models": prompt_data.models,
+        "context": {
+            "base": prompt_data.base_context,
+            "daily": {
+                "weather": prompt_data.daily_context.weather,
+                "news_headlines": prompt_data.daily_context.news_headlines,
+                "trending_topics": prompt_data.daily_context.trending_topics,
+                "local_events": prompt_data.daily_context.local_events,
+                "date_context": {
+                    "day_of_week": datetime.fromisoformat(prompt_data.date).strftime("%A"),
+                    "formatted_date": datetime.fromisoformat(prompt_data.date).strftime("%B %d, %Y")
+                }
             }
         }
     }
-    
-    # Add optional parameters
+
     if prompt_data.temperature is not None:
         storage_data["temperature"] = prompt_data.temperature
     if prompt_data.size is not None:
         storage_data["size"] = prompt_data.size
-    
+
     s3.put_object(
         Bucket=PROMPT_BUCKET,
         Key=key,
         Body=json.dumps(storage_data, indent=2, ensure_ascii=False).encode(),
         ContentType="application/json"
     )
-    
-    return key
+
+    log.info(f"✅ Prompt stored: {key}")
+    return key, True
 
 # ═══════════════════════════════ MAIN HANDLER ═══════════════════════════════
 
@@ -1050,6 +1032,7 @@ def lambda_handler(event, context):
     ]
     
     generated_prompts = []
+    skipped_prompts = []
     prompt_details = []
     
     # Generate prompts for each date
@@ -1113,24 +1096,30 @@ def lambda_handler(event, context):
                     size=size
                 )
                 
-                # Store prompt
-                key = store_prompt(prompt_data)
-                generated_prompts.append(key)
-                
+                # Store prompt only if missing
+                key, created = store_prompt_if_missing(prompt_data)
+
+                if created:
+                    generated_prompts.append(key)
+                else:
+                    skipped_prompts.append(key)
+
                 # Add to detailed tracking
                 prompt_details.append({
                     "id": config["id"],
-                    "type": config["type"],  
+                    "type": config["type"],
                     "date": target_date,
                     "description": config["description"],
                     "s3_key": key,
                     "prompt_length": len(final_prompt),
-                    "models_count": len(models)
+                    "models_count": len(models),
+                    "status": "generated" if created else "skipped"
                 })
-                
+
+                action_word = "Generated" if created else "Skipped (exists)"
                 print(f"  │  Prompt length: {len(final_prompt)} characters")
-                print(f"  │  Stored: {key}")
-                print(f"  └─ ✓ Generated successfully")
+                print(f"  │  {action_word}: {key}")
+                print(f"  └─ ✓ {action_word}")
                 
             except Exception as e:
                 print(f"  └─ ✗ Error generating {config['id']}: {e}")
@@ -1146,27 +1135,23 @@ def lambda_handler(event, context):
     print(f"GENERATION COMPLETE")
     print(f"{'='*60}")
     print(f"Total dates processed: {len(dates)}")
-    print(f"Total prompts generated: {len(generated_prompts)}")
+    print(f"Total new prompts generated: {len(generated_prompts)} (skipped {len(skipped_prompts)})")
     print(f"  - LLM prompts: {len(llm_prompts)}")
     print(f"  - Image prompts: {len(image_prompts)}")
     
-    return {
+    # Build response
+    response_body = {
         "status": "SUCCESS",
         "dates_processed": dates,
         "prompts_generated": len(generated_prompts),
+        "prompts_skipped": len(skipped_prompts),
         "prompt_breakdown": {
             "llm_prompts": len(llm_prompts),
             "image_prompts": len(image_prompts),
             "by_date": {date: len([p for p in prompt_details if p['date'] == date]) for date in dates}
         },
-        "configuration": {
-            "date_source": "environment_variables" if (env_start or env_end) else "event_or_default",
-            "fresh_context_enabled": ENABLE_FRESH_CONTEXT,
-            "historical_weather_enabled": ENABLE_HISTORICAL_WEATHER,
-            "base_contexts_loaded": len(BASE_CONTEXTS),
-            "news_sources_configured": len(NEWS_SOURCES),
-            "html_placements_defined": len(HTML_PLACEMENTS)
-        },
-        "sample_outputs": prompt_details[:3] if prompt_details else [],
-        "storage_keys": generated_prompts[:10]  # First 10 keys for reference
+        "skipped_keys_sample": skipped_prompts[:10],
+        "generated_keys_sample": generated_prompts[:10]
     }
+
+    return response_body
