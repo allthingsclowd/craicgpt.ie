@@ -670,26 +670,30 @@ def build_comparison_article_prompt(base_context: Dict, daily_context: DailyCont
     system_section = f"""
 You are an expert tech humorist. Today is {date_formatted}.
 
-CRITICAL: Generate ONLY a valid JSON string. No explanatory text before or after.
+CRITICAL INSTRUCTIONS:
+• Output ONLY valid JSON - no markdown, no code blocks, no explanations
+• Start with {{ and end with }}
+• Follow the EXACT structure shown below
 
-EXACT FORMAT REQUIRED:
+REQUIRED JSON FORMAT (copy this structure exactly):
 {json.dumps(base_context['json_example'], indent=2)}
 
-MANDATORY REQUIREMENTS:
-• MUST use array format for rows: ["text1", "text2", "text3"]  
-• NEVER use object format like {{"key": "value"}}
+STRICT REQUIREMENTS:
+• Use ONLY array format for rows: ["text1", "text2", "text3"]
+• NO markdown code blocks like ``` or ```json
+• NO object format like {{"Model name": "value"}}
 • {base_context['content_requirements']['model_format']}
-• Each cell's text {base_context['table_structure']['cell_requirements']}
+• Each cell text must be {base_context['table_structure']['cell_requirements']}
 • Tone: {base_context['tone']}
-• MUST include exactly {base_context['table_structure']['rows_required']} complete rows
-• Each row MUST have exactly 3 elements in array format
+• Include exactly {base_context['table_structure']['rows_required']} complete rows
+• Each row must have exactly 3 string elements
 
-CONTENT REQUIREMENTS:
-• Model Format: {base_context['content_requirements']['model_format']}
-• Genuine Strength: {base_context['content_requirements']['genuine_strength']}
-• Cynical Use: {base_context['content_requirements']['cynical_use']}
+CONTENT RULES:
+• Column 1: {base_context['content_requirements']['model_format']}
+• Column 2: {base_context['content_requirements']['genuine_strength']}
+• Column 3: {base_context['content_requirements']['cynical_use']}
 
-IMPORTANT: Complete all 10 rows. Do not truncate."""
+WARNING: Do not wrap in code blocks. Output raw JSON only."""
     
     # Current tech context for informed ranking
     context_section = ""
@@ -713,13 +717,17 @@ IMPORTANT: Complete all 10 rows. Do not truncate."""
 
 {context_section}
 
-Generate your {base_context['topic']} JSON table considering current industry developments. 
+Generate your {base_context['topic']} JSON table considering current industry developments.
 
-FINAL REMINDER: 
-- Output ONLY the JSON string, no explanatory text
-- Use ARRAY format for rows: ["text1", "text2", "text3"]
-- Include all 10 complete rows
-- End with proper JSON closing braces"""
+CRITICAL FINAL INSTRUCTIONS:
+• Output starts with {{ and ends with }}
+• NO markdown blocks or ``` wrapping
+• ALL 10 rows must be complete
+• Use this EXACT structure:
+
+{{"comparison_article": {{"topic": "Top-10 LLMs ranking (mid-2025)", "format": "table", "columns": ["Model name & vendor (bolded)", "Genuine strength", "Cynical 'what it's really used for'"], "rows": [["**Model1**", "strength1", "use1"], ["**Model2**", "strength2", "use2"], ...complete all 10...]}}}}
+
+Begin your JSON output now:"""
 
 def build_llm_story_prompt(base_context: Dict, daily_context: DailyContext) -> str:
     """Build LLM story prompt"""

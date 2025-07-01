@@ -111,27 +111,74 @@ function renderComparisonArticleContent(content) {
         return;
     }
     
+    // Try multiple parsing strategies for malformed JSON
+    let jsonData = null;
+    
+    // Strategy 1: Direct JSON parsing
     try {
-        // Try to parse as JSON
-        const jsonData = JSON.parse(content);
-        
-        // Check if it has the expected table structure
-        if (jsonData.comparison_article && 
-            jsonData.comparison_article.format === 'table' &&
-            jsonData.comparison_article.columns &&
-            jsonData.comparison_article.rows &&
-            Array.isArray(jsonData.comparison_article.rows)) {
-            
-            console.log('Rendering comparison article as JSON table');
-            element.innerHTML = renderJsonTable(jsonData.comparison_article);
-            return;
-        }
+        jsonData = JSON.parse(content);
+        console.log('Direct JSON parse successful');
     } catch (e) {
-        // Not valid JSON, fall through to regular text rendering
-        console.log('Comparison article is not JSON table format, rendering as text');
+        console.log('Direct JSON parse failed, trying fallback strategies...');
+        
+        // Strategy 2: Remove markdown code blocks
+        let cleanContent = content.replace(/^```[a-z]*\n?/gm, '').replace(/\n?```$/gm, '');
+        
+        try {
+            jsonData = JSON.parse(cleanContent);
+            console.log('Cleaned JSON parse successful (removed code blocks)');
+        } catch (e2) {
+            console.log('Cleaned JSON parse failed, trying more fixes...');
+            
+            // Strategy 3: Handle incomplete JSON with missing opening brace
+            if (cleanContent.trim().startsWith('"comparison_article"')) {
+                cleanContent = '{' + cleanContent;
+                try {
+                    jsonData = JSON.parse(cleanContent);
+                    console.log('Fixed incomplete JSON (added opening brace)');
+                } catch (e3) {
+                    console.log('Still failed after adding opening brace');
+                }
+            }
+            
+            // Strategy 4: Handle raw array data (like the Titan response)
+            if (!jsonData && cleanContent.includes('**GPT-4') && cleanContent.includes('[')) {
+                try {
+                    // Extract array data and wrap it properly
+                    const arrayMatch = cleanContent.match(/\[[\s\S]*\]/);
+                    if (arrayMatch) {
+                        const arrayData = JSON.parse(arrayMatch[0]);
+                        jsonData = {
+                            comparison_article: {
+                                topic: "Top-10 LLMs ranking (mid-2025)",
+                                format: "table",
+                                columns: ["Model name & vendor (bolded)", "Genuine strength", "Cynical 'what it's really used for'"],
+                                rows: arrayData
+                            }
+                        };
+                        console.log('Successfully parsed raw array data and wrapped it');
+                    }
+                } catch (e4) {
+                    console.log('Failed to parse raw array data');
+                }
+            }
+        }
     }
     
-    // Fallback: render as regular text/HTML
+    // Check if we have valid table data
+    if (jsonData && jsonData.comparison_article && 
+        jsonData.comparison_article.format === 'table' &&
+        jsonData.comparison_article.columns &&
+        jsonData.comparison_article.rows &&
+        Array.isArray(jsonData.comparison_article.rows)) {
+        
+        console.log('Rendering comparison article as JSON table');
+        element.innerHTML = renderJsonTable(jsonData.comparison_article);
+        return;
+    }
+    
+    // Final fallback: render as regular text/HTML
+    console.log('All JSON parsing strategies failed, rendering as text');
     element.innerHTML = String(content);
 }
 
