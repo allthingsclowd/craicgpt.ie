@@ -488,7 +488,11 @@ def lambda_handler(event, _ctx):
                                 if not lines:
                                     lines = [text.strip()]
 
-                                title_line = lines[0][:200]  # cap length just in case
+                                # If the first non-blank line is just an opening brace we was a placeholder title
+                                if lines[0].strip().startswith('{'):
+                                    title_line = "�� LLM League Table – Top 10 Models and their Secret Jobs"
+                                else:
+                                    title_line = lines[0][:200]  # cap length just in case
                                 body_html = "<p>" + "\n".join(lines[1:]).strip() + "</p>" if len(lines) > 1 else "<p></p>"
 
                                 slot_dict[mdl_key] = {
