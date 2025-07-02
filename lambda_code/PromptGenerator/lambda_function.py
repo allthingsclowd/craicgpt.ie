@@ -132,16 +132,16 @@ BASE_CONTEXTS = {
     },
     
     "comparison_article": {
-        "topic": "Top-10 LLMs ranking (mid-2025)",
+        "topic": "Top-5 LLMs ranking (as of today, mid 2025)",
         "format": "JSON table structure",
         "output_requirement": "JSON string (no extra text) with exact structure specified",
         "table_structure": {
             "columns": [
-                "Model name & vendor (bolded)",
+                "Model name, version & vendor (bolded)",
                 "Genuine strength", 
                 "Cynical 'what it's really used for'"
             ],
-            "rows_required": 10,
+            "rows_required": 5,
             "cell_requirements": "<=60 words per cell"
         },
         "content_requirements": {
@@ -152,9 +152,9 @@ BASE_CONTEXTS = {
         "tone": "informed yet cheekily sceptical",
         "json_example": {
             "comparison_article": {
-                "topic": "Top-10 LLMs ranking (mid-2025)",
+                "topic": "Top-5 LLMs ranking (mid-2025)",
                 "format": "table",
-                "columns": ["Model name & vendor (bolded)", "Genuine strength", "Cynical 'what it's really used for'"],
+                "columns": ["Model name, version & vendor (bolded)", "Genuine strength", "Cynical 'what it's really used for'"],
                 "rows": [
                     ["**GPT-4 Turbo (OpenAI)**", "Exceptional reasoning and coding abilities", "Writing homework for students"],
                     ["**Claude 3 Sonnet (Anthropic)**", "Strong safety and helpfulness balance", "Corporate email writing assistant"],
@@ -166,42 +166,42 @@ BASE_CONTEXTS = {
     
     "llm_story": {
         "style": "light-hearted, jargon-free story",
-        "character": "everyday non-techie (e.g., retired postman)",
+        "character": "everyday non-techie persona, e.g a mum or grandpa",
         "plot": "uses LLM to fix small life problem with unexpectedly funny twist",
         "structure": "request, LLM reply, humorous outcome",
         "tone": "relatable and chuckle-worthy",
-        "length": "400 words"
+        "length": "<= 200 words"
     },
     
     "joke": {
         "topic": "AI hype and industry",
         "format": "one-liner, 40 words or less",
-        "requirements": "Include Sam Altman by name, clever, family-friendly, self-aware"
+        "requirements": "Include thought leaders like Sam Altman or Elon Musk or other AI industry figures by name, clever, family-friendly, self-aware, non political or tragic"
     },
     
     "author_bio": {
         "subject": "Graham Land", 
         "style": "cheeky third-person bio",
         "length": "120-150 words",
-        "background": "Irish-born, UK-based technologist; Technical Customer Success Manager at Aqua Security",
-        "experience": "ex-Manager CSM EMEA at HashiCorp (2018-23, grew portfolio 3M to 60M)",
-        "expertise": "OpenStack evangelist, Vault-certified, AWS SA cert, ITIL, conference speaker",
-        "hobbies": "motorbike & paddle-board addict",
-        "ending": "playful line about making DevOps 'slightly less terrifying'"
+        "background": "Irish-born, UK-based technologist; Technical Account Manager at Salt Security",
+        "experience": "ex-Manager CSM EMEA at HashiCorp, CyberSecurity Architect",
+        "expertise": "OpenStack evangelist, Vault-certified, AWS SA cert, ITIL, conference speaker, budding AI Engineer",
+        "hobbies": "rpi, motorbike & paddle-board addict",
+        "ending": "playful line about making AI Engineering 'slightly less terrifying'"
     }
 }
 
 # Image base contexts
 IMAGE_BASE_CONTEXTS = {
-    "main_article": "Comic-realistic family scene with Graz and family members, Shropshire setting",
-    "comparison_article": "Data visualization or infographic style, professional but playful",
-    "llm_story": "Single-panel comic style, cozy domestic setting", 
+    "main_article": "Comic-realistic quitecentially English Village, Shropshire setting, with a satellite in the background sky",
+    "comparison_article": "D3JS realistic & colourful visualization comparing 5 LLMs",
+    "llm_story": "Single-panel comic style, cozy domestic setting, cat and dog with slippers", 
     "joke": "Editorial cartoon style, AI industry satire",
     "advertisements": [
-        "Spoof tech product billboard, retro styling",
-        "Fake cereal box, tech/AI theme", 
-        "Vintage travel poster, AI location theme",
-        "Mock luxury product ad, tech twist"
+        "Comic-realistic, Spoof tech product ad, retro styling, babel fish style",
+        "Comic-realistic, Fake cereal box ad, tech/AI theme, colourful branding with a catch phrase", 
+        "Comic-realistic, Vintage travel poster ad, cheap flights to a hot and sunny location",
+        "Comic-realistic, Mock luxury product ad, tech twist, retro styling phone with dial"
     ]
 }
 
