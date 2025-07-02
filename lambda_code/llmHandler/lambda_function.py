@@ -482,39 +482,19 @@ def lambda_handler(event, _ctx):
                             
                             slot_dict = paper["contentSlots"][slot]["llmOutputs"]
                             if ftype == "title_text":
-                                # Enhanced processing for comparison articles that may return JSON
-                                if slot == "comparisonArticle":
-                                    json_blob = None
-                                    try:
-                                        # Remove simple <p> wrappers if present
-                                        cleaned = text.strip()
-                                        if cleaned.lower().startswith("<p>") and cleaned.lower().endswith("</p>"):
-                                            cleaned = cleaned[3:-4].strip()
+                                # Split into lines and skip blank ones to find a reliable title
+                                lines = [ln.strip() for ln in text.splitlines()]
+                                lines = [ln for ln in lines if ln]  # remove blanks
+                                if not lines:
+                                    lines = [text.strip()]
 
-                                        # Grab the section between the first '{' and the last '}'
-                                        start_idx = cleaned.find('{')
-                                        end_idx   = cleaned.rfind('}') + 1 if '}' in cleaned else -1
-                                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                                            candidate = cleaned[start_idx:end_idx]
-                                            # Validate it is JSON
-                                            json.loads(candidate)
-                                            json_blob = candidate
-                                    except Exception:
-                                        json_blob = None  # Not valid JSON – fall back to HTML mode
+                                title_line = lines[0][:200]  # cap length just in case
+                                body_html = "<p>" + "\n".join(lines[1:]).strip() + "</p>" if len(lines) > 1 else "<p></p>"
 
-                                    if json_blob:
-                                        log.info(f"✅ Detected JSON response for comparison article from {model_id}")
-                                        slot_dict[mdl_key] = {
-                                            "title": "LLM Comparison Ranking",
-                                            "text": json_blob  # Store raw JSON without HTML wrapping
-                                        }
-                                    else:
-                                        # Traditional title_text processing (HTML)
-                                        first, *rest = text.splitlines()
-                                        slot_dict[mdl_key] = {
-                                            "title": first.strip(),
-                                            "text":  "<p>" + "\n".join(rest).strip() + "</p>"
-                                        }
+                                slot_dict[mdl_key] = {
+                                    "title": title_line,
+                                    "text":  body_html
+                                }
                             else:
                                 slot_dict[mdl_key] = { "content": f"<p>{text}</p>" }
 
