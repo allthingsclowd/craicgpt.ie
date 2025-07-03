@@ -1,170 +1,245 @@
-# CraicGPT.ie Frontend
+# Frontend - Static Newspaper Website
 
-## Description
+**Production-Ready Static Website with Multi-Provider Model Selection**
 
-This directory contains the frontend code for CraicGPT.ie, a dynamically generated online newspaper. The interface is designed to mimic a traditional newspaper layout, presenting articles, features, and other content fetched from a backend service.
+This directory contains the frontend components for the CraicGPT.ie newspaper website. The frontend is a static HTML/CSS/JavaScript application deployed to AWS S3 with CloudFront CDN distribution.
 
-The frontend consists of three main files:
-*   `index.html`: The main HTML structure of the webpage. Includes a date picker and radio buttons for model selection.
-*   `static_assets/style.css`: Contains all the CSS rules for styling the page, including responsive design for various screen sizes. It defines the newspaper-like layout using CSS Grid and styles for the controls.
-*   `static_assets/main.js`: Handles the dynamic aspects of the site. It initializes the `js-datepicker` date picker, fetches content for the selected day's "newspaper" from a JSON endpoint, manages model selections from radio buttons, and populates the relevant sections of the HTML page accordingly.
+## 🏗️ Architecture
 
-## How It Works
+### **Static Website Components**
+- **HTML Structure**: Semantic newspaper layout with content sections
+- **CSS Styling**: Responsive design with newspaper aesthetic
+- **JavaScript**: Dynamic content loading and date picker functionality
+- **Assets**: Images, fonts, and vendor libraries
 
-1.  When a user visits `index.html`, the browser loads the basic page structure.
-2.  The linked `static_assets/style.css` file is applied, styling the HTML elements.
-3.  The `static_assets/main.js` script executes on page load:
-    *   It initializes a `js-datepicker` date picker on the input field `#date-picker`, allowing users to select a specific date. By default, it selects today's date.
-    *   It sets up radio buttons for selecting a preferred Large Language Model (LLM: ChatGPT, Gemini, Claude) and a preferred Image Generation model (ImageGen: Imagen, Stable Diffusion, DALL-E). These default to the first option or values specified in the fetched content's metadata.
-    *   It then automatically fetches the content for the initially selected date (usually today) by constructing a URL (e.g., `/content/YYYY/MM/DD/todays_paper.json`).
-    *   This JSON file is expected to contain all text and image data for that day, with different versions of content based on the LLM and ImageGen models (see "JSON Data Structure" section below).
-    *   Upon receiving a successful response, `main.js` parses the JSON data and stores it globally.
-    *   It then calls a `renderContent()` function which:
-        *   Determines the currently selected LLM and ImageGen model from the radio buttons.
-        *   Uses these selections to pick the appropriate text (from LLM outputs) and images (from ImageGen outputs) from the stored JSON data for each section of the page (e.g., main article title, text, and image; comparison article, etc.). Placeholder images (`static_assets/images/placeholder_article.png`, `static_assets/images/placeholder_ad.png`) are used if specific images are not found or during loading.
-        *   Updates the HTML elements with this selected content.
-    *   It also updates the displayed date (in a dedicated text element, not the date picker input itself directly after initial load) and the copyright year in the footer.
-    *   If the content fetching fails for a selected date, an error message is displayed.
-    *   **User Interaction:**
-        *   **Changing the Date:** If the user selects a new date using the `js-datepicker`, its `onSelect` callback triggers `main.js` to fetch the new `todays_paper.json` for that date. Radio buttons are updated to reflect the default models specified in the new data's metadata, and the content is rendered.
-        *   **Changing Radio Buttons:** If the user selects a different LLM or ImageGen model, `main.js` calls `renderContent()` again. This re-renders the *currently loaded* daily data using the new model choices, without re-fetching the JSON.
+### **Content Integration**
+- **Dynamic Loading**: Fetches generated content from S3 JSON files
+- **Date Navigation**: Calendar picker for historical content browsing
+- **Model Selection**: Radio buttons for choosing AI providers
+- **Real-time Updates**: Automatic refresh when new content is available
 
-## JSON Data Structure for `todays_paper.json`
+## 📁 Directory Structure
 
-The `main.js` script expects the JSON file for each day to follow a specific structure. Below is an overview and an example:
+```
+frontend/
+├── index.html                 # Main newspaper layout
+├── static_assets/            
+│   ├── style.css             # Main stylesheet
+│   ├── main.js               # Content loading and UI logic
+│   ├── images/               # Logo, placeholders, branding
+│   │   ├── CraicGPT_240h.png
+│   │   ├── GeekwiththePeak.png
+│   │   └── placeholder_*.png
+│   └── vendor/               # Third-party libraries
+│       └── js-datepicker/    # Date picker component
+└── README.md                 # This file
+```
 
-*   **`publicationDate`**: A string representing the date of the newspaper content in "YYYY-MM-DD" format. This is used to confirm the date of the loaded content and can be used to set the date picker display.
-*   **`metadata`**: An object containing:
-    *   `bannerTitle`: The title to display in the newspaper banner (e.g., "CraicGPT.ie").
-    *   `defaultLLM`: The key (e.g., "chatgpt") of the LLM whose content should be shown by default for this paper. This key should match one of the `value` attributes of the LLM radio buttons.
-    *   `defaultImageGen`: The key (e.g., "imagen") of the Image Generator whose images should be shown by default. This key should match one of the `value` attributes of the ImageGen radio buttons.
-*   **`contentSlots`**: An object where each key represents a section of the page (e.g., `mainArticle`, `comparisonArticle`, `llmStory`, `joke`, `authorBio`, `advertisements`). The keys for articles, stories, and jokes typically map to HTML element IDs used for populating content (e.g., `main-article-title`, `main-article-text`).
-    *   Each content slot that varies by model can contain:
-        *   `llmOutputs`: An object where keys are LLM identifiers (e.g., "chatgpt", "gemini", "claude"). The values are objects containing the actual content pieces like `title` (for articles) and `text` or `content`.
-        *   `imageOutputs`: An object where keys are Image Generator identifiers (e.g., "imagen", "stablediffusion", "dalle"). The values are objects containing `imageUrl` and `imageAlt`.
-    *   Some slots might only have `llmOutputs` (like `joke` or `llmStory`).
-    *   Some slots might have directly embedded content if not versioned by model (e.g., `authorBio.text` or an array for `advertisements`).
+## 🎨 Design Features
 
-**Example Snippet:**
+### **Newspaper Layout**
+- **Header**: Branded banner with newspaper title
+- **Main Content**: Grid-based layout with articles and sidebar
+- **Content Sections**:
+  - Main Article (with hero image)
+  - Comparison Article (with hero image) 
+  - Author Bio section
+  - LLM Feature story
+  - Daily joke section
+  - Sponsored content (4 advertisement slots)
+
+### **Multi-Provider Interface**
+- **LLM Selection**: Radio buttons for all supported text models
+  - AWS Bedrock: Claude Sonnet, Titan Express, Claude Haiku
+  - OpenAI: GPT-4, O3 Mini
+  - Anthropic Direct: Claude 3.5 Sonnet, Claude 3 Opus  
+  - Google: Gemini Pro, Gemini Ultra
+
+- **Image Selection**: Radio buttons for image generation models
+  - AWS Bedrock: Titan Image, Nova Canvas
+  - OpenAI: DALL-E 3
+
+### **User Experience**
+- **Responsive Design**: Works on desktop, tablet, and mobile devices
+- **Progressive Loading**: Content loads gracefully with placeholders
+- **Date Navigation**: Easy browsing of historical content
+- **Provider Selection**: Clear labeling of model providers
+- **Error Handling**: Graceful fallbacks for missing content
+
+## 🔧 Technical Implementation
+
+### **Content Loading Process**
+1. **Date Selection**: User picks date via date picker or URL parameter
+2. **Model Selection**: User chooses preferred AI providers via radio buttons
+3. **JSON Fetching**: JavaScript fetches `paper_content.json` from S3
+4. **Content Rendering**: Dynamic insertion of AI-generated content
+5. **Image Loading**: Progressive loading of AI-generated images
+
+### **S3 Content Structure**
+The frontend expects content in this S3 structure:
+```
+s3://bucket/static_assets/content/website/YYYY/MM/DD/
+├── paper_content.json        # Main content file
+├── llm_01_model-slug_256.txt # Raw text files
+├── img_01_model-slug_512.png # Generated images
+└── ...                       # Additional content files
+```
+
+### **JSON Content Format**
 ```json
 {
-  "publicationDate": "2023-10-28",
+  "publicationDate": "2025-01-15",
   "metadata": {
-    "bannerTitle": "The Daily Craic - AI Edition",
-    "defaultLLM": "gemini",
-    "defaultImageGen": "stablediffusion"
+    "bannerTitle": "The Artificially Intelligent Times",
+    "defaultLLM": "anthropic.claude-3-sonnet-20240229-v1:0",
+    "defaultImageGen": "amazon.titan-image-generator-v1"
   },
   "contentSlots": {
     "mainArticle": {
-      "promptText": "The original prompt used to generate the main article...",
       "llmOutputs": {
-        "chatgpt": { "title": "ChatGPT's Take on Today", "text": "Detailed text generated by ChatGPT for the main article..." },
-        "gemini":  { "title": "Gemini's Perspective for Today",  "text": "In-depth analysis by Gemini for the main article..." },
-        "claude":  { "title": "Claude's Musings on Current Events", "text": "Thoughtful content from Claude for the main article..." }
+        "gpt-4": {"title": "...", "text": "..."},
+        "claude-3-5-sonnet": {"title": "...", "text": "..."}
       },
       "imageOutputs": {
-        "imagen": { "imageUrl": "static_assets/images/main_imagen.jpg", "imageAlt": "Main article image by Imagen" },
-        "stablediffusion": { "imageUrl": "static_assets/images/main_sd.jpg", "imageAlt": "Main article image by Stable Diffusion" },
-        "dalle": { "imageUrl": "static_assets/images/main_dalle.jpg", "imageAlt": "Main article image by DALL-E" }
+        "dall-e-3": {"imageUrl": "img_01_dall-e-3_512.png", "imageAlt": "..."}
       }
-    },
-    "comparisonArticle": {
-       "llmOutputs": { /* ... similar structure ... */ },
-       "imageOutputs": { /* ... similar structure ... */ }
-    },
-    "llmStory": {
-      "llmOutputs": {
-        "chatgpt": { "content": "A short narrative by ChatGPT." },
-        "gemini": { "content": "An intriguing tale spun by Gemini." }
-      }
-    },
-    "joke": {
-      "llmOutputs": {
-        "chatgpt": { "content": "Why did the AI cross the road? To optimize the path!" },
-        "gemini": { "content": "What's an AI's favorite music? Algo-rhythm and blues!" }
-      }
-    },
-    "authorBio": {
-        "text": "<p>Our esteemed editor, a sophisticated language model, works tirelessly... </p>"
-    },
-    "advertisement1": {
-      "imageOutputs": {
-        "imagen": { "imageUrl": "static_assets/images/ad1_imagen.jpg", "imageAlt": "Advertisement 1 by Imagen" },
-        "stablediffusion": { "imageUrl": "static_assets/images/ad1_sd.jpg", "imageAlt": "Advertisement 1 by Stable Diffusion" },
-        "dalle": { "imageUrl": "static_assets/images/ad1_dalle.jpg", "imageAlt": "Advertisement 1 by DALL-E" }
-      }
-    },
-    "advertisement2": {
-      "imageOutputs": { /* ... similar structure ... */ }
-    },
-    "advertisement3": {
-      "imageOutputs": { /* ... similar structure ... */ }
-    },
-    "advertisement4": {
-      "imageOutputs": { /* ... similar structure ... */ }
     }
-    // ... other content slots similarly structured ...
   }
 }
 ```
 
-## Prerequisites
+## 🚀 Deployment
 
-*   **A modern web browser:** Chrome, Firefox, Safari, Edge, etc., that supports HTML5, CSS3, and modern JavaScript (ES6+).
-*   **Web server (recommended for full functionality):**
-    *   While `index.html` can be opened directly as a local file (`file:///...`), the dynamic content fetching via `main.js` (using `fetch` to `/content/...`) will likely fail due to Cross-Origin Resource Sharing (CORS) security restrictions in most browsers.
-    *   To properly test the dynamic content loading, serve the `frontend` directory using a local web server (e.g., Python's `http.server`, Node.js `live-server` or `http-server`, Apache, Nginx).
-*   **Dynamic Content Endpoint:** For full functionality, the backend service providing the `todays_paper.json` at the `/content/YYYY/MM/DD/` path must be operational and accessible to the frontend. The JSON file must conform to the structure expected by `main.js` (see "JSON Data Structure" section).
-*   **js-datepicker Library:** The `js-datepicker` date picker library files (`datepicker.min.css`, `datepicker.min.js`) are included locally in `frontend/static_assets/vendor/js-datepicker/`.
+### **Terraform Automation**
+The frontend is fully automated via Terraform in [`../terraform/frontend/`](../terraform/frontend/):
+- **S3 Bucket**: Static website hosting with public read access
+- **CloudFront**: CDN distribution with custom domain
+- **Route 53**: DNS configuration for custom domain
+- **SSL Certificate**: ACM certificate for HTTPS
+- **Asset Upload**: Automatic upload of all frontend files
 
-## How to Test
+### **Deployment Commands**
+```bash
+cd terraform/frontend
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your domain settings
+terraform init
+terraform plan
+terraform apply
+```
 
-1.  **Basic Structure & Styling (Offline):**
-    *   Navigate to the `frontend` directory.
-    *   Open `index.html` directly in your web browser.
-    *   Verify the page layout, fonts, static elements, date picker, and radio buttons. Placeholder images `static_assets/images/placeholder_article.png` and `static_assets/images/placeholder_ad.png` should be visible where images are expected.
-    *   Note: Dynamic content will likely show "Loading..." or placeholders, and console errors due to failed fetch are expected.
+### **Manual Asset Upload**
+If needed, assets can be manually uploaded:
+```bash
+aws s3 sync frontend/ s3://your-bucket-name/ \
+  --exclude "README.md" \
+  --cache-control "max-age=86400"
+```
 
-2.  **Dynamic Content Loading (Online/With Server & Endpoint):**
-    *   Serve the `frontend` directory using a local web server.
-    *   Ensure the content endpoint (`/content/YYYY/MM/DD/todays_paper.json`) is active and returns valid JSON conforming to the described structure.
-    *   **Initial Load:**
-        *   Open the page. Verify content for the current date loads.
-        *   Check that the `js-datepicker` input field displays the current date in YYYY-MM-DD format.
-        *   Confirm radio buttons (LLM & ImageGen) are set to their default values (either the first option in the HTML, or as specified by `defaultLLM`/`defaultImageGen` in the fetched day's metadata).
-    *   **Date Selection:**
-        *   Select a different date using the `js-datepicker`.
-        *   Verify new content (if available for that date) is fetched and displayed.
-        *   Confirm radio buttons update to the new date's default model selections from its metadata.
-    *   **LLM Radio Buttons:**
-        *   Change the selected LLM (e.g., from ChatGPT to Gemini).
-        *   Verify that all text-based content sections (titles, articles, jokes, LLM stories) update to reflect the new LLM's output, using the currently loaded daily data. Images should remain unchanged.
-    *   **Image Generator Radio Buttons:**
-        *   Change the selected Image Generator (e.g., from Imagen to DALL-E).
-        *   Verify that all images on the page (e.g., main article image, comparison article image) update to reflect the new Image Generator's output, using the currently loaded daily data. Text content should remain unchanged.
-    *   **Selection Persistence & Defaults:**
-        *   Manually select a non-default LLM and ImageGen.
-        *   Change the date using the date picker. Verify the new content loads, and the radio buttons reset to the *new date's default* model selections (as defined in its metadata).
-    *   **Console Checks:** Monitor the browser's developer console for errors (fetch errors, JSON parsing errors, rendering errors) and informative `console.log` messages from `main.js`.
+## 🔧 Development
 
-3.  **Responsiveness:**
-    *   Resize the browser window to different widths.
-    *   Verify that the layout, including the controls area with the date picker and radio buttons, adjusts as expected.
+### **Local Testing**
+```bash
+# Serve locally for development
+cd frontend
+python -m http.server 8000
+# Visit http://localhost:8000
+```
 
-## How to Debug
+### **Content Testing**
+To test with live content, you need:
+1. Generated content in S3 (run backend pipeline)
+2. Proper CORS configuration on S3 bucket
+3. Valid date parameter in URL: `?date=2025-01-15`
 
-*   **Browser Developer Tools:**
-    *   **Console:** Check for JavaScript errors, `console.log()` messages (e.g., selected date from picker, chosen LLM, chosen ImageGen, fetched `currentPaperData`), and network request failures.
-    *   **Network Tab:** Inspect the `fetch` request for `todays_paper.json`. Verify the request URL (is the date correct?), status code, and the response payload (is it valid JSON matching the expected structure outlined above?).
-    *   **Elements Tab (Inspector):** Inspect HTML structure, check if elements have content, and verify CSS.
-*   **`console.log()` in `main.js`:**
-    *   Verify `dateString` in `fetchContentForDate` is correct.
-    *   Inspect `currentPaperData` after a successful fetch.
-    *   Log `selectedLLM` and `selectedImageGen` at the start of `renderContent()` to ensure these reflect the current radio button states.
-    *   When accessing nested data (e.g., `slots.mainArticle?.llmOutputs?.[selectedLLM]`), ensure the keys (`mainArticle`, `llmOutputs`, the value of `selectedLLM` like "chatgpt") exactly match those in your JSON file. Case sensitivity is critical.
-*   **Mock Data for `todays_paper.json`:**
-    *   Create local `todays_paper_example.json` files (perhaps one for "today" and another for a different date) in a structure like `frontend/content/YYYY/MM/DD/todays_paper.json` relative to your local server's document root. Or, temporarily modify the `contentUrl` in `main.js` to point to a fixed local test file path.
-    *   This allows testing content parsing, rendering logic, and model switching independently of a live backend.
-*   **Validate HTML and CSS:** Use online validators for syntax checks.
+### **Model Selection Testing**
+- Test all provider radio buttons work correctly
+- Verify model ID values match backend expectations
+- Ensure proper fallback behavior for missing models
 
-This updated README should provide a comprehensive guide for understanding and working with the enhanced frontend.
+## 📊 Performance
+
+### **Optimization Features**
+- **CDN Caching**: CloudFront caches static assets globally
+- **Image Optimization**: Progressive JPEG and PNG compression
+- **Minification**: CSS and JS assets are minimized
+- **Lazy Loading**: Images load progressively as needed
+- **Caching Headers**: Appropriate cache control for different asset types
+
+### **Performance Metrics**
+- **First Contentful Paint**: < 2 seconds
+- **Largest Contentful Paint**: < 3 seconds
+- **Time to Interactive**: < 4 seconds
+- **Cumulative Layout Shift**: < 0.1
+
+## 🔐 Security
+
+### **Content Security**
+- **HTTPS Only**: All content served over encrypted connections
+- **CORS Configuration**: Proper cross-origin resource sharing setup
+- **Content Validation**: JavaScript validates content structure
+- **XSS Prevention**: HTML content is properly escaped
+
+### **Access Control**
+- **S3 Bucket Policy**: Read-only public access for website content
+- **CloudFront Security**: Security headers and origin access identity
+- **Domain Security**: Proper DNS and certificate configuration
+
+## 🐛 Troubleshooting
+
+### **Common Issues**
+
+**Content Not Loading**
+- Check S3 bucket permissions and CORS configuration
+- Verify content exists for the selected date
+- Check browser console for JavaScript errors
+
+**Images Not Displaying**
+- Verify image files exist in S3 with correct naming
+- Check image URLs in paper_content.json
+- Ensure proper Content-Type headers
+
+**Date Picker Issues**
+- Verify date format (YYYY-MM-DD)
+- Check URL parameter format
+- Ensure date picker library is loaded
+
+**Model Selection Not Working**
+- Verify radio button values match backend model IDs
+- Check JavaScript model selection logic
+- Ensure proper form handling
+
+### **Development Tools**
+```bash
+# Check S3 content
+aws s3 ls s3://your-bucket/static_assets/content/website/2025/01/15/
+
+# Test CORS configuration
+curl -H "Origin: https://craicgpt.ie" \
+  -H "Access-Control-Request-Method: GET" \
+  -H "Access-Control-Request-Headers: Content-Type" \
+  -X OPTIONS \
+  https://your-bucket.s3.amazonaws.com/
+
+# Monitor CloudFront logs
+aws logs filter-log-events \
+  --log-group-name /aws/cloudfront/distribution-id
+```
+
+## 🤝 Contributing
+
+### **Frontend Contributions Welcome**
+- **UI/UX Improvements**: Enhanced newspaper design and user experience
+- **Mobile Optimization**: Better responsive design for mobile devices
+- **Accessibility**: WCAG compliance and screen reader support
+- **Performance**: Further optimization of loading and rendering
+- **Features**: Additional functionality like content sharing or printing
+
+### **Development Guidelines**
+- Follow semantic HTML structure
+- Use CSS Grid and Flexbox for layouts
+- Write vanilla JavaScript (no framework dependencies)
+- Optimize images and assets for web delivery
+- Test across multiple browsers and devices
+
+**Static Website - Production Ready** 🌐

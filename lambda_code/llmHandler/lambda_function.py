@@ -1,89 +1,112 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
-#  llm_runner.py – CraicGPT Enhanced LLM Text Generation Pipeline
-# ╟──────────────────────────────────────────────────────────────────────────╢
-#  PURPOSE: Generate text content for CraicGPT newspaper with date range support
-#  
-#  NEW FEATURES:
-#    • Date range support (start_date to end_date)
-#    • Improved error handling and resilience
-#    • Enhanced token budget tracking
-#    • Better logging and debugging
-#    • Maintains backward compatibility
-#
-#  USAGE:
-#    Single date: {"date": "2025-01-15"}
-#    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
-#    Custom prompts: {"dates": [...], "prompt_ids": [...], "model_ids": [...]}
-#
-#  PROMPT-ID → NEWSPAPER SLOT MAP:
-#      llm_01 → mainArticle        {title, text}
-#      llm_02 → comparisonArticle  {title, text}
-#      llm_03 → llmStory           {content}
-#      llm_04 → joke               {content}
-#
-#  MODEL SUPPORT:
-#      • Anthropic Claude (chat)           • Mistral / Mixtral (chat)
-#      • Amazon Titan Text                 • Cohere Command-R
-#      • AI-21 Jurassic-2                  • Generic fallback
-#      • Embedding models skipped by default (set ALLOW_EMBED_MODELS=true)
-#
-#  RESILIENCE:
-#      • Exponential back-off on ThrottlingException (up to 6 retries)
-#      • Fallback schema on ValidationException
-#      • Comprehensive error logging
-#      • Token usage tracking per minute
-#
-#  PERMISSIONS:
-#      s3:GetObject, s3:PutObject  – PROMPT_BUCKET
-#      bedrock:InvokeModel        – each model
-#
-#  RUNTIME: Python 3.12   •   AWS Region default: eu-west-1
-# ╚══════════════════════════════════════════════════════════════════════════╝
-import os, json, re, time, random, logging
+#!/usr/bin/env python3
+"""
+CraicGPT Multi-Provider LLM Text Generation Handler
+==================================================
 
-# Conditional import for OpenAI support (not required for core functionality)
+PURPOSE:
+Generate text content for CraicGPT newspaper using multiple model providers
+(AWS Bedrock, OpenAI, Anthropic Direct, Google Gemini) with secrets management.
+
+ARCHITECTURE:
+- Single handler supporting all model providers
+- AWS Secrets Manager for secure API key retrieval
+- Backward compatible with existing paper_content.json format
+- Atomic saves to prevent concurrent modification issues
+- Comprehensive error handling and retry logic
+
+SUPPORTED PROVIDERS:
+- AWS Bedrock: Claude, Titan Text (IAM authentication)
+- OpenAI: GPT-4, O3 Mini (API key via Secrets Manager)
+- Anthropic Direct: Claude 3.5 Sonnet (API key via Secrets Manager)
+- Google Gemini: Gemini Pro, Ultra (API key via Secrets Manager)
+
+USAGE:
+    Single date: {"date": "2025-01-15"}
+    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+    Worker mode: {"date": "2025-01-15", "model_id": "gpt-4", "worker_mode": true}
+
+PROMPT-ID → NEWSPAPER SLOT MAP:
+    llm_01 → mainArticle        {title, text}
+    llm_02 → comparisonArticle  {title, text}
+    llm_03 → llmStory           {content}
+    llm_04 → joke               {content}
+    llm_05 → authorBio          {content}
+
+ENVIRONMENT VARIABLES:
+- PROMPT_BUCKET: S3 bucket for prompt and content storage
+- OPENAI_SECRET_NAME: AWS Secrets Manager secret name for OpenAI API key
+- ANTHROPIC_SECRET_NAME: AWS Secrets Manager secret name for Anthropic API key
+- GOOGLE_SECRET_NAME: AWS Secrets Manager secret name for Google API key
+- AWS_REGION: AWS region for services (default: eu-west-1)
+
+PERMISSIONS REQUIRED:
+- s3:GetObject, s3:PutObject on PROMPT_BUCKET
+- bedrock:InvokeModel for Bedrock models
+- secretsmanager:GetSecretValue for API key secrets
+
+RUNTIME: Python 3.12
+"""
+import os
+import json
+import re
+import time
+import random
+import logging
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
+from typing import Optional
+from dataclasses import dataclass
+from enum import Enum
+
+# Multi-provider support imports
 try:
     import requests
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
-    # requests is only needed for OpenAI API calls, which are not implemented yet
-import boto3, botocore.exceptions
-from datetime import datetime, date, timedelta
-from zoneinfo import ZoneInfo
-from typing import List, Dict, Any, Optional, Union
+    logging.warning("requests not available - External API providers disabled")
 
-# ─── Environment & AWS clients ──────────────────────────────────────────
+import boto3
+import botocore.exceptions
+from botocore.config import Config
+
+# =================================
+# CONFIGURATION AND CONSTANTS
+# =================================
+
+# S3 and AWS configuration
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
+PROMPT_ROOT = "static_assets/content/prompts"
+PAPER_CONTENT_DIR = "static_assets/content/website"
+AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
 
-PROMPT_ROOT         = "static_assets/content/prompts"
-PAPER_CONTENT_DIR = "static_assets/content/website" # Renamed from WEBSITE_ROOT
+# Secrets Manager configuration for secure API key retrieval
+OPENAI_SECRET_NAME = os.getenv("OPENAI_SECRET_NAME", "craicgpt/openai-api-key")
+ANTHROPIC_SECRET_NAME = os.getenv("ANTHROPIC_SECRET_NAME", "craicgpt/anthropic-api-key")
+GOOGLE_SECRET_NAME = os.getenv("GOOGLE_SECRET_NAME", "craicgpt/google-api-key")
 
-BEDROCK_MODELS = [
-    m.strip() for m in os.getenv(
-        "BEDROCK_MODEL_IDS",
-        "anthropic.claude-3-sonnet-20240229-v1:0"
-    ).split(",") if m.strip()
+# Model configuration
+ALLOW_EMBED = os.getenv("ALLOW_EMBED_MODELS", "").lower() == "true"
+DEFAULT_MODELS = [
+    "anthropic.claude-3-sonnet-20240229-v1:0",  # Bedrock
+    "gpt-4",  # OpenAI
+    "claude-3-5-sonnet-20241022",  # Anthropic Direct
+    "gemini-pro"  # Google
 ]
 
-OPENAI_MODELS = [
-    m.strip() for m in os.getenv(
-        "OPENAI_MODEL_IDS",
-        ""
-    ).split(",") if m.strip()
-]
+# AWS clients with proper configuration
+config = Config(
+    region_name=AWS_REGION,
+    retries={'max_attempts': 3, 'mode': 'adaptive'},
+    max_pool_connections=50
+)
 
-DEFAULT_MODELS = BEDROCK_MODELS + OPENAI_MODELS
-AWS_REGION   = os.getenv("AWS_REGION", "eu-west-1")
-ALLOW_EMBED  = os.getenv("ALLOW_EMBED_MODELS", "").lower() == "true"
-OPENAI_API_KEY_SECRET_ARN = os.getenv("OPENAI_API_KEY_SECRET_ARN")
+s3 = boto3.client("s3")
+bedrock = boto3.client("bedrock-runtime", region_name=AWS_REGION, config=config)
+secrets = boto3.client("secretsmanager", region_name=AWS_REGION)
 
-s3       = boto3.client("s3")
-bedrock  = boto3.client("bedrock-runtime", region_name=AWS_REGION)
-secrets  = boto3.client("secretsmanager", region_name=AWS_REGION)
-
-# Cache for OpenAI API key
-_openai_api_key = None
+# API key cache for performance
+_api_key_cache = {}
 
 slug = lambda m: re.sub(r'[:.\/]', '_', m)       # safe filename helper
 
@@ -183,63 +206,444 @@ PROMPT_TO_SLOT = {
     "llm_05": ("authorBio",          "content")
 }
 
-# ─── Get OpenAI API key from AWS Secrets Manager ──────────────────────
-def get_openai_api_key() -> str:
-    """Get OpenAI API key from AWS Secrets Manager with caching"""
-    global _openai_api_key
+# =================================
+# MULTI-PROVIDER SUPPORT CLASSES
+# =================================
+
+class ModelProvider(Enum):
+    """Supported model providers"""
+    AWS_BEDROCK = "bedrock"
+    OPENAI = "openai"
+    ANTHROPIC_DIRECT = "anthropic"
+    GOOGLE_GEMINI = "gemini"
+
+@dataclass
+class ModelResponse:
+    """Standardized response format for all providers"""
+    success: bool
+    content: str
+    model_id: str
+    provider: str
+    tokens_used: Optional[int] = None
+    processing_time_ms: Optional[int] = None
+    finish_reason: Optional[str] = None
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+
+# =================================
+# SECRETS MANAGEMENT
+# =================================
+
+def get_api_key(secret_name: str, cache_key: str) -> str:
+    """Get API key from AWS Secrets Manager with caching"""
+    global _api_key_cache
     
-    if _openai_api_key is not None:
-        return _openai_api_key
-    
-    if not OPENAI_API_KEY_SECRET_ARN:
-        raise ValueError("OPENAI_API_KEY_SECRET_ARN environment variable not set")
+    if cache_key in _api_key_cache:
+        return _api_key_cache[cache_key]
     
     try:
-        response = secrets.get_secret_value(SecretId=OPENAI_API_KEY_SECRET_ARN)
+        response = secrets.get_secret_value(SecretId=secret_name)
         secret_data = json.loads(response['SecretString'])
-        _openai_api_key = secret_data.get('api_key') or secret_data.get('OPENAI_API_KEY')
         
-        if not _openai_api_key:
-            raise ValueError("OpenAI API key not found in secret")
-            
-        return _openai_api_key
+        # Try multiple possible key names
+        api_key = (secret_data.get('api_key') or 
+                  secret_data.get('API_KEY') or 
+                  secret_data.get('key') or 
+                  secret_data.get(cache_key.upper() + '_API_KEY'))
+        
+        if not api_key:
+            raise ValueError(f"API key not found in secret {secret_name}")
+        
+        _api_key_cache[cache_key] = api_key
+        return api_key
+        
     except Exception as e:
-        log.error("Failed to retrieve OpenAI API key: %s", e)
+        log.error(f"Failed to retrieve API key from {secret_name}: {e}")
         raise
 
-# ─── Request body builder – family-aware schemas ────────────────────────
-def build_body(model_id: str, prompt: str, *, chat: bool) -> str:
-    # OpenAI models (gpt-4, gpt-3.5-turbo, etc.)
-    if model_id.startswith("gpt-") or model_id in ["gpt-4", "gpt-3.5-turbo", "gpt-4-turbo"]:
-        return json.dumps({
-            "model": model_id,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": "Generate the requested content."}
-            ],
-            "max_tokens": 800,
-            "temperature": 0.7,
-            "top_p": 0.9
-        })
+def get_openai_api_key() -> str:
+    """Get OpenAI API key from AWS Secrets Manager"""
+    return get_api_key(OPENAI_SECRET_NAME, "openai")
+
+def get_anthropic_api_key() -> str:
+    """Get Anthropic API key from AWS Secrets Manager"""
+    return get_api_key(ANTHROPIC_SECRET_NAME, "anthropic")
+
+def get_google_api_key() -> str:
+    """Get Google API key from AWS Secrets Manager"""
+    return get_api_key(GOOGLE_SECRET_NAME, "google")
+
+# =================================
+# MULTI-PROVIDER MODEL INVOCATION
+# =================================
+
+def determine_provider(model_id: str) -> ModelProvider:
+    """Determine which provider to use based on model ID"""
+    if model_id.startswith(("gpt-", "o3-", "text-davinci", "dall-e")):
+        return ModelProvider.OPENAI
+    elif model_id.startswith(("claude-3-5", "claude-3-opus")) and not model_id.startswith("anthropic."):
+        return ModelProvider.ANTHROPIC_DIRECT
+    elif model_id.startswith(("gemini-", "palm-")):
+        return ModelProvider.GOOGLE_GEMINI
+    else:
+        return ModelProvider.AWS_BEDROCK
+
+def invoke_bedrock_model(model_id: str, prompt: str) -> ModelResponse:
+    """Invoke AWS Bedrock model with proper error handling"""
+    start_time = time.time()
     
-    # Bedrock models
-    if chat:
+    try:
+        # Build request body based on model family
         if model_id.startswith("anthropic."):
-            return json.dumps({
+            body = json.dumps({
                 "anthropic_version": "bedrock-2023-05-31",
                 "system": prompt,
                 "messages": [{ "role": "user", "content": "Generate." }],
-                "max_tokens": 800, "temperature": 0.7, "top_p": 0.9
+                "max_tokens": 800,
+                "temperature": 0.7,
+                "top_p": 0.9
             })
-        if model_id.startswith("mistral."):
-            return json.dumps({
+        elif model_id.startswith("amazon.titan-text"):
+            body = json.dumps({
+                "inputText": prompt,
+                "textGenerationConfig": {
+                    "maxTokenCount": 512,
+                    "temperature": 0.7,
+                    "topP": 0.9,
+                    "stopSequences": []
+                }
+            })
+        elif model_id.startswith("mistral."):
+            body = json.dumps({
                 "messages": [
                     { "role": "system", "content": prompt },
-                    { "role": "user",   "content": "Generate." }
+                    { "role": "user", "content": "Generate." }
                 ],
-                "max_tokens": 800, "temperature": 0.7, "top_p": 0.9
+                "max_tokens": 800,
+                "temperature": 0.7,
+                "top_p": 0.9
             })
-    if model_id.startswith("amazon.titan-text"):
+        else:
+            # Generic fallback
+            body = json.dumps({ "prompt": prompt })
+        
+        # Invoke with retry logic
+        response = safe_invoke(model_id, body, "bedrock")
+        payload = json.loads(response["body"].read())
+        
+        # Extract content based on model type
+        if "content" in payload:
+            content = payload["content"][0]["text"]
+        elif "results" in payload:
+            content = payload["results"][0]["outputText"]
+        else:
+            content = str(payload)
+        
+        # Extract usage info
+        usage = payload.get("usage", {})
+        tokens_used = usage.get("output_tokens", 0)
+        
+        return ModelResponse(
+            success=True,
+            content=content.strip(),
+            model_id=model_id,
+            provider="bedrock",
+            tokens_used=tokens_used,
+            processing_time_ms=int((time.time() - start_time) * 1000),
+            finish_reason="completed"
+        )
+        
+    except Exception as e:
+        log.error(f"Bedrock model {model_id} error: {e}")
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="bedrock",
+            error_message=str(e),
+            error_code="BEDROCK_ERROR"
+        )
+
+def invoke_openai_model(model_id: str, prompt: str) -> ModelResponse:
+    """Invoke OpenAI model via REST API"""
+    if not HAS_REQUESTS:
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="openai",
+            error_message="requests library not available",
+            error_code="MISSING_DEPENDENCY"
+        )
+    
+    start_time = time.time()
+    
+    try:
+        api_key = get_openai_api_key()
+        
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        request_body = {
+            "model": model_id,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 800,
+            "top_p": 0.9
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=request_body,
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            content = response_data['choices'][0]['message']['content']
+            tokens_used = response_data['usage']['total_tokens']
+            
+            return ModelResponse(
+                success=True,
+                content=content.strip(),
+                model_id=model_id,
+                provider="openai",
+                tokens_used=tokens_used,
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                finish_reason=response_data['choices'][0]['finish_reason']
+            )
+        else:
+            error_data = response.json() if response.content else {}
+            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            
+            return ModelResponse(
+                success=False,
+                content="",
+                model_id=model_id,
+                provider="openai",
+                error_message=error_msg,
+                error_code=f"OPENAI_HTTP_{response.status_code}"
+            )
+            
+    except Exception as e:
+        log.error(f"OpenAI model {model_id} error: {e}")
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="openai",
+            error_message=str(e),
+            error_code="OPENAI_ERROR"
+        )
+
+def invoke_anthropic_model(model_id: str, prompt: str) -> ModelResponse:
+    """Invoke Anthropic model via direct API"""
+    if not HAS_REQUESTS:
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="anthropic",
+            error_message="requests library not available",
+            error_code="MISSING_DEPENDENCY"
+        )
+    
+    start_time = time.time()
+    
+    try:
+        api_key = get_anthropic_api_key()
+        
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        
+        request_body = {
+            "model": model_id,
+            "max_tokens": 800,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }
+        
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers,
+            json=request_body,
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            content = response_data['content'][0]['text']
+            tokens_used = response_data['usage']['output_tokens']
+            
+            return ModelResponse(
+                success=True,
+                content=content.strip(),
+                model_id=model_id,
+                provider="anthropic",
+                tokens_used=tokens_used,
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                finish_reason=response_data.get('stop_reason', 'end_turn')
+            )
+        else:
+            error_data = response.json() if response.content else {}
+            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            
+            return ModelResponse(
+                success=False,
+                content="",
+                model_id=model_id,
+                provider="anthropic",
+                error_message=error_msg,
+                error_code=f"ANTHROPIC_HTTP_{response.status_code}"
+            )
+            
+    except Exception as e:
+        log.error(f"Anthropic model {model_id} error: {e}")
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="anthropic",
+            error_message=str(e),
+            error_code="ANTHROPIC_ERROR"
+        )
+
+def invoke_gemini_model(model_id: str, prompt: str) -> ModelResponse:
+    """Invoke Google Gemini model via REST API"""
+    if not HAS_REQUESTS:
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="gemini",
+            error_message="requests library not available",
+            error_code="MISSING_DEPENDENCY"
+        )
+    
+    start_time = time.time()
+    
+    try:
+        api_key = get_google_api_key()
+        
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        request_body = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "topP": 0.9,
+                "topK": 40,
+                "maxOutputTokens": 800
+            }
+        }
+        
+        response = requests.post(
+            url,
+            headers=headers,
+            json=request_body,
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            content = response_data['candidates'][0]['content']['parts'][0]['text']
+            
+            # Gemini doesn't always provide token counts
+            tokens_used = None
+            usage_metadata = response_data.get('usageMetadata')
+            if usage_metadata:
+                tokens_used = usage_metadata.get('totalTokenCount')
+            
+            return ModelResponse(
+                success=True,
+                content=content.strip(),
+                model_id=model_id,
+                provider="gemini",
+                tokens_used=tokens_used,
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                finish_reason=response_data['candidates'][0].get('finishReason', 'STOP')
+            )
+        else:
+            error_data = response.json() if response.content else {}
+            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            
+            return ModelResponse(
+                success=False,
+                content="",
+                model_id=model_id,
+                provider="gemini",
+                error_message=error_msg,
+                error_code=f"GEMINI_HTTP_{response.status_code}"
+            )
+            
+    except Exception as e:
+        log.error(f"Gemini model {model_id} error: {e}")
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="gemini",
+            error_message=str(e),
+            error_code="GEMINI_ERROR"
+        )
+
+def invoke_model(model_id: str, prompt: str) -> ModelResponse:
+    """Unified model invocation supporting all providers"""
+    provider = determine_provider(model_id)
+    
+    if provider == ModelProvider.AWS_BEDROCK:
+        return invoke_bedrock_model(model_id, prompt)
+    elif provider == ModelProvider.OPENAI:
+        return invoke_openai_model(model_id, prompt)
+    elif provider == ModelProvider.ANTHROPIC_DIRECT:
+        return invoke_anthropic_model(model_id, prompt)
+    elif provider == ModelProvider.GOOGLE_GEMINI:
+        return invoke_gemini_model(model_id, prompt)
+    else:
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider="unknown",
+            error_message=f"Unsupported provider for model: {model_id}",
+            error_code="UNSUPPORTED_PROVIDER"
+        )
+
+# Keep original build_body function for backward compatibility with legacy Bedrock invocation
+def build_body(model_id: str, prompt: str, *, chat: bool) -> str:
+    """Legacy function for backward compatibility with existing safe_invoke calls"""
+    if model_id.startswith("anthropic."):
+        return json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "system": prompt,
+            "messages": [{ "role": "user", "content": "Generate." }],
+            "max_tokens": 800, "temperature": 0.7, "top_p": 0.9
+        })
+    elif model_id.startswith("amazon.titan-text"):
         return json.dumps({
             "inputText": prompt,
             "textGenerationConfig": {
@@ -249,19 +653,25 @@ def build_body(model_id: str, prompt: str, *, chat: bool) -> str:
                 "stopSequences": []
             }
         })
-    if model_id.startswith("cohere."):
-        return json.dumps({ "prompt": prompt, "max_tokens": 800 })
-    if model_id.startswith("ai21."):
-        return json.dumps({ "prompt": prompt, "maxTokens": 800 })
-    return json.dumps({ "prompt": prompt })  # generic fallback
+    elif model_id.startswith("mistral."):
+        return json.dumps({
+            "messages": [
+                { "role": "system", "content": prompt },
+                { "role": "user",   "content": "Generate." }
+            ],
+            "max_tokens": 800, "temperature": 0.7, "top_p": 0.9
+        })
+    else:
+        return json.dumps({ "prompt": prompt })
 
-# ─── Extract generated text from diverse payloads ───────────────────────
+# Legacy extract_text function for backward compatibility
 def extract_text(model_id: str, payload: dict) -> str:
+    """Legacy function for backward compatibility with existing Bedrock response parsing"""
     if "content"  in payload: return payload["content"][0]["text"].strip()
     if "message"  in payload: return payload["message"]["content"].strip()
     if "messages" in payload: return payload["messages"][0]["content"].strip()
 
-    if "results" in payload:                 # Cohere / misc OSS wrappers
+    if "results" in payload:
         r0 = payload["results"][0]
         return (r0.get("text") or r0.get("generation") or
                 r0.get("outputText") or r0.get("output") or
@@ -444,29 +854,22 @@ def lambda_handler(event, _ctx):
                             else:
                                 log.info(f"🆕 New file - generating all content for {model_id} on {pid} for {day}")
                             
-                            chat_cap  = model_id.startswith(("anthropic.", "mistral."))
-                            body_prim = build_body(model_id, prompt_txt, chat=chat_cap)
-                            body_fbk  = build_body(model_id, prompt_txt, chat=False)
-
-                            try:
-                                resp = safe_invoke(model_id, body_prim,  f"{pid}-primary")
-                            except botocore.exceptions.ClientError as ve:
-                                if ve.response["Error"]["Code"] != "ValidationException":
-                                    raise
-                                log.warning("⚠️  %s ValidationException – retry fallback", model_id)
-                                resp = safe_invoke(model_id, body_fbk, f"{pid}-fallback")
-
-                            payload = json.loads(resp["body"].read())
-                            text    = extract_text(model_id, payload)
-
-                            # ── rolling token-budget logging ───────────────────
-                            usage = payload.get("usage") or payload.get("usage_metadata") or {}
-                            out_tok = (usage.get("output_tokens") or
-                                       usage.get("generated_tokens") or 0)
-                            _tok_total += out_tok
-                            if time.time() - _tok_start >= 60:
-                                log.info("📊  Output-tokens last 60 s: %d", _tok_total)
-                                _tok_total, _tok_start = 0, time.time()
+                            # Use unified model invocation
+                            response = invoke_model(model_id, prompt_txt)
+                            
+                            if not response.success:
+                                log.error(f"❌ Model {model_id} failed: {response.error_message}")
+                                result_map[day][pid][model_id] = f"ERROR: {response.error_message}"
+                                continue
+                            
+                            text = response.content
+                            
+                            # Token usage tracking
+                            if response.tokens_used:
+                                _tok_total += response.tokens_used
+                                if time.time() - _tok_start >= 60:
+                                    log.info("📊  Output-tokens last 60 s: %d", _tok_total)
+                                    _tok_total, _tok_start = 0, time.time()
 
                             raw_key = f"results/{day}/{pid}/{slug(model_id)}.txt"
                             s3_put(raw_key, text)

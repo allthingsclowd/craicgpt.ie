@@ -66,9 +66,11 @@ PROMPT_GENERATOR_FUNCTION = os.environ.get("PROMPT_GENERATOR_FUNCTION", "craicgp
 MAX_CONCURRENT_WORKERS = int(os.environ.get("MAX_CONCURRENT_WORKERS", "1"))  # Sequential processing
 
 # AWS Lambda account-wide concurrency limits
-MAX_ACCOUNT_CONCURRENT = int(os.environ.get("MAX_ACCOUNT_CONCURRENT", "9"))  # Stay under 10 limit
-CONCURRENCY_CHECK_ENABLED = os.environ.get("CONCURRENCY_CHECK_ENABLED", "false").lower() == "true"  # Disabled by default for speed
-CONCURRENCY_BACKOFF_DELAY = float(os.environ.get("CONCURRENCY_BACKOFF_DELAY", "10.0"))  # Reduced from 30s to 10s
+# CRITICAL: User requirement - maximum 10 Lambda functions including orchestrator
+# Since orchestrator counts as 1, we limit workers to 9 concurrent executions
+MAX_ACCOUNT_CONCURRENT = int(os.environ.get("MAX_ACCOUNT_CONCURRENT", "9"))  # Stay under 10 limit (orchestrator + 9 workers = 10 total)
+CONCURRENCY_CHECK_ENABLED = os.environ.get("CONCURRENCY_CHECK_ENABLED", "true").lower() == "true"  # ENABLED by default for 10 Lambda limit compliance
+CONCURRENCY_BACKOFF_DELAY = float(os.environ.get("CONCURRENCY_BACKOFF_DELAY", "5.0"))  # Reduced delay for faster response
 
 # Model-specific throttling configuration (requests per minute) - DISABLED BY DEFAULT
 MODEL_RATE_LIMITING_ENABLED = os.environ.get("MODEL_RATE_LIMITING_ENABLED", "false").lower() == "true"
@@ -696,7 +698,8 @@ def lambda_handler(event, context):
         
         # Log concurrency configuration
         log.info(f"🚦 Performance configuration:")
-        log.info(f"   Max account concurrent: {MAX_ACCOUNT_CONCURRENT}")
+        log.info(f"   CRITICAL: 10 Lambda limit compliance - orchestrator (1) + workers ({MAX_ACCOUNT_CONCURRENT}) = {MAX_ACCOUNT_CONCURRENT + 1} total")
+        log.info(f"   Max worker concurrent: {MAX_ACCOUNT_CONCURRENT}")
         log.info(f"   Concurrency checking: {'enabled' if CONCURRENCY_CHECK_ENABLED else 'disabled'}")
         log.info(f"   Model rate limiting: {'enabled' if MODEL_RATE_LIMITING_ENABLED else 'disabled'}")
         log.info(f"   Backoff delay (when throttled): {CONCURRENCY_BACKOFF_DELAY}s")

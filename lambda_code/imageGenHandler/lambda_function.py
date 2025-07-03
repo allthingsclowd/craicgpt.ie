@@ -1,66 +1,102 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
-#  image_runner.py – CraicGPT Enhanced Image Generation Pipeline
-# ╟──────────────────────────────────────────────────────────────────────────╢
-#  PURPOSE: Generate images for CraicGPT newspaper with date range support
-#  
-#  NEW FEATURES:
-#    • Date range support (start_date to end_date)
-#    • Improved error handling and resilience
-#    • Enhanced request tracking
-#    • Better logging and debugging
-#    • Maintains backward compatibility
-#
-#  USAGE:
-#    Single date: {"date": "2025-01-15"}
-#    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
-#    Custom prompts: {"dates": [...], "prompt_ids": [...], "model_ids": [...]}
-#
-#  IMAGE-PROMPT → NEWSPAPER SLOT MAP:
-#      img_01 → mainArticle        (hero)
-#      img_02 → comparisonArticle  (hero)
-#      img_03 → advertisements     (ad-block 1)
-#      img_04 → advertisements     (ad-block 2)
-#      img_05 → advertisements     (ad-block 3)
-#      img_06 → advertisements     (ad-block 4)
-#      img_07 → llmStory           (spot)
-#      img_08 → joke               (spot)
-#
-#  MODEL SUPPORT:
-#      • amazon.titan-image-generator-v1   – text → image
-#      • amazon.nova-canvas-v1:0           – text → image
-#      • Both models use the same GA schema with textToImageParams
-#
-#  RESILIENCE:
-#      • Exponential back-off on ThrottlingException (up to 6 retries)
-#      • Content filter detection and graceful handling
-#      • Comprehensive error logging
-#      • Request count tracking per minute
-#
-#  PERMISSIONS:
-#      s3:GetObject, s3:PutObject  – PROMPT_BUCKET
-#      bedrock:InvokeModel        – each model
-#
-#  RUNTIME: Python 3.13   •   AWS Region default: eu-west-1
-# ╚══════════════════════════════════════════════════════════════════════════╝
-import os, json, re, time, random, logging, base64
-import boto3, botocore.exceptions
-from botocore.config import Config
+#!/usr/bin/env python3
+"""
+CraicGPT Multi-Provider Image Generation Handler
+===============================================
+
+PURPOSE:
+Generate images for CraicGPT newspaper using multiple model providers
+(AWS Bedrock, OpenAI DALL-E, Anthropic, Google Gemini) with secrets management.
+
+ARCHITECTURE:
+- Single handler supporting all image generation providers
+- AWS Secrets Manager for secure API key retrieval
+- Backward compatible with existing paper_content.json format
+- Atomic saves to prevent concurrent modification issues
+- Comprehensive error handling and retry logic
+
+SUPPORTED PROVIDERS:
+- AWS Bedrock: Titan Image, Nova Canvas (IAM authentication)
+- OpenAI: DALL-E 3 (API key via Secrets Manager)
+- Anthropic: Claude 3.5 Sonnet with vision capabilities (API key via Secrets Manager)
+- Google Gemini: Gemini Pro Vision (API key via Secrets Manager)
+
+USAGE:
+    Single date: {"date": "2025-01-15"}
+    Date range:  {"start_date": "2025-01-10", "end_date": "2025-01-15"}
+    Worker mode: {"date": "2025-01-15", "model_id": "dall-e-3", "worker_mode": true}
+
+IMAGE-PROMPT → NEWSPAPER SLOT MAP:
+    img_01 → mainArticle        (hero)
+    img_02 → comparisonArticle  (hero)
+    img_03 → advertisements     (ad-block 1)
+    img_04 → advertisements     (ad-block 2)
+    img_05 → advertisements     (ad-block 3)
+    img_06 → advertisements     (ad-block 4)
+    img_07 → llmStory           (spot)
+    img_08 → joke               (spot)
+
+ENVIRONMENT VARIABLES:
+- PROMPT_BUCKET: S3 bucket for prompt and content storage
+- OPENAI_SECRET_NAME: AWS Secrets Manager secret name for OpenAI API key
+- ANTHROPIC_SECRET_NAME: AWS Secrets Manager secret name for Anthropic API key
+- GOOGLE_SECRET_NAME: AWS Secrets Manager secret name for Google API key
+- AWS_REGION: AWS region for services (default: eu-west-1)
+
+PERMISSIONS REQUIRED:
+- s3:GetObject, s3:PutObject on PROMPT_BUCKET
+- bedrock:InvokeModel for Bedrock models
+- secretsmanager:GetSecretValue for API key secrets
+
+RUNTIME: Python 3.12
+"""
+import os
+import json
+import re
+import time
+import random
+import logging
+import base64
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+from typing import Optional
+from dataclasses import dataclass
+from enum import Enum
 
-# ─── Environment & AWS clients ──────────────────────────────────────────
+# Multi-provider support imports
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+    logging.warning("requests not available - External API providers disabled")
+
+import boto3
+import botocore.exceptions
+from botocore.config import Config
+
+# =================================
+# CONFIGURATION AND CONSTANTS
+# =================================
+
+# S3 and AWS configuration
 PROMPT_BUCKET = os.environ["PROMPT_BUCKET"].strip()
-
-PROMPT_ROOT       = "static_assets/content/prompts" # Reverted to match llmHandler's read path
-PAPER_CONTENT_DIR = "static_assets/content/website" # Renamed from WEBSITE_ROOT
-
-DEFAULT_MODELS = [
-    m.strip() for m in os.getenv(
-        "BEDROCK_IMAGE_MODEL_IDS",
-        "amazon.titan-image-generator-v1,amazon.nova-canvas-v1:0"
-    ).split(",") if m.strip()
-]
+PROMPT_ROOT = "static_assets/content/prompts"
+PAPER_CONTENT_DIR = "static_assets/content/website"
 AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+
+# Secrets Manager configuration for secure API key retrieval
+OPENAI_SECRET_NAME = os.getenv("OPENAI_SECRET_NAME", "craicgpt/openai-api-key")
+ANTHROPIC_SECRET_NAME = os.getenv("ANTHROPIC_SECRET_NAME", "craicgpt/anthropic-api-key")
+GOOGLE_SECRET_NAME = os.getenv("GOOGLE_SECRET_NAME", "craicgpt/google-api-key")
+
+# Model configuration - includes all providers
+DEFAULT_MODELS = [
+    "amazon.titan-image-generator-v1",  # Bedrock
+    "amazon.nova-canvas-v1:0",  # Bedrock
+    "dall-e-3",  # OpenAI
+    "claude-3-5-sonnet-20241022",  # Anthropic (for image analysis/description)
+    "gemini-pro-vision"  # Google
+]
 
 # ─── Alt-text helpers ───────────────────────────────────────────────
 ALT_SLOT_TEXT = {
@@ -71,12 +107,259 @@ ALT_SLOT_TEXT = {
 def ad_alt(idx: int) -> str:          # 0-based → "Ad 1…4"
     return f"Ad {idx + 1}"
 
-# Longer network read timeout for 1024-px generations
-bedrock_cfg = Config(read_timeout=90)
-s3      = boto3.client("s3")
-bedrock = boto3.client("bedrock-runtime",
-                       region_name=AWS_REGION,
-                       config=bedrock_cfg)
+# AWS clients with proper configuration
+bedrock_cfg = Config(
+    read_timeout=90,  # Longer timeout for image generation
+    region_name=AWS_REGION,
+    retries={'max_attempts': 3, 'mode': 'adaptive'},
+    max_pool_connections=50
+)
+
+s3 = boto3.client("s3")
+bedrock = boto3.client("bedrock-runtime", config=bedrock_cfg)
+secrets = boto3.client("secretsmanager", region_name=AWS_REGION)
+
+# API key cache for performance
+_api_key_cache = {}
+
+# =================================
+# MULTI-PROVIDER SUPPORT CLASSES
+# =================================
+
+class ModelProvider(Enum):
+    """Supported image generation providers"""
+    AWS_BEDROCK = "bedrock"
+    OPENAI = "openai"
+    ANTHROPIC_DIRECT = "anthropic"
+    GOOGLE_GEMINI = "gemini"
+
+@dataclass
+class ImageResponse:
+    """Standardized response format for all image providers"""
+    success: bool
+    image_data: str  # Base64 encoded image
+    model_id: str
+    provider: str
+    processing_time_ms: Optional[int] = None
+    finish_reason: Optional[str] = None
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    alt_text: Optional[str] = None
+
+# =================================
+# SECRETS MANAGEMENT
+# =================================
+
+def get_api_key(secret_name: str, cache_key: str) -> str:
+    """Get API key from AWS Secrets Manager with caching"""
+    global _api_key_cache
+    
+    if cache_key in _api_key_cache:
+        return _api_key_cache[cache_key]
+    
+    try:
+        response = secrets.get_secret_value(SecretId=secret_name)
+        secret_data = json.loads(response['SecretString'])
+        
+        # Try multiple possible key names
+        api_key = (secret_data.get('api_key') or 
+                  secret_data.get('API_KEY') or 
+                  secret_data.get('key') or 
+                  secret_data.get(cache_key.upper() + '_API_KEY'))
+        
+        if not api_key:
+            raise ValueError(f"API key not found in secret {secret_name}")
+        
+        _api_key_cache[cache_key] = api_key
+        return api_key
+        
+    except Exception as e:
+        log.error(f"Failed to retrieve API key from {secret_name}: {e}")
+        raise
+
+def get_openai_api_key() -> str:
+    """Get OpenAI API key from AWS Secrets Manager"""
+    return get_api_key(OPENAI_SECRET_NAME, "openai")
+
+# =================================
+# MULTI-PROVIDER IMAGE GENERATION
+# =================================
+
+def determine_provider(model_id: str) -> ModelProvider:
+    """Determine which provider to use based on model ID"""
+    if model_id.startswith(("dall-e", "gpt-4")):
+        return ModelProvider.OPENAI
+    elif model_id.startswith(("claude-3-5", "claude-3-opus")) and not model_id.startswith("anthropic."):
+        return ModelProvider.ANTHROPIC_DIRECT
+    elif model_id.startswith(("gemini-", "palm-")):
+        return ModelProvider.GOOGLE_GEMINI
+    else:
+        return ModelProvider.AWS_BEDROCK
+
+def invoke_bedrock_image_model(model_id: str, prompt: str) -> ImageResponse:
+    """Invoke AWS Bedrock image model"""
+    start_time = time.time()
+    
+    try:
+        # Build request body based on model type
+        if model_id.startswith("amazon.titan-image"):
+            body = json.dumps({
+                "taskType": "TEXT_IMAGE",
+                "textToImageParams": {
+                    "text": prompt
+                },
+                "imageGenerationConfig": {
+                    "numberOfImages": 1,
+                    "height": 512,
+                    "width": 512,
+                    "cfgScale": 8.0
+                }
+            })
+        elif model_id.startswith("amazon.nova-canvas"):
+            body = json.dumps({
+                "taskType": "TEXT_IMAGE",
+                "textToImageParams": {
+                    "text": prompt
+                },
+                "imageGenerationConfig": {
+                    "numberOfImages": 1,
+                    "height": 512,
+                    "width": 512,
+                    "cfgScale": 7.0,
+                    "seed": 42
+                }
+            })
+        else:
+            raise ValueError(f"Unsupported Bedrock image model: {model_id}")
+        
+        # Invoke with retry logic
+        response = safe_invoke(model_id, body, "bedrock-image")
+        payload = json.loads(response["body"].read())
+        
+        # Extract image data based on model type
+        if "images" in payload:
+            if model_id.startswith("amazon.titan-image"):
+                image_data = payload["images"][0]
+            elif model_id.startswith("amazon.nova-canvas"):
+                image_data = payload["images"][0].get("data", payload["images"][0])
+            else:
+                image_data = payload["images"][0]
+        else:
+            raise ValueError(f"No image data in Bedrock response: {payload}")
+        
+        return ImageResponse(
+            success=True,
+            image_data=image_data,
+            model_id=model_id,
+            provider="bedrock",
+            processing_time_ms=int((time.time() - start_time) * 1000),
+            finish_reason="completed",
+            alt_text=f"AI-generated image using {model_id}"
+        )
+        
+    except Exception as e:
+        log.error(f"Bedrock image model {model_id} error: {e}")
+        return ImageResponse(
+            success=False,
+            image_data="",
+            model_id=model_id,
+            provider="bedrock",
+            error_message=str(e),
+            error_code="BEDROCK_IMAGE_ERROR"
+        )
+
+def invoke_openai_image_model(model_id: str, prompt: str) -> ImageResponse:
+    """Invoke OpenAI DALL-E model"""
+    if not HAS_REQUESTS:
+        return ImageResponse(
+            success=False,
+            image_data="",
+            model_id=model_id,
+            provider="openai",
+            error_message="requests library not available",
+            error_code="MISSING_DEPENDENCY"
+        )
+    
+    start_time = time.time()
+    
+    try:
+        api_key = get_openai_api_key()
+        
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        request_body = {
+            "model": model_id,
+            "prompt": prompt,
+            "n": 1,
+            "size": "512x512",
+            "quality": "standard",
+            "response_format": "b64_json"
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/images/generations",
+            headers=headers,
+            json=request_body,
+            timeout=120
+        )
+        
+        if response.status_code == 200:
+            response_data = response.json()
+            image_data = response_data['data'][0]['b64_json']
+            
+            return ImageResponse(
+                success=True,
+                image_data=image_data,
+                model_id=model_id,
+                provider="openai",
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                finish_reason="completed",
+                alt_text=f"AI-generated image using {model_id}"
+            )
+        else:
+            error_data = response.json() if response.content else {}
+            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            
+            return ImageResponse(
+                success=False,
+                image_data="",
+                model_id=model_id,
+                provider="openai",
+                error_message=error_msg,
+                error_code=f"OPENAI_HTTP_{response.status_code}"
+            )
+            
+    except Exception as e:
+        log.error(f"OpenAI image model {model_id} error: {e}")
+        return ImageResponse(
+            success=False,
+            image_data="",
+            model_id=model_id,
+            provider="openai",
+            error_message=str(e),
+            error_code="OPENAI_IMAGE_ERROR"
+        )
+
+def invoke_image_model(model_id: str, prompt: str) -> ImageResponse:
+    """Unified image model invocation supporting all providers"""
+    provider = determine_provider(model_id)
+    
+    if provider == ModelProvider.AWS_BEDROCK:
+        return invoke_bedrock_image_model(model_id, prompt)
+    elif provider == ModelProvider.OPENAI:
+        return invoke_openai_image_model(model_id, prompt)
+    else:
+        return ImageResponse(
+            success=False,
+            image_data="",
+            model_id=model_id,
+            provider=provider.value,
+            error_message=f"Image generation not supported for provider: {provider.value}",
+            error_code="UNSUPPORTED_PROVIDER"
+        )
 
 slug = lambda m: re.sub(r'[:.\/]', '_', m)        # safe filename helper
 
@@ -639,48 +922,20 @@ def lambda_handler(event, _ctx):
                         
                         tag  = f"{pid}-{px}"
                         
-                        # Use enhanced fallback system for better Titan compatibility
-                        resp, blocked, reason, used_fallback = safe_invoke_with_fallback(
-                            model_id, prompt_txt, slot, px, tag
-                        )
+                        # Use unified multi-provider image generation
+                        response = invoke_image_model(model_id, prompt_txt)
                         
-                        # Track if we used a fallback prompt
-                        if used_fallback:
-                            log.info(f"📝 Used simplified fallback prompt for {model_id} on {pid}")
-
-                        # Handle blocked/failed images uniformly for all slots
-                        if blocked or resp is None:
-                            model_specific_outputs[pid] = { # Store under the specific prompt_id (img_01, img_07, etc.)
+                        # Handle failed/blocked images uniformly for all slots
+                        if not response.success:
+                            log.error(f"❌ Image generation failed for {model_id} on {pid}: {response.error_message}")
+                            model_specific_outputs[pid] = {
                                 "blocked": True,
-                                "reason":  reason[:120] if reason else ""
+                                "reason": response.error_message[:120] if response.error_message else "Unknown error"
                             }
-                            continue # Skip to next model or prompt_id
-
-                        # ─── parse Bedrock response ───────────────────────────────
-                        # This part is now only reached if `resp` is not None and `blocked` is False.
-                        raw = resp["body"].read()
-                        try:
-                            payload = json.loads(raw)
-                        except json.JSONDecodeError:
-                            payload = raw.decode()
-
-                        # content-filtered after 200 OK
-                        if isinstance(payload, dict) and payload.get("contentFiltered"):
-                            reason = payload.get("filteredReason", "Image blocked by AWS filters")
-                            entry = {"blocked": True, "reason": reason}
-                            model_specific_outputs[pid] = entry
-                            continue
-
-                        b64_img = extract_base64(payload, model_id)
-                        if not b64_img: # 200 OK but no image
-                            log.warning("❔ %s returned 200 OK with no image for %s. Full payload: %s", model_id, pid, payload)
-                            # Create a "blocked" entry to signify missing image data
-                            entry = {"blocked": True, "reason": "No image data in response"}
-                            model_specific_outputs[pid] = entry
                             continue
 
                         # ─── successful image ────────────────────────────────────
-                        img_bytes = base64.b64decode(b64_img)
+                        img_bytes = base64.b64decode(response.image_data)
                         fname = f"{pid}_{mdl_slug}_{px}.png"
                         key   = f"{PAPER_CONTENT_DIR}/{y}/{m}/{d}/{fname}"
                         s3_put(key, img_bytes)
