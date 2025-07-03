@@ -131,8 +131,9 @@ class ModelConfig:
         """Educational validation of model configuration"""
         if self.temperature < 0.0 or self.temperature > 1.0:
             raise ValueError(f"Temperature must be 0.0-1.0, got {self.temperature}")
-        if self.max_tokens < 1:
-            raise ValueError(f"Max tokens must be positive, got {self.max_tokens}")
+        # Only validate max_tokens for text models; image models can have max_tokens=0
+        if self.supports_text and self.max_tokens < 1:
+            raise ValueError(f"Max tokens must be positive for text models, got {self.max_tokens}")
 
 # ====================================
 # EDUCATIONAL MODEL DEFINITIONS
@@ -1215,10 +1216,10 @@ def get_models_for_template(template: PromptTemplate) -> List[str]:
     
     if template.output_format == "image":
         # Image templates need image-capable models
-        return [name for name, config in models.items() if config.capability == ModelCapability.IMAGE_GENERATION]
+        return [name for name, config in models.items() if config.supports_image]
     else:
         # Text templates need text-capable models  
-        return [name for name, config in models.items() if config.capability == ModelCapability.TEXT_GENERATION or config.capability == ModelCapability.MULTIMODAL]
+        return [name for name, config in models.items() if config.supports_text]
 
 def test_educational_components():
     """

@@ -343,11 +343,11 @@ class OpenAIHandler:
                 "messages": [
                     {"role": "user", "content": prompt}
                 ],
-                "temperature": config.temperature,
-                "max_tokens": config.max_tokens,
-                "top_p": config.top_p,
-                "presence_penalty": config.presence_penalty,
-                "frequency_penalty": config.frequency_penalty
+                "temperature": model_config.temperature,
+                "max_tokens": model_config.max_tokens,
+                "top_p": model_config.top_p,
+                "presence_penalty": model_config.presence_penalty,
+                "frequency_penalty": model_config.frequency_penalty
             }
             
             # Educational: Show HTTP POST request
@@ -426,13 +426,13 @@ class OpenAIHandler:
                 "model": model_config.model_id,
                 "prompt": prompt,
                 "n": 1,
-                "size": config.image_size,
-                "quality": config.image_quality,
+                "size": model_config.image_size,
+                "quality": model_config.image_quality,
                 "response_format": "b64_json"  # Get base64 for consistency
             }
             
-            if config.image_style:
-                request_body["style"] = config.image_style
+            if model_config.image_style:
+                request_body["style"] = model_config.image_style
             
             response = requests.post(
                 model_config.api_endpoint,
@@ -514,16 +514,16 @@ class AnthropicHandler:
             # Educational: Anthropic API headers
             headers = {
                 "x-api-key": self.api_key,
-                "anthropic-version": config.anthropic_version,
+                "anthropic-version": model_config.anthropic_version,
                 "content-type": "application/json"
             }
             
             # Educational: Anthropic Messages API format
             request_body = {
                 "model": model_config.model_id,
-                "max_tokens": config.max_tokens,
-                "temperature": config.temperature,
-                "top_p": config.top_p,
+                "max_tokens": model_config.max_tokens,
+                "temperature": model_config.temperature,
+                "top_p": model_config.top_p,
                 "messages": [
                     {
                         "role": "user",
@@ -632,10 +632,10 @@ class GeminiHandler:
                     }
                 ],
                 "generationConfig": {
-                    "temperature": config.temperature,
-                    "topP": config.top_p,
-                    "topK": config.top_k or 40,
-                    "maxOutputTokens": config.max_tokens
+                    "temperature": model_config.temperature,
+                    "topP": model_config.top_p,
+                    "topK": model_config.top_k or 40,
+                    "maxOutputTokens": model_config.max_tokens
                 }
             }
             

@@ -89,8 +89,9 @@ class ModelConfig:
         """Educational validation"""
         if self.temperature < 0.0 or self.temperature > 2.0:
             raise ValueError(f"Temperature must be 0.0-2.0, got {self.temperature}")
-        if self.max_tokens < 1:
-            raise ValueError(f"Max tokens must be positive, got {self.max_tokens}")
+        # Only validate max_tokens for text models; image models can have max_tokens=0
+        if self.capability == ModelCapability.TEXT_GENERATION and self.max_tokens < 1:
+            raise ValueError(f"Max tokens must be positive for text models, got {self.max_tokens}")
         if self.top_p < 0.0 or self.top_p > 1.0:
             raise ValueError(f"Top-p must be 0.0-1.0, got {self.top_p}")
 
