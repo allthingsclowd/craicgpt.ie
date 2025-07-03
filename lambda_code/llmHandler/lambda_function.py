@@ -365,15 +365,39 @@ def invoke_bedrock_model(model_id: str, prompt: str) -> ModelResponse:
         )
 
 def invoke_openai_model(model_id: str, prompt: str) -> ModelResponse:
-    """Invoke OpenAI model via REST API"""
-    if not HAS_REQUESTS:
+    """Invoke OpenAI model via educational_runner"""
+    try:
+        from educational_runner import run_model
+        
+        response = run_model(model_id, prompt)
+        
+        if response.success:
+            return ModelResponse(
+                success=True,
+                content=response.response_data.get("content", ""),
+                model_id=model_id,
+                provider="openai",
+                processing_time_ms=response.processing_time_ms,
+                tokens_used=response.usage.get("total_tokens", 0),
+                finish_reason="completed"
+            )
+        else:
+            return ModelResponse(
+                success=False,
+                content="",
+                model_id=model_id,
+                provider="openai",
+                error_message=response.error_message,
+                error_code="OPENAI_ERROR"
+            )
+    except Exception as e:
         return ModelResponse(
             success=False,
             content="",
             model_id=model_id,
             provider="openai",
-            error_message="requests library not available",
-            error_code="MISSING_DEPENDENCY"
+            error_message=str(e),
+            error_code="OPENAI_ERROR"
         )
     
     start_time = time.time()
@@ -611,18 +635,50 @@ def invoke_gemini_model(model_id: str, prompt: str) -> ModelResponse:
             error_code="GEMINI_ERROR"
         )
 
+def invoke_external_model(model_id: str, prompt: str, provider: ModelProvider) -> ModelResponse:
+    """Invoke external models using educational_runner"""
+    try:
+        from educational_runner import run_model
+        
+        response = run_model(model_id, prompt)
+        
+        if response.success:
+            return ModelResponse(
+                success=True,
+                content=response.response_data.get("content", ""),
+                model_id=model_id,
+                provider=provider.value,
+                processing_time_ms=response.processing_time_ms,
+                tokens_used=response.usage.get("total_tokens", 0),
+                finish_reason="completed"
+            )
+        else:
+            return ModelResponse(
+                success=False,
+                content="",
+                model_id=model_id,
+                provider=provider.value,
+                error_message=response.error_message,
+                error_code=f"{provider.value.upper()}_ERROR"
+            )
+    except Exception as e:
+        return ModelResponse(
+            success=False,
+            content="",
+            model_id=model_id,
+            provider=provider.value,
+            error_message=str(e),
+            error_code=f"{provider.value.upper()}_ERROR"
+        )
+
 def invoke_model(model_id: str, prompt: str) -> ModelResponse:
     """Unified model invocation supporting all providers"""
     provider = determine_provider(model_id)
     
     if provider == ModelProvider.AWS_BEDROCK:
         return invoke_bedrock_model(model_id, prompt)
-    elif provider == ModelProvider.OPENAI:
-        return invoke_openai_model(model_id, prompt)
-    elif provider == ModelProvider.ANTHROPIC_DIRECT:
-        return invoke_anthropic_model(model_id, prompt)
-    elif provider == ModelProvider.GOOGLE_GEMINI:
-        return invoke_gemini_model(model_id, prompt)
+    elif provider in [ModelProvider.OPENAI, ModelProvider.ANTHROPIC_DIRECT, ModelProvider.GOOGLE_GEMINI]:
+        return invoke_external_model(model_id, prompt, provider)
     else:
         return ModelResponse(
             success=False,

@@ -191,7 +191,7 @@ def determine_provider(model_id: str) -> ModelProvider:
         return ModelProvider.OPENAI
     elif model_id.startswith(("claude-3-5", "claude-3-opus")) and not model_id.startswith("anthropic."):
         return ModelProvider.ANTHROPIC_DIRECT
-    elif model_id.startswith(("gemini-", "palm-")):
+    elif model_id.startswith(("gemini-", "palm-", "imagen-")):
         return ModelProvider.GOOGLE_GEMINI
     else:
         return ModelProvider.AWS_BEDROCK
@@ -233,15 +233,24 @@ def invoke_bedrock_image_model(model_id: str, prompt: str) -> ImageResponse:
             raise ValueError(f"Unsupported Bedrock image model: {model_id}")
         
         # Invoke with retry logic
-        response = safe_invoke(model_id, body, "bedrock-image")
-        payload = json.loads(response["body"].read())
+        resp, blocked, reason = safe_invoke(model_id, body, "bedrock-image")
+        if blocked:
+            raise Exception(f"Request blocked: {reason}")
+        if resp is None:
+            raise Exception(f"Model invocation failed after retries")
+        payload = json.loads(resp["body"].read())
         
         # Extract image data based on model type
         if "images" in payload:
             if model_id.startswith("amazon.titan-image"):
                 image_data = payload["images"][0]
             elif model_id.startswith("amazon.nova-canvas"):
-                image_data = payload["images"][0].get("data", payload["images"][0])
+                # Handle both dict and string formats for Nova Canvas
+                image_item = payload["images"][0]
+                if isinstance(image_item, dict):
+                    image_data = image_item.get("data", image_item.get("image", image_item))
+                else:
+                    image_data = image_item  # Already a string
             else:
                 image_data = payload["images"][0]
         else:
@@ -343,6 +352,56 @@ def invoke_openai_image_model(model_id: str, prompt: str) -> ImageResponse:
             error_code="OPENAI_IMAGE_ERROR"
         )
 
+def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
+    """Invoke Google Imagen model"""
+    start_time = time.time()
+    
+    try:
+        # Use educational_runner for Google models
+        from educational_runner import run_model
+        
+        # Google Imagen uses a specific prompt format
+        google_prompt = {
+            "prompt": prompt,
+            "num_inference_steps": 20,
+            "guidance_scale": 7.5
+        }
+        
+        response = run_model(model_id, json.dumps(google_prompt))
+        
+        if response.success and response.response_data:
+            # Google Imagen returns base64 encoded image
+            image_data = response.response_data.get("image", "")
+            return ImageResponse(
+                success=True,
+                image_data=image_data,
+                model_id=model_id,
+                provider="google",
+                processing_time_ms=int((time.time() - start_time) * 1000),
+                finish_reason="completed",
+                alt_text=f"AI-generated image using {model_id}"
+            )
+        else:
+            return ImageResponse(
+                success=False,
+                image_data="",
+                model_id=model_id,
+                provider="google",
+                error_message=response.error_message or "Google image generation failed",
+                error_code="GOOGLE_IMAGE_ERROR"
+            )
+            
+    except Exception as e:
+        log.error(f"Google image model {model_id} error: {e}")
+        return ImageResponse(
+            success=False,
+            image_data="",
+            model_id=model_id,
+            provider="google",
+            error_message=str(e),
+            error_code="GOOGLE_IMAGE_ERROR"
+        )
+
 def invoke_image_model(model_id: str, prompt: str) -> ImageResponse:
     """Unified image model invocation supporting all providers"""
     provider = determine_provider(model_id)
@@ -351,6 +410,8 @@ def invoke_image_model(model_id: str, prompt: str) -> ImageResponse:
         return invoke_bedrock_image_model(model_id, prompt)
     elif provider == ModelProvider.OPENAI:
         return invoke_openai_image_model(model_id, prompt)
+    elif provider == ModelProvider.GOOGLE_GEMINI:
+        return invoke_google_image_model(model_id, prompt)
     else:
         return ImageResponse(
             success=False,
@@ -839,7 +900,13 @@ def lambda_handler(event, _ctx):
         prompt_ids = event.get("prompt_ids") or [f"img_{i:02}" for i in range(1, 9)]
 
         start_time = time.time()
-        results_summary = {"successful_dates": 0, "failed_dates": 0, "total_images": 0}
+        # Track successes, failures and skips for worker-mode health reporting
+        results_summary = {
+            "successful_dates": 0,
+            "failed_dates": 0,
+            "total_images": 0,   # newly generated images
+            "skipped_images": 0  # images that already existed and were therefore skipped
+        }
 
         for day in dates:
             log.info("Processing date: %s (force_regenerate=%s)", day, force_regenerate)
@@ -909,6 +976,8 @@ def lambda_handler(event, _ctx):
                             log.info(f"🆕 New file - generating all images for {model_id} {pid} on {day}")
                         
                         if should_skip:
+                            # Treat previously-existing images as successful for success-rate calculation
+                            results_summary["skipped_images"] += 1
                             continue
                         
                         # Clean up any existing blocked data when force regenerating
@@ -961,14 +1030,24 @@ def lambda_handler(event, _ctx):
                 continue
 
         processing_time = time.time() - start_time
-        
-        # Worker mode returns simple success response
+
+        # ── Worker-mode health check ─────────────────────────────────────
         if event.get("worker_mode"):
+            total_expected = len(prompt_ids) * len(model_ids) * len(dates)
+            successful_prompts = results_summary["total_images"] + results_summary["skipped_images"]
+            failed_prompts = total_expected - successful_prompts
+            success_rate = successful_prompts / total_expected if total_expected > 0 else 1.0
+
+            status_code = 200 if success_rate >= 0.8 else 500
+            status_str  = "success" if status_code == 200 else "error"
+
             return {
-                "statusCode": 200,
+                "statusCode": status_code,
                 "body": json.dumps({
-                    "status": "success",
-                    "prompts_processed": results_summary["total_images"],
+                    "status": status_str,
+                    "prompts_processed": successful_prompts,
+                    "prompts_failed": failed_prompts,
+                    "success_rate": round(success_rate * 100, 1),
                     "processing_time": round(processing_time, 2),
                     "model": model_ids[0] if len(model_ids) == 1 else model_ids,
                     "date": dates[0] if len(dates) == 1 else dates

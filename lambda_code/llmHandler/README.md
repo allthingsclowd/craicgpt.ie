@@ -376,6 +376,71 @@ aws logs filter-log-events \
   --filter-pattern '"success_rate"'
 ```
 
+## 🚀 Deployment
+
+### **Function Composition**
+The LLM Handler requires the following files to support multi-provider functionality:
+
+```
+craicgptie_llm_runner/
+├── lambda_function.py           # Main handler logic
+├── educational_runner.py        # Multi-provider API interface  
+├── model_configurations.py     # Model endpoints and settings
+├── requests/                    # HTTP library for external APIs
+├── urllib3/                     # HTTP connection pooling
+├── certifi/                     # SSL certificates
+├── charset_normalizer/          # Text encoding
+└── idna/                        # Domain name encoding
+```
+
+### **Manual Deployment**
+```bash
+# Navigate to LLM handler directory
+cd lambda_code/llmHandler
+
+# Copy shared dependencies
+cp ../shared/educational_runner.py .
+cp ../shared/model_configurations.py .
+
+# Install external HTTP library
+pip install requests -t .
+
+# Package complete function
+zip -r llm_handler_complete.zip .
+
+# Deploy to AWS
+aws lambda update-function-code \
+  --function-name craicgptie_llm_runner \
+  --zip-file fileb://llm_handler_complete.zip
+
+# Verify deployment
+aws lambda get-function \
+  --function-name craicgptie_llm_runner \
+  --query 'Configuration.{Handler:Handler,CodeSize:CodeSize,LastModified:LastModified}'
+```
+
+### **Environment Configuration**
+The function requires these environment variables:
+```bash
+PROMPT_BUCKET=craicgpt-ie-production
+BEDROCK_MODEL_IDS=anthropic.claude-3-sonnet-20240229-v1:0,anthropic.claude-3-haiku-20240307-v1:0,amazon.titan-text-express-v1
+```
+
+External API models are configured via Secrets Manager:
+- `craicgpt/openai-api-key`
+- `craicgpt/anthropic-api-key` 
+- `craicgpt/google-api-key`
+
+### **Dependency Management**
+**Core Dependencies**: Included in deployment package
+- `requests`: HTTP client for external APIs
+- `educational_runner.py`: Multi-provider abstraction layer
+- `model_configurations.py`: API endpoints and model settings
+
+**AWS Dependencies**: Available in Lambda runtime
+- `boto3`: AWS SDK for Bedrock and Secrets Manager
+- `botocore`: AWS service clients
+
 ## 🐛 Troubleshooting
 
 ### **Common Issues**

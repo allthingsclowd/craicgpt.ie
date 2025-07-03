@@ -89,16 +89,42 @@ MODEL_RATE_LIMITS = {
     "default": 30
 }
 
-# Get models from environment
-LLM_MODELS = [m.strip() for m in os.getenv(
-    "BEDROCK_MODEL_IDS",
-    "anthropic.claude-3-sonnet-20240229-v1:0"
-).split(",") if m.strip()]
+# Get models from environment - support multi-provider
+LLM_MODELS = []
+# Add Bedrock models
+bedrock_llms = os.getenv("BEDROCK_MODEL_IDS", "anthropic.claude-3-sonnet-20240229-v1:0")
+LLM_MODELS.extend([m.strip() for m in bedrock_llms.split(",") if m.strip()])
 
-IMAGE_MODELS = [m.strip() for m in os.getenv(
-    "BEDROCK_IMAGE_MODEL_IDS", 
-    "amazon.titan-image-generator-v1,amazon.nova-canvas-v1:0"
-).split(",") if m.strip()]
+# Add OpenAI models
+openai_llms = os.getenv("OPENAI_MODEL_IDS", "")
+if openai_llms:
+    LLM_MODELS.extend([m.strip() for m in openai_llms.split(",") if m.strip()])
+
+# Add Anthropic Direct models
+anthropic_llms = os.getenv("ANTHROPIC_MODEL_IDS", "")
+if anthropic_llms:
+    LLM_MODELS.extend([m.strip() for m in anthropic_llms.split(",") if m.strip()])
+
+# Add Gemini models
+gemini_llms = os.getenv("GEMINI_MODEL_IDS", "")
+if gemini_llms:
+    LLM_MODELS.extend([m.strip() for m in gemini_llms.split(",") if m.strip()])
+
+# Image models - support multi-provider
+IMAGE_MODELS = []
+# Add Bedrock image models
+bedrock_images = os.getenv("BEDROCK_IMAGE_MODEL_IDS", "amazon.titan-image-generator-v1,amazon.nova-canvas-v1:0")
+IMAGE_MODELS.extend([m.strip() for m in bedrock_images.split(",") if m.strip()])
+
+# Add OpenAI image models
+openai_images = os.getenv("OPENAI_IMAGE_MODEL_IDS", "")
+if openai_images:
+    IMAGE_MODELS.extend([m.strip() for m in openai_images.split(",") if m.strip()])
+
+# Add Google/Gemini image models
+gemini_images = os.getenv("GEMINI_IMAGE_MODEL_IDS", "")
+if gemini_images:
+    IMAGE_MODELS.extend([m.strip() for m in gemini_images.split(",") if m.strip()])
 
 # Utility – inclusive date range generator
 
@@ -576,53 +602,123 @@ def execute_work_items(work_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
         last_model = task["model"]
     return results
 
-def analyze_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Analyze execution results and create summary"""
+def get_previously_failed_tasks(dates: List[str]) -> List[Dict[str, Any]]:
+    """Get tasks that previously failed and are stored in paper_content.json"""
+    previously_failed = []
+    
+    for date_str in dates:
+        try:
+            _key, paper = load_or_create_paper_json(date_str)
+            
+            # Check LLM failures
+            for slot, slot_data in paper["contentSlots"].items():
+                llm_outputs = slot_data.get("llmOutputs", {})
+                for model_id, model_data in llm_outputs.items():
+                    if isinstance(model_data, dict) and model_data.get("failed", 0) >= 3:
+                        # Find the prompt_id for this slot
+                        prompt_id = None
+                        for pid, (pslot, _) in LLM_PROMPT_TO_SLOT.items():
+                            if pslot == slot:
+                                prompt_id = pid
+                                break
+                        
+                        if prompt_id:
+                            previously_failed.append({
+                                "type": "llm",
+                                "date": date_str,
+                                "model": model_id,
+                                "prompt_id": prompt_id,
+                                "error": model_data.get("error", "Previously failed with no error message"),
+                                "status": "previously_failed",
+                                "failed_count": model_data.get("failed", 0)
+                            })
+            
+            # Check Image failures
+            for slot, slot_data in paper["contentSlots"].items():
+                image_outputs = slot_data.get("imageOutputs", {})
+                for model_id, model_data in image_outputs.items():
+                    if isinstance(model_data, dict):
+                        for prompt_id, prompt_data in model_data.items():
+                            if isinstance(prompt_data, dict):
+                                if prompt_data.get("blocked", False) or prompt_data.get("failed", 0) >= 3:
+                                    previously_failed.append({
+                                        "type": "image",
+                                        "date": date_str,
+                                        "model": model_id,
+                                        "prompt_id": prompt_id,
+                                        "error": prompt_data.get("reason") or prompt_data.get("error", "Previously failed/blocked"),
+                                        "status": "previously_failed" if prompt_data.get("failed", 0) >= 3 else "blocked",
+                                        "failed_count": prompt_data.get("failed", 0),
+                                        "blocked": prompt_data.get("blocked", False)
+                                    })
+        except Exception as e:
+            log.warning(f"Error checking previous failures for {date_str}: {e}")
+    
+    return previously_failed
+
+def analyze_results(results: List[Dict[str, Any]], dates: List[str]) -> Dict[str, Any]:
+    """Analyze execution results and create summary including previously failed tasks"""
     successful = [r for r in results if r["status"] == "success"]
     failed = [r for r in results if r["status"] == "error"]
     skipped = [r for r in results if r["status"] == "skipped"]
     
-    # Group by type
-    llm_results = [r for r in results if r["work_item"]["type"] == "llm"]
-    image_results = [r for r in results if r["work_item"]["type"] == "image"]
+    # Get previously failed tasks from paper_content.json
+    previously_failed = get_previously_failed_tasks(dates)
+    
+    # Group by type (including previously failed)
+    all_results = results + previously_failed
+    llm_results = [r for r in all_results if r.get("work_item", r).get("type") == "llm"]
+    image_results = [r for r in all_results if r.get("work_item", r).get("type") == "image"]
     
     # Group by date
-    dates_processed = set(r["work_item"]["date"] for r in successful)
+    dates_processed = set(r["work_item"]["date"] if "work_item" in r else r["date"] for r in successful)
     
-    # Error analysis
+    # Error analysis (include previously failed)
     error_summary = {}
-    for failed_item in failed + skipped:
+    for failed_item in failed + skipped + previously_failed:
         error = failed_item.get("error", "Unknown error")
+        if len(error) > 100:  # Truncate long errors
+            error = error[:97] + "..."
         error_summary[error] = error_summary.get(error, 0) + 1
     
+    # Count all statuses
+    all_successful = len(successful)
+    all_failed = len(failed) + len([pf for pf in previously_failed if pf["status"] in ["previously_failed", "blocked"]])
+    all_skipped = len(skipped)
+    total_items = len(results) + len(previously_failed)
+    
     return {
-        "total_work_items": len(results),
-        "successful": len(successful),
-        "failed": len(failed),
-        "skipped": len(skipped), 
-        "success_rate": len(successful) / len(results) * 100 if results else 0,
+        "total_work_items": total_items,
+        "successful": all_successful,
+        "failed": all_failed,
+        "skipped": all_skipped,
+        "previously_failed": len(previously_failed),
+        "success_rate": all_successful / total_items * 100 if total_items else 0,
         "llm_processing": {
             "total": len(llm_results),
-            "successful": len([r for r in llm_results if r["status"] == "success"]),
-            "failed": len([r for r in llm_results if r["status"] == "error"]),
-            "skipped": len([r for r in llm_results if r["status"] == "skipped"])
+            "successful": len([r for r in llm_results if r.get("status") == "success"]),
+            "failed": len([r for r in llm_results if r.get("status") in ["error", "previously_failed", "blocked"]]),
+            "skipped": len([r for r in llm_results if r.get("status") == "skipped"])
         },
         "image_processing": {
             "total": len(image_results),
-            "successful": len([r for r in image_results if r["status"] == "success"]), 
-            "failed": len([r for r in image_results if r["status"] == "error"]),
-            "skipped": len([r for r in image_results if r["status"] == "skipped"])
+            "successful": len([r for r in image_results if r.get("status") == "success"]), 
+            "failed": len([r for r in image_results if r.get("status") in ["error", "previously_failed", "blocked"]]),
+            "skipped": len([r for r in image_results if r.get("status") == "skipped"])
         },
         "dates_processed": sorted(list(dates_processed)),
         "error_summary": error_summary,
         "failed_items": [
             {
-                "type": r["work_item"]["type"],
-                "date": r["work_item"]["date"], 
-                "model": r["work_item"]["model"],
+                "type": r.get("work_item", r).get("type"),
+                "date": r.get("work_item", r).get("date"), 
+                "model": r.get("work_item", r).get("model"),
+                "prompt_id": r.get("work_item", r).get("prompt_id"),
                 "error": r.get("error", "Unknown"),
-                "status": r["status"]
-            } for r in failed + skipped
+                "status": r.get("status"),
+                "failed_count": r.get("failed_count"),
+                "blocked": r.get("blocked", False)
+            } for r in failed + skipped + previously_failed
         ]
     }
 
@@ -715,7 +811,7 @@ def lambda_handler(event, context):
         results = execute_work_items(work_items)
         
         # Analyze results
-        analysis = analyze_results(results)
+        analysis = analyze_results(results, dates)
         
         processing_time = time.time() - start_time
         

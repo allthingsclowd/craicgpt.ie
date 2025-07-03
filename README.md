@@ -118,6 +118,8 @@ aws secretsmanager create-secret \
 ```
 
 ### **3. Deploy Backend Functions**
+
+#### **Option A: Terraform Deployment (Recommended)**
 ```bash
 cd terraform/backend
 # Configure your settings
@@ -125,6 +127,68 @@ terraform init
 terraform plan
 terraform apply
 ```
+
+#### **Option B: Manual Lambda Deployment**
+Each Lambda function requires specific files and dependencies:
+
+```bash
+# Deploy LLM Handler (with multi-provider support)
+cd lambda_code/llmHandler
+cp ../shared/educational_runner.py .
+cp ../shared/model_configurations.py .
+pip install requests -t .
+zip -r llm_handler_complete.zip .
+aws lambda update-function-code --function-name craicgptie_llm_runner --zip-file fileb://llm_handler_complete.zip
+
+# Deploy Image Handler (with multi-provider support)
+cd ../imageGenHandler
+cp ../shared/educational_runner.py .
+cp ../shared/model_configurations.py .
+pip install requests -t .
+zip -r image_handler_complete.zip .
+aws lambda update-function-code --function-name craicgptie_image_runner --zip-file fileb://image_handler_complete.zip
+
+# Deploy Prompt Generator (with multi-provider support)
+cd ../PromptGenerator
+cp ../shared/educational_runner.py .
+cp ../shared/model_configurations.py .
+pip install requests -t .
+zip -r prompt_generator_complete.zip .
+aws lambda update-function-code --function-name craicgptie_prompt_generator --zip-file fileb://prompt_generator_complete.zip
+
+# Deploy Orchestrator (coordination only, no external APIs)
+cd ../orchestrator
+zip -r orchestrator.zip lambda_function.py
+aws lambda update-function-code --function-name craicgptie-orchestrator --zip-file fileb://orchestrator.zip
+```
+
+#### **Lambda Function Composition**
+Each Lambda function contains the following files:
+
+**LLM Handler** (`craicgptie_llm_runner`):
+- `lambda_function.py` - Main handler for text generation
+- `educational_runner.py` - Multi-provider API calls
+- `model_configurations.py` - Model endpoint definitions  
+- `requests/` - HTTP library for external APIs
+- Dependencies: `urllib3`, `certifi`, `charset_normalizer`, `idna`
+
+**Image Handler** (`craicgptie_image_runner`):
+- `lambda_function.py` - Main handler for image generation
+- `educational_runner.py` - Multi-provider API calls  
+- `model_configurations.py` - Model endpoint definitions
+- `requests/` - HTTP library for external APIs
+- Dependencies: `urllib3`, `certifi`, `charset_normalizer`, `idna`
+
+**Prompt Generator** (`craicgptie_prompt_generator`):
+- `lambda_function_v2.py` - Educational prompt generation with explicit parameters
+- `educational_runner.py` - Multi-provider API calls
+- `model_configurations.py` - Model endpoint definitions
+- `requests/` - HTTP library for external APIs
+- Dependencies: `urllib3`, `certifi`, `charset_normalizer`, `idna`
+
+**Orchestrator** (`craicgptie-orchestrator`):
+- `lambda_function.py` - Workflow coordination and concurrency control
+- No external dependencies (uses only AWS SDK)
 
 ### **4. Generate Content**
 ```bash
@@ -135,12 +199,14 @@ TODAY=$(date '+%Y-%m-%d')
 aws lambda invoke \
   --function-name craicgptie_prompt_generator \
   --payload '{"START_DATE":"'${TODAY}'","END_DATE":"'${TODAY}'"}' \
+  --cli-binary-format raw-in-base64-out \
   /dev/null
 
 # Step 2: Generate content (respects 10 Lambda limit)
 aws lambda invoke \
   --function-name craicgptie-orchestrator \
   --payload '{"START_DATE":"'${TODAY}'","END_DATE":"'${TODAY}'"}' \
+  --cli-binary-format raw-in-base64-out \
   /dev/null
 ```
 

@@ -993,7 +993,7 @@ class EducationalPromptBuilder:
         
         user_prompt = template.user_prompt_template.format(
             date=date,
-            **component_data
+            **context_data
         )
         
         # Educational: Show final prompt structure
@@ -1088,7 +1088,7 @@ def lambda_handler(event, context):
                 "local_events": [f"Community event in {date}"],
                 "tech_trends": ["AI development", "cybersecurity", "cloud computing"],
                 "ai_trends": ["LLM capabilities", "AI safety", "compute efficiency"],
-                "ai_figure": "Sam Altman",
+                "ai_figure": "Sam Musk",
                 "ai_topic": "AGI timeline",
                 "character_type": "busy parent",
                 "problem": "planning family dinner",

@@ -58,6 +58,7 @@ aws secretsmanager put-secret-value \
 aws lambda invoke \
   --function-name craicgptie-orchestrator \
   --payload '{"START_DATE":"2025-01-15","END_DATE":"2025-01-15"}' \
+  --cli-binary-format raw-in-base64-out \
   test.json
 ```
 

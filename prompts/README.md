@@ -252,6 +252,7 @@ Evolution toward:
 aws lambda invoke \
   --function-name craicgptie_prompt_generator \
   --payload '{"START_DATE":"2025-01-15","END_DATE":"2025-01-15"}' \
+  --cli-binary-format raw-in-base64-out \
   test-prompts.json
 
 # Validate generated prompts
@@ -261,6 +262,7 @@ aws s3 cp s3://bucket/static_assets/content/prompts/2025/01/15/llm_01.json - | j
 aws lambda invoke \
   --function-name craicgptie_llm_runner \
   --payload '{"date":"2025-01-15","model_id":"gpt-4","prompt_ids":["llm_01"]}' \
+  --cli-binary-format raw-in-base64-out \
   test-output.json
 ```
 
