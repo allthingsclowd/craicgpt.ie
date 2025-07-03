@@ -197,7 +197,7 @@ Each generated prompt now has this rich structure:
       "formatted_date": "June 29, 2025"
     }
   },
-  "size": "1024x1024"
+  "size": "512x512"
 }
 ```
 

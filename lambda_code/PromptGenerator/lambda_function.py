@@ -1013,21 +1013,21 @@ def lambda_handler(event, context):
          "description": "Author bio - Graham Land background"},
         
         # ═══ IMAGE PROMPTS ═══  
-        {"id": "img_01", "type": "image", "content_type": "main_article", "size": "1024x1024",
+        {"id": "img_01", "type": "image", "content_type": "main_article", "size": "512x512",
          "description": "Main article illustration - Family scene"},
-        {"id": "img_02", "type": "image", "content_type": "comparison_article", "size": "1024x1024",
+        {"id": "img_02", "type": "image", "content_type": "comparison_article", "size": "512x512",
          "description": "Comparison article graphic - Data visualization"},
-        {"id": "img_03", "type": "image", "content_type": "advertisement1", "size": "1024x1024", 
+        {"id": "img_03", "type": "image", "content_type": "advertisement1", "size": "512x512", 
          "description": "Advertisement 1 - Tech product spoof"},
-        {"id": "img_04", "type": "image", "content_type": "advertisement2", "size": "1024x1024", 
+        {"id": "img_04", "type": "image", "content_type": "advertisement2", "size": "512x512", 
          "description": "Advertisement 2 - AI cereal box"},
-        {"id": "img_05", "type": "image", "content_type": "advertisement3", "size": "1024x1024", 
+        {"id": "img_05", "type": "image", "content_type": "advertisement3", "size": "512x512", 
          "description": "Advertisement 3 - Vintage AI travel poster"},
-        {"id": "img_06", "type": "image", "content_type": "advertisement4", "size": "1024x1024", 
+        {"id": "img_06", "type": "image", "content_type": "advertisement4", "size": "512x512", 
          "description": "Advertisement 4 - Luxury tech product mockup"},
-        {"id": "img_07", "type": "image", "content_type": "llm_story", "size": "1024x1024",
+        {"id": "img_07", "type": "image", "content_type": "llm_story", "size": "512x512",
          "description": "LLM story illustration - Single panel comic"},
-        {"id": "img_08", "type": "image", "content_type": "joke", "size": "1024x1024",
+        {"id": "img_08", "type": "image", "content_type": "joke", "size": "512x512",
          "description": "Joke illustration - Editorial cartoon style"}
     ]
     

@@ -44,14 +44,14 @@ The prompt generator lambda function has been completely refactored using **vibe
 
 | ID | Type | Content | Size |
 |----|------|---------|------|
-| `img_01` | article-image | Graz's family comic scene | 1024x1024 |
-| `img_02` | comparison-article-image | LLM capability chart | 1024x1024 |
-| `img_03` | ad-1 | Quantum password post-its | 1024x1024 |
-| `img_04` | ad-2 | LLM-Os cereal box | 1024x1024 |
-| `img_05` | ad-3 | Promptesbury travel poster | 1024x1024 |
-| `img_06` | ad-4 | TOKEN Nº5 perfume | 1024x1024 |
-| `img_07` | llm-story-image | Postman origami scene | 1024x1024 |
-| `img_08` | joke-image | Sam Altman Clippy cartoon | 1024x1024 |
+| `img_01` | article-image | Graz's family comic scene | 512x512 |
+| `img_02` | comparison-article-image | LLM capability chart | 512x512 |
+| `img_03` | ad-1 | Quantum password post-its | 512x512 |
+| `img_04` | ad-2 | LLM-Os cereal box | 512x512 |
+| `img_05` | ad-3 | Promptesbury travel poster | 512x512 |
+| `img_06` | ad-4 | TOKEN Nº5 perfume | 512x512 |
+| `img_07` | llm-story-image | Postman origami scene | 512x512 |
+| `img_08` | joke-image | Sam Altman Clippy cartoon | 512x512 |
 
 ## 🔧 Environment Variables
 
