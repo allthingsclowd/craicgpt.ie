@@ -656,6 +656,8 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
                 pickerInstance.setDate(loadedDate, true);  // Set date, don't trigger onSelect
                 pickerInstance.options.onSelect = originalOnSelect; // Restore
             }
+            // After currentPaperData is set but before renderContent, update radio visibility
+            updateRadioVisibility();
             renderContent();
         })
         .catch(error => {
@@ -688,6 +690,50 @@ function fetchContentForDate(dateString, attemptNumber = 0, originalDateStringFo
                 }
             }
         });
+}
+
+// Hide LLM / ImageGen radio options when there is no data for the loaded paper
+function updateRadioVisibility() {
+    if (!currentPaperData || !currentPaperData.contentSlots) return;
+
+    // 1) Determine which LLM models actually have any content
+    const llmModelsWithData = new Set();
+    Object.values(currentPaperData.contentSlots).forEach(slot => {
+        const llmOut = slot.llmOutputs || {};
+        Object.keys(llmOut).forEach(m => {
+            const v = llmOut[m];
+            if (v && (v.title || v.text || v.content)) llmModelsWithData.add(m);
+        });
+    });
+
+    // 2) Determine which ImageGen models actually have images
+    const imgModelsWithData = new Set();
+    Object.values(currentPaperData.contentSlots).forEach(slot => {
+        const imgOut = slot.imageOutputs || {};
+        Object.entries(imgOut).forEach(([model, prompts]) => {
+            if (prompts && typeof prompts === 'object') {
+                Object.values(prompts).forEach(entry => {
+                    if (entry && entry.imageUrl && !entry.blocked) {
+                        imgModelsWithData.add(model);
+                    }
+                });
+            }
+        });
+    });
+
+    // 3) Toggle visibility for LLM radio labels
+    document.querySelectorAll('#llm-selection-group label').forEach(label => {
+        const input = label.querySelector('input[name="llm_choice"]');
+        if (!input) return;
+        label.style.display = llmModelsWithData.has(input.value) ? '' : 'none';
+    });
+
+    // 4) Toggle visibility for ImageGen radio labels
+    document.querySelectorAll('#imagegen-selection-group label').forEach(label => {
+        const input = label.querySelector('input[name="imagegen_choice"]');
+        if (!input) return;
+        label.style.display = imgModelsWithData.has(input.value) ? '' : 'none';
+    });
 }
 
 window.addEventListener('load', () => {

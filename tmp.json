@@ -1,0 +1,1 @@
+{"statusCode": 200, "body": "{\"status\": \"success\", \"prompts_processed\": 1, \"prompts_failed\": 0, \"success_rate\": 100.0, \"processing_time\": 17.34, \"model\": \"dall-e-3\", \"date\": \"2025-07-03\"}"}

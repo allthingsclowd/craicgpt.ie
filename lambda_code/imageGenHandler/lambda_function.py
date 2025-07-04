@@ -299,11 +299,23 @@ def invoke_openai_image_model(model_id: str, prompt: str) -> ImageResponse:
             "Content-Type": "application/json"
         }
         
+        # OpenAI model-specific parameters
+        openai_size_overrides = {
+            # DALL·E 3 only supports 1024-based sizes
+            "dall-e-3": "1024x1024"
+        }
+
+        # Pick override if present, otherwise default to 512×512
+        req_size = next(
+            (sz for m, sz in openai_size_overrides.items() if model_id.startswith(m)),
+            "512x512"
+        )
+
         request_body = {
             "model": model_id,
             "prompt": prompt,
             "n": 1,
-            "size": "512x512",
+            "size": req_size,
             "quality": "standard",
             "response_format": "b64_json"
         }
@@ -941,7 +953,12 @@ def lambda_handler(event, _ctx):
                         mdl_key = model_id
                         # Create a safe filename version of the model ID
                         mdl_slug = slug(model_id)  # Use the slug helper for consistent filename sanitization
-                        px = 512 # Only generating 512px for now, can be parameterized later if needed
+
+                        # Determine image dimensions based on provider/model
+                        if model_id.startswith("dall-e-3"):
+                            px = 1024  # DALL·E 3 default square size
+                        else:
+                            px = 512  # default
                         
                         # Ensure the imageOutputs dictionary exists for the slot and model
                         slot_image_outputs = paper["contentSlots"][slot].setdefault("imageOutputs", {})
