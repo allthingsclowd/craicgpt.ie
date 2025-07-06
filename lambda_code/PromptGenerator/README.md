@@ -350,3 +350,120 @@ aws lambda get-function-configuration --function-name craicgptie_prompt_generato
 - Implement prompt effectiveness metrics
 
 **Unified Prompt Engineering - Production Ready** 📝
+```
+## 🆕 2025-07-04  – Cleanup & Minimal Package
+
+We removed legacy code and unused third-party folders from this directory:
+
+| Removed item | Notes |
+|--------------|-------|
+| `lambda_function.py` | Replaced by `lambda_function_v2.py` (active handler) |
+| `educational_runner.py`, `model_configurations.py` | No longer imported – logic lives inside the handler |
+| `bin/`, `certifi*/`, `charset_normalizer*/`, `idna*/`, `requests*/`, `urllib3*/` | Old vendored dependencies; the function no longer uses `requests` and now relies only on the std-lib `urllib.request` |
+
+The resulting deployment zip is about **90 % smaller** and uploads faster.
+
+## 🌦️ 2025-07-04 – Enhanced Weather & Context APIs
+
+Major improvements to weather and time-based context generation:
+
+### New Features
+
+| Feature | Description |
+|---------|-------------|
+| **BBC Weather RSS Integration** | Real-time weather data from BBC Weather RSS feed for Pontesbury, Shropshire |
+| **Seasonal Fallbacks** | Intelligent seasonal weather patterns when API unavailable |
+| **UK Holiday Awareness** | Recognizes UK holidays (New Year's Day, Christmas, Boxing Day, April Fool's) |
+| **Comprehensive Time Context** | Rich temporal context including season labels, time of day, formatted dates |
+| **Resilient Headlines** | Tech news headlines with multiple fallback sources |
+| **Environment Overrides** | Testing support via `CRAICT_HEADLINES`, `CRAICT_LOCATION_ID`, `LOG_LEVEL` |
+
+### Educational Context Components
+
+The enhanced context builder demonstrates:
+- **External API Integration**: Safe HTTP requests with timeouts and error handling
+- **XML/RSS Parsing**: Educational RSS feed parsing with fallbacks
+- **Web Scraping**: Multiple pattern headline extraction from tech sites
+- **Seasonal Intelligence**: Context-aware weather and mood generation
+- **Comprehensive Logging**: Detailed logging for debugging and learning
+
+### Context Data Structure
+
+The `build_comprehensive_context()` method now returns:
+
+```json
+{
+  "date": "2025-07-04",
+  "day_of_week": "Friday", 
+  "month_name": "July",
+  "season": "mid-summer",
+  "holiday": "",
+  "formatted_date": "July 04, 2025",
+  "weather_today": "warm summer sunshine in Pontesbury, Shropshire",
+  "weather_source": "BBC Weather RSS",
+  "location": "Pontesbury, Shropshire",
+  "tech_headlines": ["AI startup raises $100M...", "..."],
+  "headlines_summary": "AI startup raises $100M, Tech giant announces...",
+  "seasonal_mood": "bright and energetic",
+  "weather_mood": "bright and cheerful",
+  "ai_trends": ["LLM capabilities", "AI safety", "compute efficiency"],
+  "tech_trends": ["AI development", "cybersecurity", "cloud computing"],
+  "local_events": ["Community events in July"]
+}
+```
+
+---
+
+## 🚀 Redeploy to AWS Lambda
+
+```zsh
+# ==== package & publish (macOS default zsh) ====
+cd lambda_code/PromptGenerator
+zip -r /tmp/prompt_generator.zip . -x '*__pycache__/*' '*.DS_Store'
+cd -
+
+aws lambda update-function-code \
+  --region eu-west-1 \
+  --function-name craicgptie_prompt_generator \
+  --zip-file fileb:///tmp/prompt_generator.zip \
+  --publish
+```
+
+## 🧪 Test from CLI
+
+```bash
+# Test for a specific date
+export EDITION_DATE=2025-07-04 && aws lambda invoke \
+  --function-name craicgptie_prompt_generator \
+  --cli-binary-format raw-in-base64-out \
+  --payload "{\"START_DATE\":\"${EDITION_DATE}\",\"END_DATE\":\"${EDITION_DATE}\"}" \
+  prompt_response.json
+
+# Pretty print the response
+cat prompt_response.json | jq '.'
+
+# Test with environment overrides
+export CRAICT_HEADLINES="Custom AI headline,Tech innovation story,Future of work update"
+export CRAICT_LOCATION_ID="2640129"
+export LOG_LEVEL="DEBUG"
+
+aws lambda invoke \
+  --function-name craicgptie_prompt_generator \
+  --cli-binary-format raw-in-base64-out \
+  --payload "{\"START_DATE\":\"2025-07-04\",\"END_DATE\":\"2025-07-04\"}" \
+  prompt_response.json
+
+# Check the logs
+aws logs tail /aws/lambda/craicgptie_prompt_generator --since 5m
+```
+
+## 📊 Educational Learning Points
+
+This enhanced version demonstrates:
+
+1. **Resilient API Design**: Multiple fallback layers for external data
+2. **Environmental Configuration**: Testable via environment variables
+3. **Comprehensive Context**: Rich temporal and situational awareness
+4. **Error Handling**: Graceful degradation when external services fail
+5. **Educational Logging**: Detailed insights into prompt generation process
+6. **Type Safety**: Proper type annotations and null handling
