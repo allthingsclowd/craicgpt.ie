@@ -58,6 +58,7 @@ frontend/
 - **Image Selection**: Radio buttons for image generation models
   - AWS Bedrock: Titan Image, Nova Canvas
   - OpenAI: DALL-E 3
+  - Google: Imagen-3
 
 ### **User Experience**
 - **Responsive Design**: Works on desktop, tablet, and mobile devices
