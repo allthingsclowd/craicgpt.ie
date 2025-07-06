@@ -197,7 +197,7 @@ def get_google_credentials():
     print("Setting up Google Application Default Credentials...")
     try:
         # 1. Retrieve the full JSON string from AWS Secrets Manager
-        session = boto3.session.Session()
+        session = boto3.Session()
         client = session.client(service_name='secretsmanager', region_name='eu-west-1')
         get_secret_value_response = client.get_secret_value(SecretId='craicgpt/google')
         service_account_json_string = get_secret_value_response['SecretString']

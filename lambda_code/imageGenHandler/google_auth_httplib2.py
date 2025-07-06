@@ -194,7 +194,7 @@ class AuthorizedHttp(object):
         method="GET",
         body=None,
         headers=None,
-        redirections=httplib2.DEFAULT_MAX_REDIRECTS,
+        redirections=getattr(httplib2, 'DEFAULT_MAX_REDIRECTS', 5),
         connection_type=None,
         **kwargs
     ):
@@ -212,7 +212,7 @@ class AuthorizedHttp(object):
         # stream position so that it can be restored in case of refresh.
         body_stream_position = None
         if all(getattr(body, stream_prop, None) for stream_prop in _STREAM_PROPERTIES):
-            body_stream_position = body.tell()
+            body_stream_position = getattr(body, 'tell', lambda: None)()
 
         # Make the request.
         response, content = self.http.request(
@@ -246,7 +246,7 @@ class AuthorizedHttp(object):
 
             # Restore the body's stream position if needed.
             if body_stream_position is not None:
-                body.seek(body_stream_position)
+                getattr(body, 'seek', lambda x: None)(body_stream_position)
 
             # Recurse. Pass in the original headers, not our modified set.
             return self.request(
