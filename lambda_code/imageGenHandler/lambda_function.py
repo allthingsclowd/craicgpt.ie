@@ -371,27 +371,20 @@ def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
     try:
         # Use educational_runner for Google models if available
         try:
-            from educational_runner import run_model
+            from educational_runner import EducationalModelRunner
             
-            # Google Imagen uses a specific prompt format
-            google_prompt = {
-                "prompt": prompt,
-                "num_inference_steps": 20,
-                "guidance_scale": 7.5
-            }
+            runner = EducationalModelRunner()
+            response = runner.invoke_model(model_id, prompt)
             
-            response = run_model(model_id, json.dumps(google_prompt))
-            
-            if response.success and response.response_data:
+            if response.success and response.content:
                 # Google Imagen returns base64 encoded image
-                image_data = response.response_data.get("image", "")
                 return ImageResponse(
                     success=True,
-                    image_data=image_data,
+                    image_data=response.content,
                     model_id=model_id,
                     provider="google",
-                    processing_time_ms=int((time.time() - start_time) * 1000),
-                    finish_reason="completed",
+                    processing_time_ms=response.processing_time_ms or int((time.time() - start_time) * 1000),
+                    finish_reason=response.finish_reason or "completed",
                     alt_text=f"AI-generated image using {model_id}"
                 )
             else:
@@ -401,7 +394,7 @@ def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
                     model_id=model_id,
                     provider="google",
                     error_message=response.error_message or "Google image generation failed",
-                    error_code="GOOGLE_IMAGE_ERROR"
+                    error_code=response.error_code or "GOOGLE_IMAGE_ERROR"
                 )
         except ImportError:
             return ImageResponse(
@@ -409,10 +402,18 @@ def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
                 image_data="",
                 model_id=model_id,
                 provider="google",
-                error_message="educational_runner module not available",
+                error_message="Google image generation not properly configured - educational_runner unavailable",
                 error_code="MISSING_DEPENDENCY"
             )
-            
+        except Exception as e:
+            return ImageResponse(
+                success=False,
+                image_data="",
+                model_id=model_id,
+                provider="google",
+                error_message=f"Google image generation error: {str(e)}",
+                error_code="GOOGLE_RUNNER_ERROR"
+            )
     except Exception as e:
         log.error(f"Google image model {model_id} error: {e}")
         return ImageResponse(
@@ -421,7 +422,7 @@ def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
             model_id=model_id,
             provider="google",
             error_message=str(e),
-            error_code="GOOGLE_IMAGE_ERROR"
+            error_code="GOOGLE_ERROR"
         )
 
 def invoke_image_model(model_id: str, prompt: str) -> ImageResponse:

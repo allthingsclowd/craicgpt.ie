@@ -827,7 +827,7 @@ If there's a holiday, include subtle seasonal elements in the infographic design
     )
     
     story_image.system_prompt = "Create a light comic-style office illustration."
-    story_image.user_prompt_template = """A cartoon of an office desk with a robot therapist (with a notepad and glasses) across from a stressed office worker. The robot gives a thumbs-up. Perhaps a speech bubble: "According to my algorithm, you need 3 fewer meetings per week." (Light comic style, minimal text aside from bubble)
+    story_image.user_prompt_template = """A cartoon of an office desk with a friendly robot advisor (with a notepad and glasses) across from a busy office worker. The robot gives a thumbs-up. Perhaps a speech bubble: "According to my algorithm, you need 3 fewer meetings per week." (Light comic style, minimal text aside from bubble)
 
 Seasonal context: {season} - {seasonal_mood}
 Weather: {weather_today}
@@ -876,7 +876,7 @@ def create_titan_optimized_prompt(original_prompt: str, prompt_id: str) -> str:
         
         "img_06": "Ad: Firewall Fred – AI Security – A comic book style superhero (computer-chip character with cape) blocking cartoon viruses. Slogan: 'Your Data, Safe and Sound with AI on Guard!' (comic book style advertisement)",
         
-        "img_07": "A cartoon of an office desk with a robot therapist (notepad and glasses) across from a stressed office worker. The robot gives a thumbs-up. Speech bubble: 'According to my algorithm, you need 3 fewer meetings per week.' (Light comic style)",
+        "img_07": "A cartoon of an office desk with a friendly robot advisor (with a notepad and glasses) across from a busy office worker. The robot gives a thumbs-up. Speech bubble: 'According to my algorithm, you need 3 fewer meetings per week.' (Light comic style)",
         
         "img_08": "Professional business team celebrating project success in conference room. People in business attire raising hands in celebration around conference table with laptops. Clean modern office. (Corporate stock photo style)"
     }
