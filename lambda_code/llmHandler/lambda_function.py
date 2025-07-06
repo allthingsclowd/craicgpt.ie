@@ -380,15 +380,23 @@ def invoke_openai_model(model_id: str, prompt: str) -> ModelResponse:
             "Content-Type": "application/json"
         }
         
+        # Build request body with model-specific parameters
         request_body = {
             "model": model_id,
             "messages": [
                 {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7,
-            "max_tokens": 800,
-            "top_p": 0.9
+            ]
         }
+        
+        # Use correct parameters based on model
+        if model_id.startswith("o3-"):
+            # o3 models use max_completion_tokens and don't support temperature/top_p
+            request_body["max_completion_tokens"] = 800
+        else:
+            # Standard OpenAI models use max_tokens and support temperature/top_p
+            request_body["max_tokens"] = 800
+            request_body["temperature"] = 0.7
+            request_body["top_p"] = 0.9
         
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",

@@ -399,9 +399,9 @@ def get_educational_model_configs() -> Dict[str, ModelConfig]:
     )
     
     # Educational: Google Imagen (when available)
-    configs["imagen-3"] = ModelConfig(
+    configs["imagen-3.0-generate-002"] = ModelConfig(
         provider=ModelProvider.GOOGLE_GEMINI,
-        model_id="imagen-3",
+        model_id="imagen-3.0-generate-002",
         display_name="Imagen 3 (Google)",
         capability=ModelCapability.IMAGE_GENERATION,
         temperature=0.0,

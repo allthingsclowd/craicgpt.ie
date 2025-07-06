@@ -369,38 +369,48 @@ def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
     start_time = time.time()
     
     try:
-        # Use educational_runner for Google models
-        from educational_runner import run_model
-        
-        # Google Imagen uses a specific prompt format
-        google_prompt = {
-            "prompt": prompt,
-            "num_inference_steps": 20,
-            "guidance_scale": 7.5
-        }
-        
-        response = run_model(model_id, json.dumps(google_prompt))
-        
-        if response.success and response.response_data:
-            # Google Imagen returns base64 encoded image
-            image_data = response.response_data.get("image", "")
-            return ImageResponse(
-                success=True,
-                image_data=image_data,
-                model_id=model_id,
-                provider="google",
-                processing_time_ms=int((time.time() - start_time) * 1000),
-                finish_reason="completed",
-                alt_text=f"AI-generated image using {model_id}"
-            )
-        else:
+        # Use educational_runner for Google models if available
+        try:
+            from educational_runner import run_model
+            
+            # Google Imagen uses a specific prompt format
+            google_prompt = {
+                "prompt": prompt,
+                "num_inference_steps": 20,
+                "guidance_scale": 7.5
+            }
+            
+            response = run_model(model_id, json.dumps(google_prompt))
+            
+            if response.success and response.response_data:
+                # Google Imagen returns base64 encoded image
+                image_data = response.response_data.get("image", "")
+                return ImageResponse(
+                    success=True,
+                    image_data=image_data,
+                    model_id=model_id,
+                    provider="google",
+                    processing_time_ms=int((time.time() - start_time) * 1000),
+                    finish_reason="completed",
+                    alt_text=f"AI-generated image using {model_id}"
+                )
+            else:
+                return ImageResponse(
+                    success=False,
+                    image_data="",
+                    model_id=model_id,
+                    provider="google",
+                    error_message=response.error_message or "Google image generation failed",
+                    error_code="GOOGLE_IMAGE_ERROR"
+                )
+        except ImportError:
             return ImageResponse(
                 success=False,
                 image_data="",
                 model_id=model_id,
                 provider="google",
-                error_message=response.error_message or "Google image generation failed",
-                error_code="GOOGLE_IMAGE_ERROR"
+                error_message="educational_runner module not available",
+                error_code="MISSING_DEPENDENCY"
             )
             
     except Exception as e:
@@ -443,16 +453,28 @@ log = logging.getLogger("image_runner")
 today_iso = lambda: datetime.now(ZoneInfo("Europe/London")).date().isoformat()
 
 def s3_read(key: str) -> str:
-    try:
-        response = s3.get_object(Bucket=PROMPT_BUCKET, Key=key)
-        log.info(f"S3_READ_SUCCESS: Successfully read S3 key: '{key}' from bucket: '{PROMPT_BUCKET}'")
-        return response["Body"].read().decode()
-    except botocore.exceptions.ClientError as e:
-        if e.response['Error']['Code'] == 'NoSuchKey':
-            log.error(f"S3_READ_FAIL (NoSuchKey): Key: '{key}' not found in bucket: '{PROMPT_BUCKET}'")
-        else:
-            log.error(f"S3_READ_FAIL (ClientError): Error reading key '{key}' from bucket '{PROMPT_BUCKET}': {e}")
-        raise # Re-raise the exception to be handled by the caller
+    """Read a string from S3"""
+    resp = s3.get_object(Bucket=PROMPT_BUCKET, Key=key)
+    return resp["Body"].read().decode("utf-8")
+
+def load_prompt_json(prompt_id: str, date: str) -> dict:
+    """Load prompt JSON from S3"""
+    year, month, day = date.split("-")
+    key = f"{PROMPT_ROOT}/{year}/{month}/{day}/{prompt_id}.json"
+    data = json.loads(s3_read(key))
+    return data
+
+def get_prompt_for_model(prompt_data: dict, model_id: str) -> str:
+    """Get the appropriate prompt for a specific model, handling Titan's character limit"""
+    original_prompt = prompt_data.get("prompt", "")
+    
+    # Use Titan-optimized prompt if available and model is Titan
+    if model_id.startswith("amazon.titan-image") and "titan_prompt" in prompt_data:
+        titan_prompt = prompt_data["titan_prompt"]
+        log.info(f"Using Titan-optimized prompt ({len(titan_prompt)} chars) instead of original ({len(original_prompt)} chars)")
+        return titan_prompt
+    
+    return original_prompt
 
 def s3_put(key: str, data: bytes, ct="image/png"):
     s3.put_object(Bucket=PROMPT_BUCKET, Key=key, Body=data, ContentType=ct)
@@ -943,12 +965,16 @@ def lambda_handler(event, _ctx):
                         log.debug(f"Reading prompt from S3: {s3_key_for_prompt}")
 
                         prompt_json = s3_read(s3_key_for_prompt)
-                        prompt_txt  = json.loads(prompt_json)["prompt"]
+                        prompt_data = json.loads(prompt_json)
+                        # Note: prompt_txt will be determined per model inside the model loop
                     except Exception as e:
                         log.error(f"Failed to load prompt {pid} for {day}: {e}")
                         continue
 
                     for model_id in model_ids:
+                        # Get the appropriate prompt for this specific model
+                        prompt_txt = get_prompt_for_model(prompt_data, model_id)
+                        
                         # Use the full model ID as the key (same as LLM handler)
                         mdl_key = model_id
                         # Create a safe filename version of the model ID

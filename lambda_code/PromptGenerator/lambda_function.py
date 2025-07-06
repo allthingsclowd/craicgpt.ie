@@ -857,6 +857,46 @@ Include subtle seasonal office elements: appropriate clothing for the season, se
 # ENHANCED EDUCATIONAL CONTEXT BUILDERS
 # ====================================
 
+def create_titan_optimized_prompt(original_prompt: str, prompt_id: str) -> str:
+    """
+    Create Titan-optimized version of image prompts.
+    Titan Image Generator has a 512 character limit, so we need to trim prompts.
+    """
+    # Core prompts for each image type (under 512 chars)
+    titan_core_prompts = {
+        "img_01": "A semi-realistic office scene photo: a humanoid robot in a business suit sits at the head of a conference table, with stunned human executives on the sides. The robot CEO has a friendly smile and a CEO nameplate. (Photorealistic, humorous contrast)",
+        
+        "img_02": "An infographic-style image: a flowchart or pie-chart labeled 'AI HR Department' with comical elements (sections: '30% more vacation', '0% bias', '100% funny metrics'). Include a friendly robot icon with a clipboard. (Clean design, corporate colors)",
+        
+        "img_03": "Ad: CloudCoffee AI Machine – A sleek coffee machine with a robotic arm pouring lattes. Office workers rejoicing. Product name and tagline: 'CloudCoffee – Java as a Service!' (tech product advertisement style)",
+        
+        "img_04": "Ad: Instant Meeting Clone – A humorous ad for a device or app that creates a hologram clone of you to attend meetings. Show an employee relaxing at their desk while a translucent AI hologram of them sits in a meeting room. Add a tagline: 'Be in Two Places at Once – Without the Stress!' (workplace productivity ad)",
+        
+        "img_05": "Ad: Buzzword Blackhole 2.0 – A small black hole device on a conference table sucking in boring PowerPoint presentations and meaningless buzzwords. Colleagues celebrate. Text: 'Say Goodbye to Synergy!' (anti-productivity tool joke)",
+        
+        "img_06": "Ad: Firewall Fred – AI Security – A comic book style superhero (computer-chip character with cape) blocking cartoon viruses. Slogan: 'Your Data, Safe and Sound with AI on Guard!' (comic book style advertisement)",
+        
+        "img_07": "A cartoon of an office desk with a robot therapist (notepad and glasses) across from a stressed office worker. The robot gives a thumbs-up. Speech bubble: 'According to my algorithm, you need 3 fewer meetings per week.' (Light comic style)",
+        
+        "img_08": "Professional business team celebrating project success in conference room. People in business attire raising hands in celebration around conference table with laptops. Clean modern office. (Corporate stock photo style)"
+    }
+    
+    # Return optimized prompt or fallback to truncated original
+    optimized = titan_core_prompts.get(prompt_id)
+    if optimized and len(optimized) <= 512:
+        return optimized
+    
+    # Fallback: truncate original prompt to 512 chars, breaking at word boundary
+    if len(original_prompt) <= 512:
+        return original_prompt
+    
+    truncated = original_prompt[:500]  # Leave some buffer
+    last_space = truncated.rfind(' ')
+    if last_space > 400:  # Only break at word if we have enough content
+        truncated = truncated[:last_space]
+    
+    return truncated + "..."
+
 class EducationalContextBuilder:
     """
     Educational class showing how to build context for prompts.
@@ -1417,6 +1457,14 @@ def lambda_handler(event, context):
                             "components_used": prompt_data["components_used"]
                         }
                     }
+                    
+                    # For image prompts, add Titan-optimized version to handle 512 char limit
+                    if template.output_format == "image":
+                        titan_prompt = create_titan_optimized_prompt(prompt_data["user_prompt"], prompt_id)
+                        storage_data["titan_prompt"] = titan_prompt
+                        storage_data["prompt_length"] = len(prompt_data["user_prompt"])
+                        storage_data["titan_length"] = len(titan_prompt)
+                        logger.info(f"Original prompt: {len(prompt_data['user_prompt'])} chars, Titan: {len(titan_prompt)} chars")
                     
                     # Add educational parameters to root level for visibility
                     if template.temperature is not None:
