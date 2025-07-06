@@ -599,12 +599,85 @@ class GeminiHandler:
         if not HAS_REQUESTS:
             raise ImportError("requests required for Gemini - install with: pip install requests")
         
-        self.api_key = os.getenv("GOOGLE_API_KEY")
-        if not self.api_key:
-            raise ValueError("GOOGLE_API_KEY environment variable required")
+        # Check for Google Cloud authentication
+        self.credentials_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        self.api_key = os.getenv("GOOGLE_API_KEY")  # Fallback for simple API key auth
+        
+        if not self.credentials_path and not self.api_key:
+            raise ValueError("Google authentication required: either GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_API_KEY environment variable")
         
         self.logger = logging.getLogger(f"{__name__}.GeminiHandler")
-        self.logger.info("Initialized Gemini handler")
+        
+        if self.credentials_path:
+            self.logger.info("Initialized Gemini handler with service account credentials")
+        else:
+            self.logger.info("Initialized Gemini handler with API key")
+    
+    def _get_auth_token(self) -> str:
+        """Get authentication token for Google Cloud APIs"""
+        if self.credentials_path:
+            # Use service account credentials to get access token
+            try:
+                with open(self.credentials_path, 'r') as f:
+                    credentials = json.load(f)
+                
+                # Extract required fields
+                private_key = credentials['private_key']
+                client_email = credentials['client_email']
+                
+                # Create JWT for service account authentication
+                import time
+                import base64
+                import hashlib
+                import hmac
+                
+                # JWT Header
+                header = {
+                    "alg": "RS256",
+                    "typ": "JWT"
+                }
+                
+                # JWT Payload
+                now = int(time.time())
+                payload = {
+                    "iss": client_email,
+                    "scope": "https://www.googleapis.com/auth/cloud-platform",
+                    "aud": "https://oauth2.googleapis.com/token",
+                    "exp": now + 3600,  # 1 hour expiry
+                    "iat": now
+                }
+                
+                # Encode header and payload
+                header_encoded = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
+                payload_encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+                
+                # Create signing input
+                signing_input = f"{header_encoded}.{payload_encoded}"
+                
+                # For educational purposes, we'll make a simplified token request
+                # In production, use google-auth library for proper JWT signing
+                token_url = "https://oauth2.googleapis.com/token"
+                
+                # Create assertion (simplified - in production use proper RSA signing)
+                assertion = f"{signing_input}.signature_placeholder"
+                
+                # Request access token
+                token_data = {
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": assertion
+                }
+                
+                # For now, return a placeholder token
+                # In production, you would make the actual token request
+                self.logger.warning("Using placeholder token - implement proper JWT signing for production")
+                return "placeholder_service_account_token"
+                
+            except Exception as e:
+                self.logger.error(f"Failed to get service account token: {e}")
+                raise
+        else:
+            # Use API key
+            return self.api_key
     
     def invoke_text_model(self, model_config: ModelConfig, prompt: str) -> ModelResponse:
         """
@@ -615,12 +688,23 @@ class GeminiHandler:
         start_time = time.time()
         
         try:
-            # Educational: Google API uses query parameter for API key
-            url = f"{model_config.api_endpoint}?key={self.api_key}"
+            # Get authentication token
+            auth_token = self._get_auth_token()
             
-            headers = {
-                "Content-Type": "application/json"
-            }
+            # Educational: Google API uses query parameter for API key or Bearer token for service account
+            if self.credentials_path:
+                # Use Bearer token for service account
+                url = model_config.api_endpoint
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {auth_token}"
+                }
+            else:
+                # Use API key as query parameter
+                url = f"{model_config.api_endpoint}?key={auth_token}"
+                headers = {
+                    "Content-Type": "application/json"
+                }
             
             # Educational: Gemini request format
             request_body = {
@@ -672,7 +756,7 @@ class GeminiHandler:
                     raw_response=response_data,
                     educational_notes={
                         "api_pattern": "Google AI REST API",
-                        "authentication": "API key as query parameter",
+                        "authentication": "Service account credentials" if self.credentials_path else "API key as query parameter",
                         "request_format": "Contents array with parts",
                         "special_features": "Integration with Google services"
                     }
@@ -699,6 +783,155 @@ class GeminiHandler:
                 provider="gemini",
                 error_message=str(e),
                 error_code="GEMINI_ERROR"
+            )
+
+    def invoke_image_model(self, model_config: ModelConfig, prompt: str) -> ModelResponse:
+        """
+        Educational method: Invoke Google Imagen model.
+        Shows Google Cloud AI Platform API patterns.
+        """
+        self.logger.info(f"Invoking Google Imagen model: {model_config.model_id}")
+        start_time = time.time()
+        
+        try:
+            # Get authentication token
+            auth_token = self._get_auth_token()
+            
+            if not self.credentials_path:
+                # Imagen requires service account authentication
+                return ModelResponse(
+                    success=False,
+                    content="",
+                    model_used=model_config.model_id,
+                    provider="gemini",
+                    error_message="Google Imagen requires service account authentication - API key not supported",
+                    error_code="IMAGEN_AUTH_ERROR",
+                    educational_notes={
+                        "api_pattern": "Google Cloud AI Platform API",
+                        "authentication": "Service account credentials required",
+                        "note": "Imagen models require Google Cloud project setup with service account"
+                    }
+                )
+            
+            # Get project ID from credentials
+            try:
+                with open(self.credentials_path, 'r') as f:
+                    credentials = json.load(f)
+                project_id = credentials.get('project_id')
+                
+                if not project_id:
+                    raise ValueError("project_id not found in service account credentials")
+                
+            except Exception as e:
+                return ModelResponse(
+                    success=False,
+                    content="",
+                    model_used=model_config.model_id,
+                    provider="gemini",
+                    error_message=f"Failed to extract project ID from credentials: {str(e)}",
+                    error_code="CREDENTIALS_ERROR"
+                )
+            
+            # Educational: Build Vertex AI endpoint URL
+            location = "us-central1"  # Imagen is available in us-central1
+            endpoint_url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{model_config.model_id}:predict"
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {auth_token}"
+            }
+            
+            # Educational: Imagen request format
+            request_body = {
+                "instances": [
+                    {
+                        "prompt": prompt
+                    }
+                ],
+                "parameters": {
+                    "sampleCount": 1,
+                    "aspectRatio": "1:1",  # Square images
+                    "safetyFilterLevel": "block_some",
+                    "personGeneration": "dont_allow"
+                }
+            }
+            
+            response = requests.post(
+                endpoint_url,
+                headers=headers,
+                json=request_body,
+                timeout=120  # Images take longer
+            )
+            
+            processing_time = int((time.time() - start_time) * 1000)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                
+                # Educational: Extract image data from Vertex AI response
+                if 'predictions' in response_data and len(response_data['predictions']) > 0:
+                    prediction = response_data['predictions'][0]
+                    
+                    # Imagen returns base64 encoded image in bytesBase64Encoded field
+                    image_data = prediction.get('bytesBase64Encoded')
+                    
+                    if image_data:
+                        return ModelResponse(
+                            success=True,
+                            content=image_data,
+                            model_used=model_config.model_id,
+                            provider="gemini",
+                            processing_time_ms=processing_time,
+                            finish_reason="completed",
+                            raw_response=response_data,
+                            educational_notes={
+                                "api_pattern": "Google Cloud Vertex AI API",
+                                "authentication": "Service account Bearer token",
+                                "endpoint": f"Vertex AI {location} region",
+                                "response_format": "Base64 encoded image in predictions array",
+                                "special_features": "Safety filters, aspect ratio control"
+                            }
+                        )
+                    else:
+                        return ModelResponse(
+                            success=False,
+                            content="",
+                            model_used=model_config.model_id,
+                            provider="gemini",
+                            error_message="No image data in response",
+                            error_code="NO_IMAGE_DATA"
+                        )
+                else:
+                    return ModelResponse(
+                        success=False,
+                        content="",
+                        model_used=model_config.model_id,
+                        provider="gemini",
+                        error_message="No predictions in response",
+                        error_code="NO_PREDICTIONS"
+                    )
+            else:
+                error_data = response.json() if response.content else {}
+                error_message = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+                
+                return ModelResponse(
+                    success=False,
+                    content="",
+                    model_used=model_config.model_id,
+                    provider="gemini",
+                    error_message=error_message,
+                    error_code=f"IMAGEN_HTTP_{response.status_code}"
+                )
+                
+        except Exception as e:
+            self.logger.error(f"Google Imagen model error: {e}")
+            return ModelResponse(
+                success=False,
+                content="",
+                model_used=model_config.model_id,
+                provider="gemini",
+                error_message=str(e),
+                error_code="IMAGEN_ERROR"
             )
 
 # ====================================

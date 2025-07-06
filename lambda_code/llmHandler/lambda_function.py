@@ -269,9 +269,57 @@ def get_anthropic_api_key() -> str:
     """Get Anthropic API key from AWS Secrets Manager"""
     return get_api_key(ANTHROPIC_SECRET_NAME, "anthropic")
 
-def get_google_api_key() -> str:
-    """Get Google API key from AWS Secrets Manager"""
-    return get_api_key(GOOGLE_SECRET_NAME, "google")
+def get_google_api_key():
+    """Get Google API key from AWS Secrets Manager."""
+    try:
+        session = boto3.Session()
+        client = session.client(service_name='secretsmanager', region_name='eu-west-1')
+        
+        # Get the API key from the nested structure
+        get_secret_value_response = client.get_secret_value(SecretId='craicgpt/google')
+        secret = get_secret_value_response['SecretString']
+        
+        # Parse the service account JSON to get the project info if needed
+        service_account_data = json.loads(secret)
+        
+        # For now, let's try to get a separate API key from another secret
+        # If that doesn't exist, we'll need to use a different approach
+        try:
+            api_key_response = client.get_secret_value(SecretId='craicgpt/google-api-key')
+            return api_key_response['SecretString']
+        except:
+            # If no separate API key, return None and we'll handle it differently
+            return None
+            
+    except Exception as e:
+        print(f"Error getting Google API key: {str(e)}")
+        return None
+
+def get_google_credentials():
+    """Setup Google Application Default Credentials."""
+    print("Setting up Google Application Default Credentials...")
+    try:
+        # 1. Retrieve the full JSON string from AWS Secrets Manager
+        session = boto3.Session()
+        client = session.client(service_name='secretsmanager', region_name='eu-west-1')
+
+        get_secret_value_response = client.get_secret_value(SecretId='craicgpt/google')
+        secret = get_secret_value_response['SecretString']
+        
+        # 2. Write the JSON to a temporary file
+        credentials_path = "/tmp/gcp_credentials.json"
+        with open(credentials_path, 'w') as f:
+            f.write(secret)
+        
+        # 3. Set the environment variable for Google libraries to find it
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        
+        print("✅ Google credentials setup successful.")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error setting up Google credentials: {str(e)}")
+        return False
 
 # =================================
 # MULTI-PROVIDER MODEL INVOCATION
@@ -524,94 +572,91 @@ def invoke_anthropic_model(model_id: str, prompt: str) -> ModelResponse:
             error_code="ANTHROPIC_ERROR"
         )
 
-def invoke_gemini_model(model_id: str, prompt: str) -> ModelResponse:
-    """Invoke Google Gemini model via REST API"""
-    if not HAS_REQUESTS:
-        return ModelResponse(
-            success=False,
-            content="",
-            model_id=model_id,
-            provider="gemini",
-            error_message="requests library not available",
-            error_code="MISSING_DEPENDENCY"
-        )
-    
-    start_time = time.time()
-    
-    try:
-        api_key = get_google_api_key()
+class GeminiHandler:
+    def __init__(self):
+        self.model = None
+        self.credentials_setup = False
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
+    def setup_credentials(self):
+        """Setup Google Cloud credentials if not already done."""
+        if not self.credentials_setup:
+            self.credentials_setup = get_google_credentials()
+        return self.credentials_setup
         
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        request_body = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": prompt}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.7,
-                "topP": 0.9,
-                "topK": 40,
-                "maxOutputTokens": 800
+    def invoke_llm_model(self, prompt, model_id):
+        """Invoke Gemini model using service account authentication."""
+        try:
+            # Import requests at function level to ensure it's available
+            import requests
+            
+            # Setup service account credentials
+            if not self.setup_credentials():
+                return "Error: Failed to setup Google Cloud credentials"
+            
+            # Import required modules for REST API
+            import json
+            from google.auth.transport.requests import Request
+            from google.oauth2 import service_account
+            
+            # Load service account credentials from the temporary file
+            credentials_path = "/tmp/gcp_credentials.json"
+            credentials = service_account.Credentials.from_service_account_file(
+                credentials_path,
+                scopes=['https://www.googleapis.com/auth/generative-language']
+            )
+            
+            # Refresh the credentials to get an access token
+            credentials.refresh(Request())
+            access_token = credentials.token
+            
+            # Use the generative language API with service account
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
             }
-        }
-        
-        response = requests.post(
-            url,
-            headers=headers,
-            json=request_body,
-            timeout=60
-        )
-        
-        if response.status_code == 200:
-            response_data = response.json()
-            content = response_data['candidates'][0]['content']['parts'][0]['text']
             
-            # Gemini doesn't always provide token counts
-            tokens_used = None
-            usage_metadata = response_data.get('usageMetadata')
-            if usage_metadata:
-                tokens_used = usage_metadata.get('totalTokenCount')
+            # Map model_id to actual model names
+            model_name_map = {
+                "gemini-pro": "gemini-1.5-flash",
+                "gemini-ultra": "gemini-1.5-flash", 
+                "gemini-1.5-pro": "gemini-1.5-flash"
+            }
             
-            return ModelResponse(
-                success=True,
-                content=content.strip(),
-                model_id=model_id,
-                provider="gemini",
-                tokens_used=tokens_used,
-                processing_time_ms=int((time.time() - start_time) * 1000),
-                finish_reason=response_data['candidates'][0].get('finishReason', 'STOP')
-            )
-        else:
-            error_data = response.json() if response.content else {}
-            error_msg = error_data.get('error', {}).get('message', f"HTTP {response.status_code}")
+            model_name = model_name_map.get(model_id, "gemini-1.5-flash")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
             
-            return ModelResponse(
-                success=False,
-                content="",
-                model_id=model_id,
-                provider="gemini",
-                error_message=error_msg,
-                error_code=f"GEMINI_HTTP_{response.status_code}"
-            )
+            request_body = {
+                "contents": [{
+                    "parts": [{
+                        "text": prompt
+                    }]
+                }],
+                "generationConfig": {
+                    "temperature": 0.7,
+                    "topP": 0.9,
+                    "maxOutputTokens": 800
+                }
+            }
             
-    except Exception as e:
-        log.error(f"Gemini model {model_id} error: {e}")
-        return ModelResponse(
-            success=False,
-            content="",
-            model_id=model_id,
-            provider="gemini",
-            error_message=str(e),
-            error_code="GEMINI_ERROR"
-        )
+            response = requests.post(url, headers=headers, json=request_body, timeout=60)
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                if 'candidates' in response_data and len(response_data['candidates']) > 0:
+                    content = response_data['candidates'][0]['content']['parts'][0]['text']
+                    return content.strip()
+                else:
+                    return f"Error: No content generated - {response_data}"
+            else:
+                error_data = response.json() if response.content else {}
+                return f"Error: HTTP {response.status_code}: {error_data}"
+                
+        except Exception as e:
+            return f"Error: {str(e)}"
+    
+    def invoke_image_model(self, prompt, model_id):
+        """Invoke Gemini image model - not supported, return error message."""
+        return "Error: Gemini image generation not supported in this handler"
 
 def invoke_model(model_id: str, prompt: str) -> ModelResponse:
     """Unified model invocation supporting all providers"""
@@ -624,7 +669,39 @@ def invoke_model(model_id: str, prompt: str) -> ModelResponse:
     elif provider == ModelProvider.ANTHROPIC_DIRECT:
         return invoke_anthropic_model(model_id, prompt)
     elif provider == ModelProvider.GOOGLE_GEMINI:
-        return invoke_gemini_model(model_id, prompt)
+        try:
+            gemini_handler = GeminiHandler()
+            response_content = gemini_handler.invoke_llm_model(prompt, model_id)
+            
+            # Check if the response is an error
+            if response_content.startswith("Error:"):
+                return ModelResponse(
+                    success=False,
+                    content="",
+                    model_id=model_id,
+                    provider="gemini",
+                    error_message=response_content,
+                    error_code="GEMINI_ERROR"
+                )
+            else:
+                return ModelResponse(
+                    success=True,
+                    content=response_content,
+                    model_id=model_id,
+                    provider="gemini",
+                    tokens_used=None,  # Gemini doesn't provide token counts in this format
+                    processing_time_ms=None,
+                    finish_reason=None
+                )
+        except Exception as e:
+            return ModelResponse(
+                success=False,
+                content="",
+                model_id=model_id,
+                provider="gemini",
+                error_message=str(e),
+                error_code="GEMINI_HANDLER_ERROR"
+            )
     else:
         return ModelResponse(
             success=False,
@@ -1007,3 +1084,4 @@ def lambda_handler(event, _ctx):
                 "date": event.get("date", "unknown")
             })
         }
+

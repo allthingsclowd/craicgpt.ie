@@ -181,6 +181,41 @@ def get_openai_api_key() -> str:
     """Get OpenAI API key from AWS Secrets Manager"""
     return get_api_key(OPENAI_SECRET_NAME, "openai")
 
+def get_google_api_key() -> str:
+    """Get Google API key from AWS Secrets Manager"""
+    return get_api_key(GOOGLE_SECRET_NAME, "google")
+
+def get_google_credentials():
+    """
+    Retrieves a GCP service account JSON from AWS Secrets Manager,
+    saves it to a temporary file, and sets the required environment
+    variable for Application Default Credentials (ADC).
+    
+    Returns:
+        True if setup was successful, False otherwise.
+    """
+    print("Setting up Google Application Default Credentials...")
+    try:
+        # 1. Retrieve the full JSON string from AWS Secrets Manager
+        session = boto3.session.Session()
+        client = session.client(service_name='secretsmanager', region_name='eu-west-1')
+        get_secret_value_response = client.get_secret_value(SecretId='craicgpt/google')
+        service_account_json_string = get_secret_value_response['SecretString']
+        
+        # 2. Write the JSON string to a temporary file
+        #    This is the standard way for Google libraries to find credentials.
+        credentials_path = "/tmp/gcp_credentials.json"
+        with open(credentials_path, "w") as f:
+            f.write(service_account_json_string)
+            
+        # 3. Point the environment variable to the credential file
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        print("✅ Google credentials setup successful.")
+        return True
+    except Exception as e:
+        print(f"❌ Error setting up Google credentials: {e}")
+        return False
+
 # =================================
 # MULTI-PROVIDER IMAGE GENERATION
 # =================================
@@ -364,27 +399,117 @@ def invoke_openai_image_model(model_id: str, prompt: str) -> ImageResponse:
             error_code="OPENAI_IMAGE_ERROR"
         )
 
-def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
-    """Invoke Google Imagen model"""
+def invoke_google_image_model(prompt, model_id):
+    """
+    Invoke Google Imagen model using REST API with Application Default Credentials.
+    
+    Args:
+        prompt: The text prompt for image generation
+        model_id: The model identifier (e.g., "imagen-3.0-generate-002")
+    
+    Returns:
+        ImageResponse: Response containing success status and image data or error message
+    """
     start_time = time.time()
     
     try:
-        # Use educational_runner for Google models if available
-        try:
-            from educational_runner import EducationalModelRunner
+        # Setup Google Cloud credentials
+        if not get_google_credentials():
+            return ImageResponse(
+                success=False,
+                image_data="",
+                model_id=model_id,
+                provider="google",
+                error_message="Failed to setup Google Cloud credentials",
+                error_code="GOOGLE_AUTH_ERROR"
+            )
+        
+        # Import required modules (avoiding gRPC dependencies)
+        import json
+        import requests
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+        
+        # Load service account credentials from the temporary file
+        credentials_path = "/tmp/gcp_credentials.json"
+        credentials = service_account.Credentials.from_service_account_file(
+            credentials_path,
+            scopes=['https://www.googleapis.com/auth/cloud-platform']
+        )
+        
+        # Refresh the credentials to get an access token
+        credentials.refresh(Request())
+        access_token = credentials.token
+        
+        # Google Cloud project details
+        project_id = "gen-lang-client-0555511647"
+        location = "us-central1"
+        
+        # Map model_id to actual Vertex AI model names
+        model_name_map = {
+            "imagen-3.0-generate-002": "imagen-3.0-generate-002",
+            "imagen-3.0-fast-generate-001": "imagen-3.0-fast-generate-001", 
+            "imagen-3.0-generate-preview-0429": "imagen-3.0-generate-preview-0429"
+        }
+        
+        vertex_model_name = model_name_map.get(model_id, "imagen-3.0-generate-002")
+        
+        # Construct the REST API endpoint
+        endpoint = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}/locations/{location}/publishers/google/models/{vertex_model_name}:predict"
+        
+        # Prepare the request payload
+        payload = {
+            "instances": [
+                {
+                    "prompt": prompt
+                }
+            ],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "1:1",
+                "safetyFilterLevel": "block_some",
+                "personGeneration": "allow_adult"
+            }
+        }
+        
+        # Set up headers with authentication
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        # Make the REST API call
+        response = requests.post(endpoint, json=payload, headers=headers, timeout=60)
+        
+        if response.status_code == 200:
+            result = response.json()
             
-            runner = EducationalModelRunner()
-            response = runner.invoke_model(model_id, prompt)
-            
-            if response.success and response.content:
-                # Google Imagen returns base64 encoded image
+            # Extract the generated image from the response
+            if "predictions" in result and len(result["predictions"]) > 0:
+                prediction = result["predictions"][0]
+                
+                # The image is typically base64 encoded in the response
+                if "bytesBase64Encoded" in prediction:
+                    image_data = prediction["bytesBase64Encoded"]
+                elif "generatedImage" in prediction and "bytesBase64Encoded" in prediction["generatedImage"]:
+                    image_data = prediction["generatedImage"]["bytesBase64Encoded"]
+                else:
+                    return ImageResponse(
+                        success=False,
+                        image_data="",
+                        model_id=model_id,
+                        provider="google",
+                        error_message="No image data found in response",
+                        error_code="GOOGLE_NO_IMAGE_DATA"
+                    )
+                
                 return ImageResponse(
                     success=True,
-                    image_data=response.content,
+                    image_data=image_data,
                     model_id=model_id,
                     provider="google",
-                    processing_time_ms=response.processing_time_ms or int((time.time() - start_time) * 1000),
-                    finish_reason=response.finish_reason or "completed",
+                    processing_time_ms=int((time.time() - start_time) * 1000),
+                    finish_reason="completed",
                     alt_text=f"AI-generated image using {model_id}"
                 )
             else:
@@ -393,36 +518,29 @@ def invoke_google_image_model(model_id: str, prompt: str) -> ImageResponse:
                     image_data="",
                     model_id=model_id,
                     provider="google",
-                    error_message=response.error_message or "Google image generation failed",
-                    error_code=response.error_code or "GOOGLE_IMAGE_ERROR"
+                    error_message="No predictions in response",
+                    error_code="GOOGLE_NO_PREDICTIONS"
                 )
-        except ImportError:
+        else:
+            error_message = f"HTTP {response.status_code}: {response.text}"
             return ImageResponse(
                 success=False,
                 image_data="",
                 model_id=model_id,
                 provider="google",
-                error_message="Google image generation not properly configured - educational_runner unavailable",
-                error_code="MISSING_DEPENDENCY"
+                error_message=error_message,
+                error_code="GOOGLE_HTTP_ERROR"
             )
-        except Exception as e:
-            return ImageResponse(
-                success=False,
-                image_data="",
-                model_id=model_id,
-                provider="google",
-                error_message=f"Google image generation error: {str(e)}",
-                error_code="GOOGLE_RUNNER_ERROR"
-            )
+            
     except Exception as e:
-        log.error(f"Google image model {model_id} error: {e}")
+        print(f"Error invoking Google Imagen model {model_id}: {str(e)}")
         return ImageResponse(
             success=False,
             image_data="",
             model_id=model_id,
             provider="google",
-            error_message=str(e),
-            error_code="GOOGLE_ERROR"
+            error_message=f"Google Imagen REST API error: {str(e)}",
+            error_code="GOOGLE_IMAGEN_ERROR"
         )
 
 def invoke_image_model(model_id: str, prompt: str) -> ImageResponse:
@@ -434,7 +552,7 @@ def invoke_image_model(model_id: str, prompt: str) -> ImageResponse:
     elif provider == ModelProvider.OPENAI:
         return invoke_openai_image_model(model_id, prompt)
     elif provider == ModelProvider.GOOGLE_GEMINI:
-        return invoke_google_image_model(model_id, prompt)
+        return invoke_google_image_model(prompt, model_id)
     else:
         return ImageResponse(
             success=False,
