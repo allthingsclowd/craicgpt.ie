@@ -85,7 +85,10 @@ class ProviderConfig:
         default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.8"))
     )
     max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("LLM_MAX_TOKENS", "1024"))
+        # Gemini 2.5 Pro is a thinking model — it consumes tokens on internal
+        # reasoning before producing output. 1024 is exhausted by thinking alone.
+        # Set high (8192) so thinking models have room to respond.
+        default_factory=lambda: int(os.getenv("LLM_MAX_TOKENS", "8192"))
     )
 
 
