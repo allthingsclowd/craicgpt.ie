@@ -3,312 +3,515 @@
   <img src="frontend/static_assets/images/GeekwiththePeak.png" alt="Geek with the Peak Logo" width="150"/>
 </p>
 
-# CraicGPT.ie - Multi-Provider AI Newspaper Generator
+# The Craic Gazette — AI Newspaper Comparator
 
-**Production-Ready Multi-Provider AI Content Generation Platform**
+> **A hands-on LangChain + LangGraph tutorial site.**
+> The same prompts are sent simultaneously to Claude, Gemini, and a local LLM.
+> The differences in their responses *are* the content.
 
-CraicGPT.ie is a sophisticated serverless application that generates daily AI-powered newspapers using multiple model providers. The system demonstrates advanced prompt engineering, multi-provider AI integration, and production-grade infrastructure automation.
+Live site: **[craicgpt.ie](https://craicgpt.ie)**
 
-## 🏗️ System Architecture
+---
 
-### **Multi-Provider AI Support**
-- **AWS Bedrock**: Claude, Titan Text, Titan Image, Nova Canvas (IAM authentication)
-- **OpenAI**: GPT-4, O3 Mini, DALL-E 3 (API keys via AWS Secrets Manager)
-- **Anthropic Direct**: Claude 3.5 Sonnet, Claude 3 Opus (API keys via AWS Secrets Manager)
-- **Google Gemini**: Gemini Pro, Gemini Ultra (API keys via AWS Secrets Manager)
+## What is this?
 
-### **Serverless Pipeline Architecture**
+The Craic Gazette is an Irish-flavoured satirical AI newspaper that runs entirely from a home machine — no cloud functions, no per-invocation costs. Every morning a LangGraph pipeline:
+
+1. Runs a **ReAct research agent** to fetch live news and weather
+2. Sends identical prompts to **Claude**, **Gemini**, and a **local LM Studio model** in parallel
+3. Uploads a single JSON file to S3
+4. A static frontend reads that JSON and lets you switch between — or compare — all three responses side-by-side
+
+The codebase is written as an educational tutorial. Every file is heavily commented and explains *why* things are done the way they are, not just *what* they do.
+
+---
+
+## Why the move from Lambda?
+
+The original site used AWS Lambda + Bedrock to generate content. That worked, but:
+
+- Lambda cold starts + Bedrock API latency added up fast
+- Each generation run cost real money in invocation and model fees
+- Adding a local LLM to the comparison was impossible from a cloud function
+
+The new architecture runs on a home Mac. The only AWS cost is S3 storage + CloudFront — a few cents per month. Local LLM inference is free. Cloud API costs (Claude, Gemini) are pay-per-use but modest for one newspaper per day.
+
+---
+
+## Architecture
+
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│                 │    │                 │    │                 │    │                 │
-│ Prompt          │───▶│ Orchestrator    │───▶│ Content         │───▶│ Static Website  │
-│ Generator       │    │                 │    │ Generators      │    │ (S3 + CloudFront)│
-│                 │    │                 │    │                 │    │                 │
-└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
-       │                       │                       │
-       │                       │                       ├─ LLM Handler (Multi-Provider)
-       │                       │                       └─ Image Handler (Multi-Provider)
-       │                       │
-       │                       └─ 10 Lambda Concurrency Limit Enforcement
-       │
-       └─ Unified Multi-Provider Prompt Engineering
+Your Mac (runs daily at 08:00 via launchd)
+│
+└── run_daily.sh
+      └── content_pipeline/main.py
+            │
+            ├── [Node 1: research]
+            │     create_react_agent (Claude) + @tool functions
+            │     ├── get_weather()      → wttr.in (no API key)
+            │     ├── get_news_headlines() → DuckDuckGo (no API key)
+            │     └── get_ai_tech_trends() → DuckDuckGo
+            │
+            ├── [Node 2: generate]   ← RunnableParallel (runs all 3 at once)
+            │     ├── prompt | claude_llm  | parser   (Anthropic API)
+            │     ├── prompt | gemini_llm  | parser   (Google AI API)
+            │     └── prompt | lmstudio_llm | parser  (localhost:1234)
+            │
+            ├── [Node 3: compile]
+            │     Assemble paper_content.json with all outputs + metadata
+            │
+            └── [Node 4: publish]
+                  boto3 → s3://craicgpt-ie-production/content/YYYY/MM/DD/paper_content.json
+                  CloudFront invalidation → site live within 30s
 ```
 
-### **Core Components**
-1. **Unified Prompt Generator**: Creates prompts optimized for all supported providers
-2. **Orchestrator**: Manages workflow execution with strict 10 Lambda concurrency limits
-3. **Multi-Provider Handlers**: Support text and image generation across all providers
-4. **Frontend**: Static newspaper layout with provider selection interface
-5. **Infrastructure**: Fully automated Terraform deployment
+The frontend is static HTML/CSS/JS served from S3 via CloudFront. It fetches the JSON on load and renders whichever provider tab is active.
 
-## 🚀 Key Features
+---
 
-### **Production-Grade Multi-Provider Support**
-- ✅ **Single Unified System**: One codebase supporting all major AI providers
-- ✅ **Secrets Management**: Secure API key storage via AWS Secrets Manager
-- ✅ **Provider Auto-Detection**: Automatic routing based on model IDs
-- ✅ **Comprehensive Error Handling**: Retry logic and fallback mechanisms
-- ✅ **Backward Compatibility**: Existing integrations continue working
+## LangChain Concepts Used
 
-### **Advanced Orchestration**
-- ✅ **10 Lambda Limit Compliance**: Hard limit enforcement (orchestrator + 9 workers)
-- ✅ **CloudWatch Monitoring**: Real-time concurrency tracking
-- ✅ **Idempotent Workflows**: Safe to rerun on failures
-- ✅ **Dependency Management**: LLM generation before image generation
-- ✅ **Rate Limiting**: Model-specific throttling controls
+This project is intentionally structured as a tutorial. Here is what each LangChain building block does and where to find it:
 
-### **Comprehensive Prompt Engineering**
-- ✅ **Explicit Parameters**: Visible temperature, max_tokens, top_p settings
-- ✅ **Provider Optimization**: Model-specific prompt formatting
-- ✅ **Component Influence Mapping**: Clear relationships between context and content
-- ✅ **Educational Documentation**: Learn prompt engineering best practices
+### 1. `@tool` — defining agent tools (`content_pipeline/tools/`)
 
-## 📁 Repository Documentation Tree
+```python
+from langchain_core.tools import tool
 
-### **Core Documentation**
-- [`README.md`](README.md) - This file (main overview)
-- [`CLAUDE.md`](CLAUDE.md) - Claude Code assistant documentation
-- [`docs/secrets-manager-setup.md`](docs/secrets-manager-setup.md) - AWS Secrets Manager configuration
+@tool
+def get_weather(location: str = "") -> str:
+    """Fetch current weather. The docstring is what the LLM reads to decide when to use this tool."""
+    ...
+```
 
-### **Component Documentation**
-- [`frontend/README.md`](frontend/README.md) - Static website and user interface
-- [`lambda_code/README.md`](lambda_code/README.md) - Serverless backend functions
-- [`lambda_code/PromptGenerator/README.md`](lambda_code/PromptGenerator/README.md) - Multi-provider prompt generation
-- [`lambda_code/orchestrator/README.md`](lambda_code/orchestrator/README.md) - Workflow orchestration and concurrency control
-- [`lambda_code/llmHandler/README.md`](lambda_code/llmHandler/README.md) - Multi-provider text generation
-- [`lambda_code/imageGenHandler/README.md`](lambda_code/imageGenHandler/README.md) - Multi-provider image generation
-- [`terraform/README.md`](terraform/README.md) - Infrastructure as Code
-- [`terraform/frontend/README.md`](terraform/frontend/README.md) - Frontend infrastructure deployment
-- [`terraform/backend/README.md`](terraform/backend/README.md) - Backend infrastructure deployment
-- [`prompts/README.md`](prompts/README.md) - Base prompt templates and examples
-- [`docs/README.md`](docs/README.md) - Additional documentation and guides
+The `@tool` decorator wraps a plain Python function into a LangChain `StructuredTool`. The LLM reads the docstring to understand what the tool does and the type hints to know what arguments to pass. No other configuration is needed.
 
-## 🛠️ Quick Start
+### 2. `create_react_agent` — ReAct agent loop (`content_pipeline/agents/research_agent.py`)
 
-### **Prerequisites**
-- AWS CLI configured with appropriate permissions
-- Terraform >= 1.8.0
-- Python 3.12+ (for Lambda functions)
-- API keys for external providers (OpenAI, Anthropic, Google)
+```python
+from langgraph.prebuilt import create_react_agent
 
-### **1. Deploy Frontend (Fully Automated)**
+agent = create_react_agent(model=claude_llm, tools=[get_weather, get_news_headlines])
+for chunk in agent.stream({"messages": [("human", task)]}):
+    ...
+```
+
+ReAct (Reason + Act) is the standard agentic pattern:
+1. **Reason** — the LLM thinks about what it needs
+2. **Act** — it calls a tool
+3. **Observe** — it reads the tool result
+4. Loop until it has everything it needs
+
+`create_react_agent` builds a full LangGraph `StateGraph` under the hood. You get streaming, checkpointing, and step-by-step inspection for free.
+
+### 3. LCEL `|` pipe operator — building chains (`content_pipeline/chains/newspaper_chain.py`)
+
+```python
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnableLambda
+
+chain = prompt | llm | StrOutputParser() | RunnableLambda(parse_json)
+result = chain.invoke({"date": "...", "weather": "..."})
+```
+
+LangChain Expression Language (LCEL) uses the `|` operator like Unix pipes. Each component receives the output of the previous one. All components share the same `.invoke()` / `.stream()` / `.batch()` interface regardless of whether they're prompts, LLMs, or plain functions.
+
+### 4. `RunnableParallel` — running all three LLMs at once (same file)
+
+```python
+from langchain_core.runnables import RunnableParallel
+
+parallel = RunnableParallel(
+    claude=claude_chain,
+    gemini=gemini_chain,
+    local=lmstudio_chain,
+)
+results = parallel.invoke(inputs)
+# results == {"claude": {...}, "gemini": {...}, "local": {...}}
+```
+
+`RunnableParallel` runs all three chains with identical inputs using Python's `ThreadPoolExecutor`. Total time is roughly the slowest provider, not the sum of all three. The output dict maps directly to the JSON schema stored in S3.
+
+### 5. `StateGraph` — orchestrating the full pipeline (`content_pipeline/agents/orchestrator.py`)
+
+```python
+from langgraph.graph import StateGraph, START, END
+
+builder = StateGraph(PipelineState)
+builder.add_node("research", node_research)
+builder.add_node("generate", node_generate)
+builder.add_node("compile",  node_compile)
+builder.add_node("publish",  node_publish)
+builder.add_edge(START, "research")
+# ... etc
+graph = builder.compile()
+graph.invoke(initial_state)
+```
+
+`StateGraph` gives the pipeline an explicit, visualisable structure. Each node receives the full state dict, does its work, and returns only the fields it updates. Run `./run_daily.sh --show-graph` to print a Mermaid diagram of the pipeline.
+
+### 6. Multi-provider setup — same interface, different backends
+
+All three providers use the same `BaseChatModel` interface:
+
+| Provider | Class | Auth |
+|---|---|---|
+| Claude | `ChatAnthropic` | `ANTHROPIC_API_KEY` |
+| Gemini | `ChatGoogleGenerativeAI` | `GOOGLE_API_KEY` |
+| LM Studio | `ChatOpenAI(base_url=...)` | none (placeholder key) |
+
+LM Studio uses LangChain's `ChatOpenAI` with `base_url` overridden to point at the local server. The same chain code works for all three — that's the point of LangChain's abstraction layer.
+
+> **Note on thinking models:** `gemini-2.5-pro` and some local models (DeepSeek-R1, Qwen3) output internal reasoning before the actual response. The JSON parser in `newspaper_chain.py` handles this by scanning past thinking prose and `<think>` blocks to find valid JSON.
+
+---
+
+## Project Structure
+
+```
+craicgpt.ie/
+│
+├── run_daily.sh              ← Generate today's content and upload to S3
+├── deploy_frontend.sh        ← Sync frontend HTML/CSS/JS to S3
+├── .env                      ← Your credentials (gitignored)
+├── .env.example              ← Template — copy to .env
+│
+├── content_pipeline/         ← The LangChain/LangGraph pipeline
+│   ├── main.py               ← CLI entry point
+│   ├── config.py             ← All config from env vars (singleton cfg)
+│   ├── requirements.txt      ← Python dependencies
+│   ├── agents/
+│   │   ├── orchestrator.py   ← LangGraph StateGraph (4 nodes)
+│   │   └── research_agent.py ← ReAct agent with news/weather tools
+│   ├── chains/
+│   │   └── newspaper_chain.py ← LCEL chains + RunnableParallel
+│   ├── prompts/
+│   │   └── templates.py      ← All ChatPromptTemplates (single source of truth)
+│   ├── providers/
+│   │   ├── claude.py         ← ChatAnthropic factory
+│   │   ├── gemini.py         ← ChatGoogleGenerativeAI factory
+│   │   └── lmstudio.py       ← ChatOpenAI(base_url=localhost) factory
+│   ├── publisher/
+│   │   └── s3_publisher.py   ← boto3 upload + CloudFront invalidation
+│   └── tools/
+│       ├── news_tool.py      ← @tool: DuckDuckGo news search
+│       └── weather_tool.py   ← @tool: wttr.in weather fetch
+│
+├── frontend/                 ← Static site (S3 + CloudFront)
+│   ├── index.html            ← Tabloid newspaper layout
+│   └── static_assets/
+│       ├── style.css         ← Beano/tabloid design (CSS variables, Grid)
+│       └── main.js           ← Model comparator, JSON reader, trace drawer
+│
+├── docs/                     ← Tutorial markdown files
+│   ├── 01-overview.md
+│   ├── 02-lcel-and-chains.md
+│   ├── 03-langgraph-workflow.md
+│   ├── 04-multi-provider-setup.md
+│   └── 05-tools-and-agents.md
+│
+└── terraform/
+    └── frontend/             ← S3 bucket, CloudFront, ACM cert, Route53
+```
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- AWS CLI configured (`aws configure`)
+- [LM Studio](https://lmstudio.ai) with a model loaded and the local server running (optional)
+- API keys for Anthropic and Google
+
+### 1. Clone and configure
+
+```bash
+git clone git@github.com:allthingsclowd/craicgpt.ie.git
+cd craicgpt.ie
+cp .env.example .env
+```
+
+Edit `.env` and fill in your real values:
+
+```bash
+# ── Anthropic / Claude ────────────────────────────────────────────────
+ANTHROPIC_API_KEY=sk-ant-api03-...
+CLAUDE_MODEL=claude-sonnet-4-5        # or claude-opus-4-6
+
+# ── Google / Gemini ───────────────────────────────────────────────────
+GOOGLE_API_KEY=AIzaSy...
+GEMINI_MODEL=gemini-2.5-pro           # thinking model — needs LLM_MAX_TOKENS=8192
+
+# ── Local LM Studio ───────────────────────────────────────────────────
+LM_STUDIO_BASE_URL=http://localhost:1234/v1   # or your machine's LAN IP
+LM_STUDIO_MODEL=local-model           # name shown in LM Studio UI
+
+# ── AWS ───────────────────────────────────────────────────────────────
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+S3_BUCKET=craicgpt-ie-production
+CLOUDFRONT_DISTRIBUTION_ID=E...
+
+# ── Behaviour ─────────────────────────────────────────────────────────
+DRY_RUN=false
+SKIP_LOCAL_LLM=false
+LLM_MAX_TOKENS=8192                   # must be high for thinking models
+```
+
+### 2. Test the pipeline (dry run — no S3 upload)
+
+```bash
+# Test all three providers
+./run_daily.sh --dry-run --verbose
+
+# Skip local LLM if LM Studio isn't running
+./run_daily.sh --dry-run --skip-local --verbose
+
+# Inspect the output
+cat /tmp/paper_content_$(date +%Y-%m-%d).json | python3 -m json.tool | head -80
+```
+
+### 3. Visualise the pipeline graph
+
+```bash
+./run_daily.sh --show-graph
+# Paste the output at https://mermaid.live
+```
+
+---
+
+## Daily Operations
+
+### Generate content and publish to S3
+
+```bash
+./run_daily.sh
+```
+
+This will:
+1. Create `.venv` on first run and install dependencies
+2. Load credentials from `.env`
+3. Run the LangGraph pipeline (research → generate → compile → publish)
+4. Upload `content/YYYY/MM/DD/paper_content.json` to S3
+5. Invalidate the CloudFront cache — site is live within ~30 seconds
+
+### Deploy frontend changes
+
+Run this after editing `frontend/index.html`, `style.css`, or `main.js`:
+
+```bash
+./deploy_frontend.sh
+```
+
+This syncs `frontend/` to S3 and invalidates CloudFront. The `content/` prefix in S3 is excluded from `--delete` so generated JSON is never overwritten.
+
+---
+
+## Automating Daily Generation on macOS (launchd)
+
+macOS uses `launchd` rather than cron for scheduled tasks. A `.plist` file describes the job; `launchctl` loads it.
+
+### 1. Create the plist
+
+Save this file as `~/Library/LaunchAgents/ie.craicgpt.daily.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ie.craicgpt.daily</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/graz/repos/craicgpt.ie/run_daily.sh</string>
+    </array>
+
+    <!-- Run at 08:00 every morning -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <!-- Write stdout and stderr to log files -->
+    <key>StandardOutPath</key>
+    <string>/tmp/craicgpt.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/craicgpt.err</string>
+
+    <!-- Only run if the machine is awake; don't catch up missed runs -->
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
+```
+
+### 2. Load the job
+
+```bash
+launchctl load ~/Library/LaunchAgents/ie.craicgpt.daily.plist
+```
+
+### 3. Verify it is scheduled
+
+```bash
+launchctl list | grep craicgpt
+# Should show: -   0   ie.craicgpt.daily
+```
+
+### 4. Test it immediately (without waiting for 08:00)
+
+```bash
+launchctl start ie.craicgpt.daily
+tail -f /tmp/craicgpt.log
+```
+
+### 5. View logs from the last run
+
+```bash
+cat /tmp/craicgpt.log
+cat /tmp/craicgpt.err   # errors/warnings
+```
+
+### 6. Unload (disable) the job
+
+```bash
+launchctl unload ~/Library/LaunchAgents/ie.craicgpt.daily.plist
+```
+
+> **Note:** The Mac must be awake at 08:00 for the job to fire. If the machine is asleep, the run is skipped (not deferred). Set your Mac's sleep schedule in System Settings → Battery → Schedule to wake before 08:00 if needed.
+
+---
+
+## S3 Content Schema
+
+Every run produces one JSON file at:
+
+```
+s3://craicgpt-ie-production/content/YYYY/MM/DD/paper_content.json
+```
+
+Structure:
+
+```json
+{
+  "date": "2026-03-03",
+  "generated_at": "2026-03-03T08:01:42+00:00",
+  "pipeline_version": "2.0",
+  "context": {
+    "news_headlines": ["...", "..."],
+    "weather": { "location": "Dublin", "temp_c": 9, "conditions": "Drizzly" },
+    "ai_trends": "...",
+    "research_trace": [{ "role": "tool", "content": "..." }]
+  },
+  "articles": {
+    "main_article": {
+      "langchain_node": "generate/RunnableParallel",
+      "outputs": {
+        "claude":  { "title": "...", "content": "...", "_model_id": "claude-sonnet-4-5", "_latency_ms": 3200 },
+        "gemini":  { "title": "...", "content": "...", "_model_id": "gemini-2.5-pro",   "_latency_ms": 8100 },
+        "local":   { "title": "...", "content": "...", "_model_id": "qwen2.5-7b",        "_latency_ms": 51000 }
+      }
+    },
+    "comparison_article": { ... },
+    "daily_joke":          { ... },
+    "editors_note":        { ... },
+    "llm_muse":            { ... }
+  }
+}
+```
+
+---
+
+## Infrastructure
+
+The AWS infrastructure is minimal — just enough to host a static site:
+
+```
+terraform/frontend/
+├── main.tf       ← S3 bucket, CloudFront distribution, Route53 alias records
+├── variables.tf  ← All input variables with sensible defaults
+├── outputs.tf    ← Bucket name, CloudFront distribution ID
+└── modules/
+    ├── acm/        ← ACM SSL certificate (must be in us-east-1)
+    ├── s3/         ← Bucket with OAC policy (CloudFront only)
+    └── cloudfront/ ← Distribution with HTTPS redirect, caching
+```
+
+To apply (one-time setup or after infra changes):
+
 ```bash
 cd terraform/frontend
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your domain settings
-terraform init
-terraform plan
-terraform apply
+# Edit terraform.tfvars with your domain
+terraform init && terraform plan && terraform apply
 ```
 
-### **2. Configure Secrets (Required for Multi-Provider)**
-```bash
-# Create API key secrets
-aws secretsmanager create-secret \
-    --name "craicgpt/openai-api-key" \
-    --secret-string '{"api_key":"sk-your-openai-key-here"}'
+No Lambda, no EventBridge, no Secrets Manager. Infrastructure cost: **~$0.50/month** (S3 + CloudFront free tier).
 
-aws secretsmanager create-secret \
-    --name "craicgpt/anthropic-api-key" \
-    --secret-string '{"api_key":"sk-ant-your-anthropic-key-here"}'
+---
 
-aws secretsmanager create-secret \
-    --name "craicgpt/google-api-key" \
-    --secret-string '{"api_key":"your-google-api-key-here"}'
-```
+## Troubleshooting
 
-### **3. Deploy Backend Functions**
+### Gemini returns empty content
 
-#### **Option A: Terraform Deployment (Recommended)**
-```bash
-cd terraform/backend
-# Configure your settings
-terraform init
-terraform plan
-terraform apply
-```
+`gemini-2.5-pro` is a thinking model. It consumes its token budget on internal reasoning before producing output. Ensure `LLM_MAX_TOKENS=8192` in `.env`. With only 1024 tokens it exhausts the budget thinking and returns nothing.
 
-#### **Option B: Manual Lambda Deployment**
-Each Lambda function requires specific files and dependencies:
+### Local LLM shows "Thinking Process:" text instead of article
+
+Some local models (DeepSeek-R1, Qwen3 in thinking mode) output reasoning before JSON. The parser handles this automatically by scanning past thinking text to find the first valid JSON block. If it still fails, try loading a non-thinking model variant in LM Studio.
+
+### `ModuleNotFoundError: No module named 'content_pipeline'`
+
+The script must set `PYTHONPATH` to the repo root. `run_daily.sh` does this automatically. If running `python` directly:
 
 ```bash
-# Deploy LLM Handler (with multi-provider support)
-cd lambda_code/llmHandler
-cp ../shared/educational_runner.py .
-cp ../shared/model_configurations.py .
-pip install requests -t .
-zip -r llm_handler_complete.zip .
-aws lambda update-function-code --function-name craicgptie_llm_runner --zip-file fileb://llm_handler_complete.zip
-
-# Deploy Image Handler (with multi-provider support)
-cd ../imageGenHandler
-cp ../shared/educational_runner.py .
-cp ../shared/model_configurations.py .
-pip install requests -t .
-zip -r image_handler_complete.zip .
-aws lambda update-function-code --function-name craicgptie_image_runner --zip-file fileb://image_handler_complete.zip
-
-# Deploy Prompt Generator (with multi-provider support)
-cd ../PromptGenerator
-cp ../shared/educational_runner.py .
-cp ../shared/model_configurations.py .
-pip install requests -t .
-zip -r prompt_generator_complete.zip .
-aws lambda update-function-code --function-name craicgptie_prompt_generator --zip-file fileb://prompt_generator_complete.zip
-
-# Deploy Orchestrator (coordination only, no external APIs)
-cd ../orchestrator
-zip -r orchestrator.zip lambda_function.py
-aws lambda update-function-code --function-name craicgptie-orchestrator --zip-file fileb://orchestrator.zip
+PYTHONPATH=/path/to/craicgpt.ie python content_pipeline/main.py
 ```
 
-#### **Lambda Function Composition**
-Each Lambda function contains the following files:
+### Pipeline completes but site still shows old content
 
-**LLM Handler** (`craicgptie_llm_runner`):
-- `lambda_function.py` - Main handler for text generation
-- `educational_runner.py` - Multi-provider API calls
-- `model_configurations.py` - Model endpoint definitions  
-- `requests/` - HTTP library for external APIs
-- Dependencies: `urllib3`, `certifi`, `charset_normalizer`, `idna`
-
-**Image Handler** (`craicgptie_image_runner`):
-- `lambda_function.py` - Main handler for image generation
-- `educational_runner.py` - Multi-provider API calls  
-- `model_configurations.py` - Model endpoint definitions
-- `requests/` - HTTP library for external APIs
-- Dependencies: `urllib3`, `certifi`, `charset_normalizer`, `idna`
-
-**Prompt Generator** (`craicgptie_prompt_generator`):
-- `lambda_function_v2.py` - Educational prompt generation with explicit parameters
-- `educational_runner.py` - Multi-provider API calls
-- `model_configurations.py` - Model endpoint definitions
-- `requests/` - HTTP library for external APIs
-- Dependencies: `urllib3`, `certifi`, `charset_normalizer`, `idna`
-
-**Orchestrator** (`craicgptie-orchestrator`):
-- `lambda_function.py` - Workflow coordination and concurrency control
-- No external dependencies (uses only AWS SDK)
-
-### **4. Generate Content**
-```bash
-# Generate content for today using all providers
-TODAY=$(date '+%Y-%m-%d')
-
-# Step 1: Generate prompts
-aws lambda invoke \
-  --function-name craicgptie_prompt_generator \
-  --payload '{"START_DATE":"'${TODAY}'","END_DATE":"'${TODAY}'"}' \
-  --cli-binary-format raw-in-base64-out \
-  /dev/null
-
-# Step 2: Generate content (respects 10 Lambda limit)
-aws lambda invoke \
-  --function-name craicgptie-orchestrator \
-  --payload '{"START_DATE":"'${TODAY}'","END_DATE":"'${TODAY}'"}' \
-  --cli-binary-format raw-in-base64-out \
-  /dev/null
-```
-
-## 🔧 Configuration
-
-### **Environment Variables**
-Configure these on the orchestrator Lambda function:
+CloudFront caches aggressively. The pipeline invalidates `/*` automatically after upload. If the site is still stale after 60 seconds, invalidate manually:
 
 ```bash
-# Critical: 10 Lambda limit compliance
-MAX_ACCOUNT_CONCURRENT=9  # Orchestrator (1) + Workers (9) = 10 total
-CONCURRENCY_CHECK_ENABLED=true
-CONCURRENCY_BACKOFF_DELAY=5.0
-
-# Multi-provider secrets
-OPENAI_SECRET_NAME=craicgpt/openai-api-key
-ANTHROPIC_SECRET_NAME=craicgpt/anthropic-api-key
-GOOGLE_SECRET_NAME=craicgpt/google-api-key
-
-# Model configuration
-BEDROCK_MODEL_IDS=anthropic.claude-3-sonnet-20240229-v1:0,amazon.titan-text-express-v1
-OPENAI_MODEL_IDS=gpt-4,o3-mini
-ANTHROPIC_MODEL_IDS=claude-3-5-sonnet-20241022,claude-3-opus-20240229
-GEMINI_MODEL_IDS=gemini-pro,gemini-ultra
+source .env
+aws cloudfront create-invalidation \
+  --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+  --paths "/*"
 ```
 
-### **Frontend Model Selection**
-The frontend now includes radio buttons for all supported providers:
+### `content/` folder was wiped from S3
 
-**LLM Models:**
-- AWS Bedrock: Claude Sonnet, Titan Express, Claude Haiku
-- OpenAI: GPT-4, O3 Mini
-- Anthropic Direct: Claude 3.5 Sonnet, Claude 3 Opus
-- Google: Gemini Pro, Gemini Ultra
+This happens if `aws s3 sync --delete` is run without `--exclude "content/*"`. Both `deploy_frontend.sh` and the old GitHub Actions workflow include this exclusion. If content was wiped, re-run the pipeline:
 
-**Image Models:**
-- AWS Bedrock: Titan Image, Nova Canvas
-- OpenAI: DALL-E 3
-
-## 📊 Monitoring & Operations
-
-### **CloudWatch Monitoring**
 ```bash
-# Monitor orchestrator logs
-aws logs tail /aws/lambda/craicgptie-orchestrator --follow
-
-# Check concurrency compliance
-aws logs filter-log-events \
-  --log-group-name /aws/lambda/craicgptie-orchestrator \
-  --filter-pattern '"CRITICAL: 10 Lambda limit"'
-
-# Monitor multi-provider usage
-aws logs filter-log-events \
-  --log-group-name /aws/lambda/craicgptie_llm_runner \
-  --filter-pattern '"provider"'
+./run_daily.sh --date 2026-03-03
 ```
 
-### **Performance Metrics**
-- **Concurrency Limit**: Hard-coded 10 Lambda maximum (orchestrator + 9 workers)
-- **Success Rate**: Target >95% content generation success
-- **Processing Time**: ~45 seconds per model/date combination
-- **Cost Optimization**: Multi-provider cost comparison and selection
+---
 
-## 🔐 Security Features
+## Tutorial Documentation
 
-### **API Key Management**
-- ✅ **AWS Secrets Manager**: Secure storage for all external provider API keys
-- ✅ **IAM Policies**: Least privilege access to secrets and AWS services
-- ✅ **Key Rotation**: Automated rotation support for supported providers
-- ✅ **Audit Trail**: CloudTrail logging of all secret access
+The `docs/` folder contains step-by-step explanations of each LangChain concept used:
 
-### **Network Security**
-- ✅ **HTTPS Only**: All external API calls use encrypted connections
-- ✅ **Lambda Security**: Functions run in isolated execution environments
-- ✅ **S3 Encryption**: Content stored with server-side encryption
-- ✅ **CloudFront Security**: Headers and CORS configuration
+| File | Topic |
+|---|---|
+| `docs/01-overview.md` | Architecture and design decisions |
+| `docs/02-lcel-and-chains.md` | The `\|` pipe operator and chain composition |
+| `docs/03-langgraph-workflow.md` | StateGraph, nodes, edges, and state |
+| `docs/04-multi-provider-setup.md` | Running Claude, Gemini, and LM Studio side by side |
+| `docs/05-tools-and-agents.md` | `@tool` decorator and ReAct agents |
 
-## 🎯 Production Readiness
+---
 
-### **✅ Completed Features**
-- Multi-provider AI integration (AWS Bedrock, OpenAI, Anthropic, Google)
-- Unified prompt generation with explicit parameters
-- 10 Lambda concurrency limit enforcement
-- AWS Secrets Manager integration
-- Comprehensive error handling and retry logic
-- Frontend model selection interface
-- Idempotent workflow execution
-- Real-time monitoring and alerting
+## License
 
-### **🚧 Future Enhancements**
-- CI/CD pipeline with automated testing
-- Advanced cost optimization algorithms
-- Multi-region deployment support
-- Performance analytics dashboard
-- A/B testing for prompt variations
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🤝 Contributing
-
-We welcome contributions! See individual component README files for specific development guidelines and contribution opportunities.
-
-**Built for Production - Ready for Scale** 🚀
+MIT — see [LICENSE](LICENSE).
