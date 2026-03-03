@@ -47,6 +47,7 @@ wraps its JSON in markdown fences or adds a polite preamble.
 
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -68,45 +69,65 @@ def _parse_llm_json(raw: str) -> dict:
     """
     Parse JSON from an LLM response, handling common formatting issues.
 
-    TUTORIAL: Defensive JSON Parsing
-    ----------------------------------
-    Smaller local models often return JSON wrapped in markdown fences:
-        ```json
-        {"title": "...", "content": "..."}
-        ```
-    Or they add a polite intro: "Sure! Here's the JSON you asked for: {...}"
+    TUTORIAL: Defensive JSON Parsing for Multi-Model Systems
+    ----------------------------------------------------------
+    Different models format their responses differently, and thinking models
+    add an extra layer of complexity. This parser handles all known cases:
 
-    This parser strips all that noise before attempting json.loads().
-    It's a practical necessity when building multi-model systems — you can't
-    guarantee every model will follow your output format instructions perfectly.
+    1. Normal models — JSON straight away, or wrapped in markdown fences:
+           ```json
+           {"title": "...", "content": "..."}
+           ```
+
+    2. Thinking models with XML tags (DeepSeek-R1, Qwen3):
+           <think>
+           Let me reason about this...
+           </think>
+           {"title": "...", "content": "..."}
+
+    3. Thinking models with prose reasoning (some LM Studio models):
+           Thinking Process:
+           1. Analyze the request...
+           ...
+           {"title": "...", "content": "..."}
+
+    Strategy: strip known thinking wrappers, then scan left-to-right for the
+    first { that begins a valid JSON object (using the last } as the fixed
+    endpoint). For thinking models, early { chars appear in reasoning text
+    and fail json.loads(); the actual JSON { succeeds. For normal models the
+    first { is always correct, so there's no performance penalty.
     """
     text = raw.strip()
 
-    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    # Step 1: Strip <think>...</think> blocks (DeepSeek-R1, Qwen3 thinking mode).
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+    # Step 2: Strip markdown code fences (```json ... ``` or ``` ... ```).
     if text.startswith("```"):
         lines = text.split("\n")
-        # Remove opening fence line (```json or ```)
         lines = lines[1:]
-        # Remove closing fence (last ``` line)
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
         text = "\n".join(lines).strip()
 
-    # Find the first { and last } — extract just the JSON object.
-    start = text.find("{")
+    # Step 3: Scan left-to-right for the first { that yields valid JSON.
+    # The fixed right boundary is the last } in the text.
     end = text.rfind("}") + 1
-    if start != -1 and end > start:
-        text = text[start:end]
+    if end > 0:
+        for match in re.finditer(r"\{", text):
+            start = match.start()
+            if start >= end:
+                break
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                continue  # This { was inside thinking text — try the next one.
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        logger.warning(f"[chain] JSON parse failed: {exc}. Raw: {raw[:200]}")
-        # Return a graceful error dict rather than crashing the pipeline.
-        return {
-            "content": raw[:500],  # Include raw text so nothing is truly lost
-            "parse_error": str(exc),
-        }
+    logger.warning(f"[chain] JSON parse failed — no valid JSON found. Raw: {raw[:200]}")
+    return {
+        "content": raw[:500],
+        "parse_error": "no valid JSON found",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
