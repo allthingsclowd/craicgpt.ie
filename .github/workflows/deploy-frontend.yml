@@ -71,13 +71,10 @@ jobs:
       # TUTORIAL: After syncing, the CDN still serves cached old files.
       # /* invalidates ALL paths — fine for a small site, more targeted for big ones.
       - name: Invalidate CloudFront cache
-        if: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID != '' }}
         run: |
           aws cloudfront create-invalidation \
             --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
             --paths "/*"
-        env:
-          CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
       - name: Write job summary
         if: always()
