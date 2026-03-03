@@ -1,163 +1,201 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code
+in this repository.
+
+---
+
+## Project Overview
+
+**The Craic Gazette** is an AI-powered Irish newspaper that:
+1. Sends identical prompts to **Claude, Gemini, and a local LLM** simultaneously
+2. Stores all three responses in a structured JSON file on S3
+3. Presents a **model comparator** website where readers switch between editions
+4. Serves as a **LangChain + LangGraph tutorial** — every file is heavily commented
+
+---
 
 ## Common Development Commands
 
-### Build and Package
 ```bash
-# Build TypeScript
-npm run build
+# Install pipeline dependencies
+pip install -r content_pipeline/requirements.txt
 
-# Package for deployment
-npm run package
+# Run the full pipeline (requires API keys in .env)
+python content_pipeline/main.py
+
+# Dry run (generates content, writes to /tmp, skips S3 upload)
+python content_pipeline/main.py --dry-run
+
+# Generate for a specific date
+python content_pipeline/main.py 2026-03-03
+
+# Skip local LLM (if LM Studio isn't running)
+python content_pipeline/main.py --skip-local
+
+# Show LangGraph pipeline as Mermaid diagram
+python content_pipeline/main.py --show-graph
+
+# Open the frontend locally (no server needed for basic testing)
+open frontend/index.html
 ```
 
-### Testing
-Currently no test framework is configured. Tests are manual through Lambda invocations.
+---
 
-### Linting
-No linting configuration found. Consider adding ESLint or similar.
+## Architecture
 
-## Architecture Overview
-
-CraicGPT.ie is an AI-powered newspaper generation system with a serverless architecture designed for educational purposes:
-
-**Frontend**: Static HTML/CSS/JS newspaper layout hosted on AWS S3 + CloudFront
-**Backend**: 4 AWS Lambda functions orchestrating content generation
-
-### Educational Phase 0 - Multi-Provider Support
-
-The system now supports multiple AI model providers for learning different API patterns:
-
-- **AWS Bedrock** (current): Claude, Titan Text/Image, Nova Canvas
-- **OpenAI** (new): GPT-4, O3 Mini, DALL-E 3
-- **Anthropic Direct** (new): Claude 3.5 Sonnet with vision
-- **Google Gemini** (new): Gemini Pro, Gemini Pro Vision, Gemini Ultra
-
-### Lambda Function Pipeline
-
-1. **Educational Prompt Generator** (`lambda_code/PromptGenerator/lambda_function_v2.py`)
-   - **NEW**: Clear educational structure with explicit prompt engineering parameters
-   - **NEW**: Component-based prompt building showing influence relationships
-   - **NEW**: Multi-provider model configurations
-   - Generates 13 prompts daily (5 LLM + 8 image) with clear temperature, max_tokens, top_p settings
-   - **Educational Features**: 
-     - Explicit prompt engineering parameters (temperature: 0.2-0.9, max_tokens, top_p)
-     - Component influence documentation (weather → mood, news → content hijacking)
-     - Provider-specific authentication patterns
-
-2. **Orchestrator** (`lambda_code/orchestrator/`)
-   - Coordinates workflow and manages dependencies
-   - Handles date ranges and model-specific rate limiting
-   - Implements sophisticated concurrency control using CloudWatch metrics
-   - LLM processing completes before image processing per date
-
-3. **Educational Model Runner** (`lambda_code/shared/educational_runner.py`)
-   - **NEW**: Unified interface for all model providers
-   - **NEW**: Educational error handling and response standardization
-   - **NEW**: Clear API pattern demonstrations for each provider
-   - Supports AWS Bedrock, OpenAI, Anthropic Direct, Google Gemini
-   - **Educational Features**: 
-     - Standardized ModelResponse class across all providers
-     - Provider-specific authentication examples
-     - API pattern documentation in responses
-
-4. **Model Configurations** (`lambda_code/shared/model_configurations.py`)
-   - **NEW**: Centralized model configuration with educational annotations
-   - **NEW**: Prompt engineering parameter explanations
-   - **NEW**: Provider comparison and use case documentation
-   - **Educational Features**: 
-     - Parameter validation and educational notes
-     - Use case recommendations per model
-     - API endpoint and authentication documentation
-
-### Key Dependencies
-
-- **Phase Dependencies**: LLM processing must complete before image processing for each date
-- **Concurrency Management**: Real-time Lambda concurrency monitoring via CloudWatch
-- **Rate Limiting**: Model-specific throttling with exponential backoff
-- **Storage**: S3 for prompt storage and content output
-
-### Environment Variables (Orchestrator)
-
-Critical configuration for concurrency control:
-- `MAX_ACCOUNT_CONCURRENT`: Account-wide Lambda limit (default: 9)
-- `CONCURRENCY_CHECK_ENABLED`: Enable real-time monitoring (default: true)
-- `CONCURRENCY_BACKOFF_DELAY`: Wait time at limit (default: 30s)
-- `CLOUDWATCH_REGION`: CloudWatch API region (default: eu-west-1)
-
-## Deployment Status
-
-**Frontend**: Fully automated via Terraform (`terraform/frontend/`)
-**Backend**: Manual deployment required (Terraform boilerplate exists in `terraform/backend/`)
-
-## Content Generation Process
-
-1. **Prompt Generation**: Creates date-specific prompts with news context
-2. **Orchestration**: Manages worker Lambda invocations with dependency awareness
-3. **Content Generation**: Parallel LLM and image processing with rate limiting
-4. **Output**: JSON files stored in S3, consumed by frontend
-
-## Educational Prompt Engineering Patterns
-
-### Explicit Parameter Configuration
-
-Each prompt template now shows clear prompt engineering parameters:
-
-```python
-# Educational example from lambda_function_v2.py
-main_article = PromptTemplate(
-    temperature=0.9,        # High creativity for diary entries
-    max_tokens=800,         # Long enough for full article
-    top_p=0.95,            # High diversity for creative expression
-    presence_penalty=0.1,   # Light penalty to avoid repetition
-    frequency_penalty=0.1   # Light penalty for natural variation
-)
+```
+GitHub Actions (cron 06:00 UTC, runs-on: self-hosted)
+   │
+   ▼  content_pipeline/main.py
+LangGraph StateGraph:
+   [research] → [generate] → [compile] → [publish]
+   │                │
+   │         RunnableParallel × 3 providers:
+   │           Claude (Anthropic API)
+   │           Gemini (Google AI)
+   │           Local LLM (LM Studio, localhost:1234)
+   │
+   ▼
+S3: content/YYYY/MM/DD/paper_content.json
+   │
+   ▼
+CloudFront → craicgpt.ie
+   │
+   ▼
+Browser JS: fetches JSON, model comparator UI
 ```
 
-### Component Influence Mapping
+---
 
-Clear documentation of how components influence outputs:
+## Key Files
 
-- **Weather Context** → Natural opening material and mood setting
-- **News Headlines** → Material for "headline hijacking" to connect news to personal life  
-- **Family Context** → Content for "family follies" section
-- **Tech Trends** → Work-related anecdotes and technical context
+| File | Purpose |
+|------|---------|
+| `content_pipeline/agents/orchestrator.py` | LangGraph StateGraph — the main pipeline |
+| `content_pipeline/agents/research_agent.py` | ReAct agent: news + weather tools |
+| `content_pipeline/chains/newspaper_chain.py` | LCEL + RunnableParallel across providers |
+| `content_pipeline/providers/claude.py` | ChatAnthropic factory |
+| `content_pipeline/providers/gemini.py` | ChatGoogleGenerativeAI factory |
+| `content_pipeline/providers/lmstudio.py` | ChatOpenAI (base_url=localhost) factory |
+| `content_pipeline/prompts/templates.py` | All ChatPromptTemplates (single source of truth) |
+| `content_pipeline/tools/news_tool.py` | @tool: DuckDuckGo news search |
+| `content_pipeline/tools/weather_tool.py` | @tool: wttr.in weather |
+| `content_pipeline/publisher/s3_publisher.py` | boto3 S3 upload + CloudFront invalidation |
+| `content_pipeline/config.py` | All configuration from environment variables |
+| `content_pipeline/main.py` | CLI entry point |
+| `frontend/index.html` | Beano/tabloid newspaper layout |
+| `frontend/static_assets/style.css` | Tabloid newspaper styles |
+| `frontend/static_assets/main.js` | Model comparator + "Under the Hood" drawer |
+| `.github/workflows/generate-content.yml` | Daily cron, self-hosted runner |
+| `.github/workflows/deploy-frontend.yml` | S3 sync on push to main |
+| `terraform/frontend/` | IaC for S3, CloudFront, ACM, Route53 |
 
-### Provider-Specific Patterns
+---
 
-Educational examples for each provider:
+## Output JSON Schema (paper_content.json)
 
-- **AWS Bedrock**: IAM authentication, InvokeModel API, JSON request/response
-- **OpenAI**: Bearer token auth, Chat Completions API, messages format
-- **Anthropic**: x-api-key header, Messages API, direct feature access
-- **Google Gemini**: API key parameter, GenerateContent API, parts array
+```json
+{
+  "date": "YYYY-MM-DD",
+  "generated_at": "ISO8601",
+  "pipeline_version": "2.0",
+  "context": {
+    "news_headlines": ["...", "..."],
+    "weather": { "location": "Dublin", "temp_c": 9, "conditions": "Drizzly" },
+    "ai_trends": "...",
+    "research_trace": [{ "role": "tool", "content": "..." }]
+  },
+  "articles": {
+    "main_article": {
+      "langchain_node": "generate/RunnableParallel",
+      "outputs": {
+        "claude": { "title": "", "content": "", "_model_id": "", "_latency_ms": 0 },
+        "gemini": { ... },
+        "local":  { ... }
+      }
+    },
+    "comparison_article": { ... },
+    "llm_muse":           { ... },
+    "daily_joke":         { ... },
+    "editors_note":       { ... }
+  }
+}
+```
 
-## Common Patterns
+---
 
-- **Error Handling**: Exponential backoff for throttling, graceful degradation
-- **Monitoring**: CloudWatch integration for real-time metrics
-- **Configuration**: Environment variables for runtime behavior  
-- **Idempotency**: Skip processing if output already exists
-- **Resilience**: Comprehensive retry logic with timeout protection
-- **Educational Logging**: Detailed logs showing parameter choices and component influences
+## Code Style Conventions
 
-## Development Notes
+- **Python 3.11+** throughout
+- **Heavy comments** — this is a tutorial codebase. Every non-obvious decision is explained.
+- **Tutorial markers** — comments starting with `# TUTORIAL:` explain LangChain concepts
+- **Factory functions** for LLM providers (not module-level singletons)
+- **Env-var driven config** — all secrets from environment, never hardcoded
+- **Graceful degradation** — providers fail silently, pipeline continues with placeholders
+- **Type hints** throughout, Pydantic for structured outputs
 
-- All Lambda functions use Python 3.11+
-- **NEW**: Multi-provider support (AWS Bedrock, OpenAI, Anthropic, Gemini)
-- **NEW**: Educational structure with explicit parameter documentation
-- **NEW**: Component-based prompt building for clear learning
-- No testing framework - consider adding pytest
-- Manual deployment process for backend infrastructure
-- Frontend uses modern JavaScript with responsive CSS Grid layout
+---
 
-## Phase 1 Migration Path
+## What NOT to do
 
-The educational Phase 0 structure prepares for Phase 1 agentic migration:
+- Do NOT hardcode API keys or bucket names in source files
+- Do NOT remove the `# TUTORIAL:` comments — they are the educational value
+- Do NOT use `lambda_code/` (deleted) — the pipeline is now in `content_pipeline/`
+- Do NOT use `terraform/backend/` (deleted) — no Lambda infrastructure anymore
+- Do NOT commit `.env` files
 
-- Current: Manual prompt templates with explicit parameters
-- Phase 1: AI agents that reason about prompt construction
-- Learning bridge: Understanding parameters → Teaching agents to use them
-- Component system → Agent tool selection patterns
+---
+
+## Environment Variables
+
+See `.env.example` for the full list. Key ones:
+
+| Variable | Required | Default |
+|----------|----------|---------|
+| `ANTHROPIC_API_KEY` | Yes | — |
+| `GOOGLE_API_KEY` | Yes | — |
+| `LM_STUDIO_BASE_URL` | No | `http://localhost:1234/v1` |
+| `S3_BUCKET` | Yes (non-dry-run) | `craicgpt-ie-production` |
+| `DRY_RUN` | No | `false` |
+| `SKIP_LOCAL_LLM` | No | `false` |
+| `WEATHER_LOCATION` | No | `Dublin` |
+
+---
+
+## Deployment
+
+### GitHub Actions Self-Hosted Runner Setup
+
+1. GitHub repo → Settings → Actions → Runners → "New self-hosted runner"
+2. Follow the macOS instructions to download and configure the runner
+3. Start: `./run.sh` (or install as a service: `./svc.sh install && ./svc.sh start`)
+4. Add GitHub Secrets: `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `AWS_ACCESS_KEY_ID`,
+   `AWS_SECRET_ACCESS_KEY`, `CLOUDFRONT_DISTRIBUTION_ID`
+5. Add GitHub Variables: `S3_BUCKET`, `WEATHER_LOCATION`
+
+### Frontend Deployment
+
+Automatic on push to `main` (when `frontend/**` changes) via `deploy-frontend.yml`.
+Manual: `aws s3 sync frontend/ s3://craicgpt-ie-production/ --delete`
+
+### Infrastructure
+
+```bash
+cd terraform/frontend
+terraform init
+terraform plan
+terraform apply
+```
+
+---
+
+## Tutorial Documentation
+
+See `docs/` for the full LangChain tutorial:
+
+1. `docs/01-overview.md` — Architecture and quick start
+2. `docs/02-lcel-and-chains.md` — LCEL pipes and RunnableParallel
+3. `docs/03-langgraph-workflow.md` — StateGraph and nodes
+4. `docs/04-multi-provider-setup.md` — Claude, Gemini, LM Studio configuration
+5. `docs/05-tools-and-agents.md` — @tool decorator and ReAct agents

@@ -1,0 +1,54 @@
+# =============================================================================
+# CraicGPT.ie — Content Pipeline Dependencies
+# =============================================================================
+#
+# TUTORIAL NOTE: LangChain is split into multiple packages so you only install
+# what you need. Each package adds support for a specific LLM provider or
+# integration. This keeps the install lightweight and maintainable.
+#
+# Install: pip install -r requirements.txt
+# =============================================================================
+
+# ─── LangChain Core ──────────────────────────────────────────────────────────
+# The foundation: LCEL, prompt templates, output parsers, base abstractions.
+langchain>=0.3.0
+
+# ─── LangGraph ───────────────────────────────────────────────────────────────
+# Stateful, multi-step agentic workflows. Builds on top of LangChain.
+# Used for the main pipeline StateGraph (research → generate → publish).
+langgraph>=0.2.0
+
+# ─── LLM Provider Packages ───────────────────────────────────────────────────
+# Each of these adds a ChatModel class for a specific provider.
+# Tutorial: Notice they all share the same .invoke() / .stream() interface —
+# that's the whole point of LangChain's abstraction layer.
+
+# Claude via Anthropic API (cloud)
+langchain-anthropic>=0.3.0
+
+# Gemini via Google AI / Vertex AI (cloud)
+langchain-google-genai>=2.0.0
+
+# OpenAI-compatible endpoint — works with OpenAI cloud AND local LM Studio.
+# Change base_url to point at localhost:1234 for local inference.
+langchain-openai>=0.2.0
+
+# ─── LangChain Community Integrations ────────────────────────────────────────
+# Extra tools, loaders, and utilities maintained by the community.
+# We use DuckDuckGoSearchRun for news fetching (no API key required).
+langchain-community>=0.3.0
+
+# ─── AWS SDK ─────────────────────────────────────────────────────────────────
+# boto3 is used only for S3 publishing — the content pipeline itself is local.
+boto3>=1.35.0
+
+# ─── Data Validation ─────────────────────────────────────────────────────────
+# Pydantic v2 is used for structured LLM output parsing (with_structured_output).
+# Tutorial: Pydantic models = type-safe contracts between LLMs and your code.
+pydantic>=2.0.0
+
+# ─── Utilities ───────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0        # Load .env file for local development
+httpx>=0.27.0               # Async HTTP (used by some LangChain providers)
+tenacity>=8.0.0             # Retry logic with exponential backoff
+duckduckgo-search>=6.0.0    # DuckDuckGo search backend (no API key needed)
