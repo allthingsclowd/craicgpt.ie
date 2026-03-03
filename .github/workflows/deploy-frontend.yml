@@ -62,6 +62,7 @@ jobs:
         run: |
           aws s3 sync frontend/ s3://${{ vars.S3_BUCKET }}/ \
             --delete \
+            --exclude "content/*" \
             --exclude "*.md" \
             --exclude ".DS_Store" \
             --exclude "README*"
