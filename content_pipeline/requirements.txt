@@ -11,12 +11,12 @@
 
 # ─── LangChain Core ──────────────────────────────────────────────────────────
 # The foundation: LCEL, prompt templates, output parsers, base abstractions.
-langchain>=0.3.0
+langchain>=1.0.0
 
 # ─── LangGraph ───────────────────────────────────────────────────────────────
 # Stateful, multi-step agentic workflows. Builds on top of LangChain.
 # Used for the main pipeline StateGraph (research → generate → publish).
-langgraph>=0.2.0
+langgraph>=1.0.0
 
 # ─── LLM Provider Packages ───────────────────────────────────────────────────
 # Each of these adds a ChatModel class for a specific provider.
@@ -24,19 +24,20 @@ langgraph>=0.2.0
 # that's the whole point of LangChain's abstraction layer.
 
 # Claude via Anthropic API (cloud)
-langchain-anthropic>=0.3.0
+langchain-anthropic>=1.0.0
 
-# Gemini via Google AI / Vertex AI (cloud)
-langchain-google-genai>=2.0.0
+# Gemini via Google AI (cloud). Note: v4.x removed convert_system_message_to_human
+# — Gemini now supports system messages natively.
+langchain-google-genai>=4.0.0
 
 # OpenAI-compatible endpoint — works with OpenAI cloud AND local LM Studio.
 # Change base_url to point at localhost:1234 for local inference.
-langchain-openai>=0.2.0
+langchain-openai>=1.0.0
 
 # ─── LangChain Community Integrations ────────────────────────────────────────
 # Extra tools, loaders, and utilities maintained by the community.
 # We use DuckDuckGoSearchRun for news fetching (no API key required).
-langchain-community>=0.3.0
+langchain-community>=0.4.0
 
 # ─── AWS SDK ─────────────────────────────────────────────────────────────────
 # boto3 is used only for S3 publishing — the content pipeline itself is local.

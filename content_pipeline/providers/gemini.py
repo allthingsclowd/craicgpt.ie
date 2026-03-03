@@ -61,11 +61,9 @@ def get_gemini_llm() -> BaseChatModel:
         google_api_key=cfg.providers.google_api_key,
         temperature=cfg.providers.temperature,
         max_output_tokens=cfg.providers.max_tokens,
-        # TUTORIAL: convert_system_message_to_human=True is needed because
-        # Gemini doesn't natively support a "system" role in its chat API.
-        # LangChain handles this by prepending the system message as a human
-        # turn. Always check provider-specific quirks like this!
-        convert_system_message_to_human=True,
+        # TUTORIAL: Gemini natively supports system messages as of
+        # langchain-google-genai 4.x — no special handling needed.
+        # (convert_system_message_to_human was removed from the library.)
         timeout=60,
         max_retries=3,
     )
