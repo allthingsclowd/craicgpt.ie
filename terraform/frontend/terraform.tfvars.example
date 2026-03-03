@@ -1,100 +1,29 @@
-# Example variable definitions for the frontend deployment.
-# Copy this file to terraform.tfvars and update the values as needed.
+# terraform.tfvars.example
+# Copy to terraform.tfvars and uncomment/update values as needed.
+# terraform.tfvars is gitignored — never commit it.
+#
+# After applying, copy the outputs into GitHub:
+#   terraform output frontend_s3_bucket_name             → GitHub Variable: S3_BUCKET
+#   terraform output frontend_cloudfront_distribution_id → GitHub Secret:   CLOUDFRONT_DISTRIBUTION_ID
 
-# The primary AWS region for deploying resources.
-# aws_region = "eu-west-1"
+# aws_region    = "eu-west-1"
+# project_name  = "craicgpt-frontend"
+# environment   = "prod"
+# domain_name   = "craicgpt.ie"
 
-# A short name for the project (e.g., 'craicgpt-frontend'). Used for naming resources and in tags.
-# project_name = "craicgpt-frontend"
+# cloudfront_aliases = ["craicgpt.ie"]
 
-# The deployment environment (e.g., 'dev', 'staging', 'prod'). Used for tagging and resource naming.
-# environment = "dev"
-
-# Common tags to apply to all resources that support tagging.
-# Example: common_tags = { Terraformed = "true", SourceRepo = "github.com/your-repo/project" }
-# common_tags = {}
-
-# The primary domain name for the project (e.g., 'craicgpt.ie'). Used for ACM.
-# domain_name = "craicgpt.ie"
-
-# A list of CNAME aliases (e.g., domain names) for the CloudFront distribution.
-# cloudfront_aliases = ["www.craicgpt.ie", "craicgpt.ie", "eddie.craicgpt.ie"]
-
-# ARN of the AWS Secrets Manager secret containing the LLM API key.
-# llm_api_key_secret_arn = null # Or "arn:aws:secretsmanager:your-region:123456789012:secret:your-llm-secret-XXXXXX"
-
-# ARN of the AWS Secrets Manager secret containing the Image Generator API key.
-# image_gen_api_key_secret_arn = null # Or "arn:aws:secretsmanager:your-region:123456789012:secret:your-image-gen-secret-XXXXXX"
-
-# Variables to control module enablement
-# ---------------------------------------
-
-# Set to true to enable the ACM module for SSL certificate.
-# enable_acm = true
-
-# Set to true to enable the S3 module for website assets.
-# enable_s3 = true
-
-# Set to true to enable the Lambda module for content orchestration.
-# enable_lambda = false
-
-# Set to true to enable the frontend-upload module.
-# enable_frontend_upload = true
-
-# Set to true to enable the CloudFront module for content delivery.
+# ── Module toggles ──────────────────────────────────────────────────────────────
+# enable_acm        = true
+# enable_s3         = true
 # enable_cloudfront = true
 
-# Set to true to enable the Scheduler module for daily Lambda triggers.
-# enable_scheduler = false
-
-# S3 Module specific variables
-# ----------------------------
-
-# Optional: Override the S3 bucket name. If not set, a name will be derived using the project_name and environment variables by the S3 submodule.
-# s3_bucket_name_override = "craicgpt-ie-development" # Or "" to use derived name.
-
-# Set to true to enable versioning for the S3 bucket.
-# s3_enable_versioning = true
-
-# The index document for the S3 static website.
+# ── S3 ──────────────────────────────────────────────────────────────────────────
+# s3_bucket_name_override   = "craicgpt-ie-production"
+# s3_enable_versioning      = true
 # s3_website_index_document = "index.html"
-
-# The error document for the S3 static website.
 # s3_website_error_document = "error.html"
 
-# Path to the local /frontend directory whose contents will be uploaded to S3. Relative to the root module.
-# Default assumes execution from `terraform/frontend` directory.
-# s3_frontend_content_path = "../../frontend"
-
-# Lambda Module specific variables
-# --------------------------------
-
-# Optional: Override the default Lambda function name ('ContentOrchestratorLambda').
-# lambda_function_name_override = "ContentOrchestratorLambda"
-
-# Allows overriding the default source path for the Lambda function code.
-# lambda_source_path_override = "../lambda_code/content_orchestrator"
-
-# Allows overriding the default handler for the Lambda function.
-# lambda_handler_override = "index.handler"
-
-# Allows overriding the default runtime for the Lambda function.
-# lambda_runtime_override = "nodejs18.x"
-
-# CloudFront Module specific variables
-# ------------------------------------
-
-# The default object CloudFront serves when the root URL is requested.
+# ── CloudFront ───────────────────────────────────────────────────────────────────
 # cloudfront_default_root_object = "index.html"
-
-# CloudFront price class (e.g., PriceClass_100, PriceClass_200, PriceClass_All).
-# cloudfront_price_class = "PriceClass_100"
-
-# Scheduler Module specific variables
-# ---------------------------------
-
-# Cron expression for the scheduler that triggers the Lambda.
-# scheduler_cron_expression = "cron(0 1 * * ? *)" # Daily at 01:00 UTC
-
-# Timezone for the scheduler's cron expression.
-# scheduler_timezone = "UTC"
+# cloudfront_price_class         = "PriceClass_100"   # US/EU/CA edges only (cheapest)

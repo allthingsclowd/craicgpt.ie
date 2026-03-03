@@ -1,0 +1,89 @@
+# ============================================================================
+# .github/workflows/deploy-frontend.yml
+# ============================================================================
+# Deploy the static frontend to S3 whenever frontend files change on main.
+#
+# TUTORIAL: Cloud Runner vs Self-Hosted Runner
+# ==============================================
+# This workflow uses `ubuntu-latest` (GitHub's hosted runner) rather than
+# self-hosted. Why? Frontend deployment only needs:
+#   - aws CLI (available on ubuntu-latest)
+#   - The repo files (provided by checkout)
+#
+# It does NOT need local LLMs. Using a cloud runner here keeps home machine
+# load low and means frontend deploys work even if your Mac is off.
+#
+# TUTORIAL: Path Filtering with paths:
+# The `paths:` filter means this workflow ONLY triggers when a file inside
+# frontend/ or terraform/frontend/ changes. Committing Python pipeline changes
+# won't trigger a frontend redeploy — that would be wasteful.
+# ============================================================================
+
+name: Deploy Frontend
+
+on:
+  push:
+    branches:
+      - main       # Only deploy from main (not feature branches)
+    paths:
+      - "frontend/**"             # HTML, CSS, JS, images
+      - "terraform/frontend/**"   # Infra changes (triggers manual TF apply reminder)
+
+  # Allow manual deploy from the Actions UI (useful for cache-busting).
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Sync frontend to S3
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # TUTORIAL: configure-aws-credentials sets AWS_ACCESS_KEY_ID and
+      # AWS_SECRET_ACCESS_KEY as environment variables for the rest of the job.
+      # The action also masks the values in logs.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      # ─── Sync frontend files to S3 ──────────────────────────────────────────
+      # TUTORIAL: aws s3 sync is like rsync for S3.
+      # --delete removes files from S3 that no longer exist locally.
+      # --exclude skips files we don't want in the bucket (READMEs, etc.).
+      - name: Sync frontend to S3
+        run: |
+          aws s3 sync frontend/ s3://${{ vars.S3_BUCKET }}/ \
+            --delete \
+            --exclude "*.md" \
+            --exclude ".DS_Store" \
+            --exclude "README*"
+
+      # ─── Invalidate CloudFront cache ─────────────────────────────────────────
+      # TUTORIAL: After syncing, the CDN still serves cached old files.
+      # /* invalidates ALL paths — fine for a small site, more targeted for big ones.
+      - name: Invalidate CloudFront cache
+        if: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+        env:
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
+
+      - name: Write job summary
+        if: always()
+        run: |
+          echo "## Frontend Deploy Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bucket | ${{ vars.S3_BUCKET }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
