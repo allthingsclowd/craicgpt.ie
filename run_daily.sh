@@ -88,7 +88,7 @@ info "Starting pipeline (args: ${*:-none})"
 echo ""
 
 cd "$SCRIPT_DIR"
-python content_pipeline/main.py "$@"
+PYTHONPATH="$SCRIPT_DIR" python content_pipeline/main.py "$@"
 
 EXIT_CODE=$?
 echo ""
