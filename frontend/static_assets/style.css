@@ -386,13 +386,10 @@ a:hover {
   max-width: var(--page-width);
   margin: 0 auto;
 
-  /* Define named grid areas */
   grid-template-areas:
-    "lead    lead    lead    sponsors"
-    "lead    lead    lead    sponsors"
-    "editor  editor  editor  sponsors"
-    "show    show    muse    sponsors"
-    "show    show    joke    sponsors";
+    "lead   lead   lead   editor"
+    "lead   lead   lead   editor"
+    "show   show   muse   joke";
 }
 
 /* ── Grid area placement ──────── */
@@ -401,7 +398,6 @@ a:hover {
 .cell-showdown { grid-area: show; }
 .cell-muse     { grid-area: muse; }
 .cell-joke     { grid-area: joke; }
-.cell-sponsors { grid-area: sponsors; }
 
 
 /* ── 5. PAPER CELL (each article card) ─────────────────────────────────────── */
@@ -419,7 +415,6 @@ a:hover {
 .cell-showdown { border-top: 5px solid var(--flash-dark); }
 .cell-muse     { border-top: 5px solid var(--claude); }
 .cell-joke     { border-top: 5px solid var(--local); }
-.cell-sponsors { border-top: 5px solid var(--gemini); }
 
 /* Kicker tags (e.g. "EXCLUSIVE", "MODEL SHOWDOWN") */
 .kicker-tag {
@@ -496,31 +491,6 @@ a:hover {
   flex-shrink: 0;
 }
 
-/* Sponsors column */
-.cell-sponsors {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.sponsor-block {
-  border: 1px solid var(--newsprint-dark);
-  background: var(--newsprint);
-  flex: 1;
-  min-height: 100px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.sponsor-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.85;
-}
-
 /* Joke section */
 .joke-content {
   margin-top: 0.5rem;
@@ -594,11 +564,10 @@ a:hover {
   .paper-grid {
     grid-template-columns: 1fr 1fr;
     grid-template-areas:
-      "lead     lead"
-      "editor   editor"
-      "show     show"
-      "muse     joke"
-      "sponsors sponsors";
+      "lead   lead"
+      "editor editor"
+      "show   show"
+      "muse   joke";
   }
 }
 
@@ -610,19 +579,9 @@ a:hover {
       "editor"
       "show"
       "muse"
-      "joke"
-      "sponsors";
+      "joke";
     gap: 0.75rem;
     padding: 0.75rem;
-  }
-
-  .cell-sponsors {
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-
-  .sponsor-block {
-    flex: 1 1 calc(50% - 0.4rem);
   }
 }
 
