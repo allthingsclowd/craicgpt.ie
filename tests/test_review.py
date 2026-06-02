@@ -157,3 +157,59 @@ def test_write_then_read_verdict_roundtrip():
 
 def test_read_verdicts_empty_when_none_written():
     assert review.read_verdicts("2026-06-02", s3=FakeS3(), bucket="b") == {}
+
+
+# --- status flag + review-request -------------------------------------------
+def test_status_roundtrip():
+    s3 = FakeS3()
+    assert review.read_status("2026-06-02", s3=s3, bucket="b") is None
+    review.write_status("2026-06-02", "generating", s3=s3, bucket="b", at="t0")
+    assert review.read_status("2026-06-02", s3=s3, bucket="b")["state"] == "generating"
+    review.write_status("2026-06-02", "complete", s3=s3, bucket="b", at="t1",
+                        extra={"draft_key": "preview/2026/06/02/paper_content.json"})
+    st = review.read_status("2026-06-02", s3=s3, bucket="b")
+    assert st["state"] == "complete" and st["draft_key"].endswith("paper_content.json")
+
+
+def test_review_request_roundtrip():
+    s3 = FakeS3()
+    review.write_review_request("2026-06-02", agents=["openclaw", "hermes"],
+                                draft_url="https://craicgpt.ie/preview/2026/06/02/paper_content.json",
+                                s3=s3, bucket="b", at="t0")
+    rr = review.read_review_request("2026-06-02", s3=s3, bucket="b")
+    assert rr["agents"] == ["openclaw", "hermes"]
+    assert "preview" in rr["draft_url"]
+
+
+# --- gate (the idempotent publisher decision) -------------------------------
+def test_gate_retry_when_no_content():
+    g = review.gate("2026-06-02", verdicts={}, status=None, already_live=False)
+    assert g["action"] == "retry"
+
+
+def test_gate_retry_when_still_generating():
+    g = review.gate("2026-06-02", verdicts={}, status={"state": "generating"}, already_live=False)
+    assert g["action"] == "retry"
+
+
+def test_gate_retry_when_complete_but_awaiting_verdict():
+    g = review.gate("2026-06-02", verdicts={"openclaw": {"verdict": "APPROVE"}},
+                    status={"state": "complete"}, already_live=False)
+    assert g["action"] == "retry" and g["decision"] == "WAIT"
+
+
+def test_gate_publish_when_complete_and_both_approve():
+    v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
+    g = review.gate("2026-06-02", verdicts=v, status={"state": "complete"}, already_live=False)
+    assert g["action"] == "publish"
+
+
+def test_gate_hold_when_an_agent_holds():
+    v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "HOLD", "reasons": ["off-brand"]}}
+    g = review.gate("2026-06-02", verdicts=v, status={"state": "complete"}, already_live=False)
+    assert g["action"] == "hold" and "off-brand" in " ".join(g["reasons"])
+
+
+def test_gate_already_live_short_circuits():
+    g = review.gate("2026-06-02", verdicts={}, status=None, already_live=True)
+    assert g["action"] == "already-live"
