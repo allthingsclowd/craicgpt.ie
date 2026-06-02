@@ -13,6 +13,8 @@ def test_loads_lenient_strips_fences_and_thinking():
     assert loads_lenient('```json\n{"a": 1}\n```') == {"a": 1}
     assert loads_lenient('<think>hmm</think>{"b": 2}') == {"b": 2}
     assert loads_lenient('prose then {"c": 3}') == {"c": 3}
+    # Unclosed <think> preamble (thinking truncated) followed by JSON.
+    assert loads_lenient('<think>let me reason a lot...\n{"d": 4}') == {"d": 4}
 
 
 def test_write_ai_section_normalises_counts():

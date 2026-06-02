@@ -32,6 +32,10 @@ def loads_lenient(raw: str) -> dict:
     """Parse JSON that may be wrapped in markdown fences or thinking-model tags."""
     text = (raw or "").strip()
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Tolerate an UNCLOSED <think> preamble (thinking truncated before </think>):
+    # drop everything up to the first JSON brace if one exists.
+    if "<think>" in text and "{" in text:
+        text = text[text.index("{"):]
     if text.startswith("```"):
         lines = text.split("\n")[1:]
         if lines and lines[-1].strip().startswith("```"):
@@ -52,10 +56,18 @@ def loads_lenient(raw: str) -> dict:
 
 
 def _default_generate(prompt: str) -> dict:
-    """Plain chat completion on the write model, parsed leniently to a dict."""
+    """Plain chat completion on the write model, parsed leniently to a dict.
+
+    Thinking mode is disabled — Qwen3.6 otherwise emits a long ``<think>`` preamble
+    that consumes the output budget before any JSON appears.
+    """
     from content_pipeline.providers.litellm import get_litellm_llm
 
-    llm = get_litellm_llm(content_cfg.write_model)
+    llm = get_litellm_llm(
+        content_cfg.write_model,
+        max_tokens=6000,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    )
     resp = llm.invoke(prompt)
     text = resp.content if isinstance(resp.content, str) else str(resp.content)
     return loads_lenient(text)

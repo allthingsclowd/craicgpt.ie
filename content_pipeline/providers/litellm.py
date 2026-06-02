@@ -127,6 +127,7 @@ def get_litellm_llm(
     *,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
+    extra_body: Optional[dict] = None,
 ) -> BaseChatModel:
     """Return a ChatOpenAI bound to the grazlab LiteLLM proxy for ``model``.
 
@@ -135,6 +136,10 @@ def get_litellm_llm(
             ``m3/mlx/qwen3.6-35b-a3b-unsloth-8bit``).
         temperature: Override the configured default.
         max_tokens: Override the configured default.
+        extra_body: Extra request body fields forwarded to the proxy — e.g.
+            ``{"chat_template_kwargs": {"enable_thinking": False}}`` to turn off
+            Qwen3.6's thinking preamble (which otherwise eats the token budget
+            before any JSON is produced).
 
     Returns:
         A ``ChatOpenAI`` instance. Construction does no network I/O — the
@@ -149,6 +154,9 @@ def get_litellm_llm(
         model,
         content_cfg.litellm_base_url,
     )
+    kwargs: dict = {}
+    if extra_body:
+        kwargs["extra_body"] = extra_body
     return ChatOpenAI(
         model=model,
         base_url=content_cfg.litellm_base_url,
@@ -157,4 +165,5 @@ def get_litellm_llm(
         max_tokens=content_cfg.max_tokens if max_tokens is None else max_tokens,
         timeout=content_cfg.request_timeout,
         max_retries=2,
+        **kwargs,
     )
