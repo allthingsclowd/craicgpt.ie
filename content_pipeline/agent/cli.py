@@ -19,6 +19,7 @@ import json
 import logging
 import sys
 from datetime import datetime, timezone
+from typing import Optional
 
 
 def _today() -> str:
@@ -56,6 +57,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_syn.add_argument("--date", required=True)
     p_syn.add_argument("--from", dest="source",
                        help="Edition JSON URL or path (default: the live content URL)")
+
+    # --- autonomous approval backbone (openclaw + hermes run these) ---------
+    p_val = sub.add_parser("validate", help="Deterministic 'technically valid' check on a draft")
+    p_val.add_argument("--date", required=True)
+    p_val.add_argument("--from", dest="source", help="Draft JSON URL or path (default: preview URL)")
+    p_val.add_argument("--check-links", action="store_true",
+                       help="Also HEAD every source_url (network; default off)")
+
+    p_ver = sub.add_parser("verdict", help="Write this agent's verdict to S3 for the peer to see")
+    p_ver.add_argument("--date", required=True)
+    p_ver.add_argument("--agent", required=True, help="e.g. openclaw / hermes")
+    p_ver.add_argument("--decision", required=True, choices=["approve", "hold"])
+    p_ver.add_argument("--reason", action="append", default=[], help="repeatable")
+
+    p_con = sub.add_parser("consensus", help="Read both verdicts; publish live on two-agent APPROVE")
+    p_con.add_argument("--date", required=True)
+    p_con.add_argument("--require", default="openclaw,hermes",
+                       help="comma-separated agents that must APPROVE (default: openclaw,hermes)")
+    p_con.add_argument("--publish", action="store_true",
+                       help="On APPROVE, publish live (idempotent — skips if already live)")
 
     return parser
 
@@ -114,20 +135,106 @@ def cmd_publish(args) -> int:
     return _publish_live(args.date, args.draft)
 
 
-def cmd_syndicate(args) -> int:
-    from content_pipeline.social.syndicate import build_posts
-
-    y, m, d = args.date.split("-")
-    source = args.source or f"https://craicgpt.ie/content/{y}/{m}/{d}/paper_content.json"
+def _load_edition(date_iso: str, source: Optional[str], prefix: str = "content") -> dict:
+    """Load an edition JSON from an explicit URL/path, or the default CDN URL."""
+    y, m, d = date_iso.split("-")
+    source = source or f"https://craicgpt.ie/{prefix}/{y}/{m}/{d}/paper_content.json"
     if source.startswith("http"):
         import httpx
 
-        paper = httpx.get(source, timeout=20, follow_redirects=True).json()
-    else:
-        with open(source, encoding="utf-8") as fh:
-            paper = json.load(fh)
+        return httpx.get(source, timeout=20, follow_redirects=True).json()
+    with open(source, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def cmd_syndicate(args) -> int:
+    from content_pipeline.social.syndicate import build_posts
+
+    paper = _load_edition(args.date, args.source, prefix="content")
     print(json.dumps(build_posts(paper), indent=2, ensure_ascii=False))
     return 0
+
+
+def cmd_validate(args) -> int:
+    from content_pipeline.agent import review
+
+    paper = _load_edition(args.date, args.source, prefix="preview")
+    res = review.validate_paper(paper)
+    if args.check_links:
+        res["link_check"] = _check_links(paper)
+        if not res["link_check"]["all_ok"]:
+            res["valid"] = False
+            res["reasons"].append(
+                f"{len(res['link_check']['failed'])} source link(s) unreachable")
+    print(json.dumps(res, indent=2, ensure_ascii=False))
+    return 0 if res["valid"] else 1
+
+
+def _check_links(paper: dict) -> dict:
+    """HEAD every source_url; return {all_ok, checked, failed:[url]}."""
+    import httpx
+
+    urls = []
+    ai = paper.get("ai") or {}
+    for it in [ai.get("headliner")] + (ai.get("subarticles") or []) + \
+              (ai.get("shorts") or []) + (paper.get("fun") or []):
+        u = (it or {}).get("source_url")
+        if u:
+            urls.append(u)
+    failed = []
+    with httpx.Client(timeout=15, follow_redirects=True) as c:
+        for u in urls:
+            try:
+                r = c.head(u)
+                if r.status_code >= 400:
+                    r = c.get(u)  # some hosts reject HEAD
+                if r.status_code >= 400:
+                    failed.append(u)
+            except Exception:  # noqa: BLE001
+                failed.append(u)
+    return {"all_ok": not failed, "checked": len(urls), "failed": failed}
+
+
+def cmd_verdict(args) -> int:
+    from content_pipeline.agent import review
+
+    key = review.write_verdict(args.date, args.agent, args.decision,
+                               args.reason or [], at=_now_iso())
+    print(f"verdict written: {args.agent}={args.decision.upper()} → {key}")
+    return 0
+
+
+def _already_live(date_iso: str) -> bool:
+    """True if content/<date>/paper_content.json already exists (idempotency)."""
+    from content_pipeline.agent.publish import _default_s3, s3_key
+    from content_pipeline.content_config import content_cfg
+
+    try:
+        _default_s3().head_object(Bucket=content_cfg.s3_bucket,
+                                  Key=s3_key(date_iso, content_cfg.content_prefix))
+        return True
+    except Exception:  # noqa: BLE001 — NoSuchKey / 404 → not live yet
+        return False
+
+
+def cmd_consensus(args) -> int:
+    from content_pipeline.agent import review
+
+    required = tuple(a.strip() for a in args.require.split(",") if a.strip())
+    verdicts = review.read_verdicts(args.date)
+    result = review.compute_consensus(verdicts, required=required)
+    result["voted"] = {a: verdicts[a].get("verdict") for a in verdicts}
+
+    if args.publish and result["decision"] == "APPROVE":
+        if _already_live(args.date):
+            result["published"] = "already-live"
+        else:
+            draft = f"/tmp/paper_content_{args.date}.json"
+            rc = _publish_live(args.date, draft)
+            result["published"] = rc == 0
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+    # exit non-zero unless we have a clean APPROVE, so callers can branch on it
+    return 0 if result["decision"] == "APPROVE" else 2
 
 
 def main(argv=None) -> int:
@@ -141,6 +248,12 @@ def main(argv=None) -> int:
         return cmd_publish(args)
     if args.command == "syndicate":
         return cmd_syndicate(args)
+    if args.command == "validate":
+        return cmd_validate(args)
+    if args.command == "verdict":
+        return cmd_verdict(args)
+    if args.command == "consensus":
+        return cmd_consensus(args)
     print(f"unknown command {args.command!r}", file=sys.stderr)
     return 2
 

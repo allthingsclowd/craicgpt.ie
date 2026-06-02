@@ -57,6 +57,35 @@ def test_publish_uploads_local_images_and_rewrites_url(tmp_path):
     assert paper["fun"][0]["image_url"].startswith("https://craicgpt.ie/content/2026/06/02/images/")
 
 
+def test_publish_uploads_ai_lead_images_too(tmp_path):
+    """Regression: the headliner + subarticle images must be uploaded, not just
+    fun images — otherwise the hero images render broken on the live site."""
+    head = tmp_path / "head.png"; head.write_bytes(b"\x89PNG head")
+    sub0 = tmp_path / "sub0.png"; sub0.write_bytes(b"\x89PNG sub0")
+    sub1 = tmp_path / "sub1.png"; sub1.write_bytes(b"\x89PNG sub1")
+    fun0 = tmp_path / "fun0.png"; fun0.write_bytes(b"\x89PNG fun0")
+    paper = {
+        "date": "2026-06-02",
+        "ai": {
+            "headliner": {"title": "H", "image_url": str(head)},
+            "subarticles": [{"title": "S0", "image_url": str(sub0)},
+                            {"title": "S1", "image_url": str(sub1)}],
+            "shorts": [],
+        },
+        "fun": [{"title": "f0", "image_url": str(fun0)}],
+        "layout": [], "context": {},
+    }
+    s3 = _FakeS3()
+    publish_paper(paper, "2026-06-02", live=True, s3=s3, bucket="b",
+                  site_base_url="https://craicgpt.ie")
+    img_puts = [p for p in s3.puts if "/images/" in p["Key"]]
+    assert len(img_puts) == 4, "all 4 local images (headliner+2 subs+fun) must upload"
+    pub = "https://craicgpt.ie/content/2026/06/02/images/"
+    assert paper["ai"]["headliner"]["image_url"].startswith(pub)
+    assert all(s["image_url"].startswith(pub) for s in paper["ai"]["subarticles"])
+    assert paper["fun"][0]["image_url"].startswith(pub)
+
+
 def test_publish_live_uses_content_prefix(tmp_path):
     s3 = _FakeS3()
     paper = _paper_with_local_image(tmp_path)
