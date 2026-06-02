@@ -1,10 +1,7 @@
 <!--
-  Author: Graham Land
-  Date: 2026-03-03
-  Purpose: The Craic Gazette — AI newspaper model comparator.
-           Redesigned with Beano-meets-tabloid aesthetic.
-           Fetches paper_content.json from S3 and renders all three
-           LLM providers (Claude, Gemini, Local) with a model switcher.
+  The Craic Gazette — Ireland's Most Artificially Intelligent Newspaper.
+  A daily fun-news + AI-landscape paper written by open-source LLMs (Qwen3.6 +
+  FLUX) orchestrated by a LangChain deep agent. Schema v3.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -12,398 +9,109 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>The Craic Gazette — Ireland's Most Artificially Intelligent Newspaper</title>
-  <meta name="description" content="Daily AI-generated Irish newspaper comparing Claude, Gemini, and local LLMs side by side. Powered by LangChain and LangGraph.">
+  <meta name="description" content="A daily Irish paper of fun world news and AI-landscape coverage, written by open-source LLMs and orchestrated by a LangChain deep agent.">
 
-  <!-- Styles -->
   <link rel="stylesheet" href="static_assets/style.css">
-  <link rel="stylesheet" href="static_assets/vendor/js-datepicker/datepicker.min.css">
-
-  <!-- Google Fonts: Anton (tabloid masthead) + Playfair Display (headlines) + Libre Baskerville (body) -->
+  <link rel="stylesheet" href="static_assets/style-v3.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,700;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
-
   <link rel="icon" href="favicon.ico">
 </head>
 
-<body>
+<body class="v3">
 
-  <!-- ══════════════════════════════════════════════════════════════════════
-       MASTHEAD
-       The big red banner at the top of every tabloid. Our identity.
-       ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ── MASTHEAD ─────────────────────────────────────────────────────────── -->
   <header class="masthead" role="banner">
     <div class="masthead-top-strip">
       <span class="masthead-price">FREE (as in speech, not beer)</span>
       <span class="masthead-tagline">Ireland's Most Artificially Intelligent Newspaper</span>
-      <span class="masthead-edition" id="edition-label">Est. 2023</span>
+      <span class="masthead-edition" id="edition-attribution">v3 · draft</span>
     </div>
 
     <div class="masthead-main">
-      <img src="static_assets/images/CraicGPT_240h.png"
-           alt="CraicGPT logo"
-           class="masthead-logo masthead-logo--left"
-           data-prompt-type="branding"
-           data-prompt-text="Beano/Viz cartoon-style branding logo for 'CraicGPT.ie' — Ireland's AI newspaper">
-
+      <img src="static_assets/images/CraicGPT_240h.png" alt="CraicGPT logo"
+           class="masthead-logo masthead-logo--left">
       <div class="masthead-title-block">
         <h1 class="masthead-title">THE CRAIC GAZETTE</h1>
         <p class="masthead-subtitle">All the craic that's fit to hallucinate</p>
       </div>
-
-      <img src="static_assets/images/GeekwiththePeak.png"
-           alt="The Geek with the Peak"
-           class="masthead-logo masthead-logo--right"
-           data-prompt-type="branding"
-           data-source-image="static_assets/images/GeekWithThePeak.jpeg">
+      <img src="static_assets/images/GeekwiththePeak.png" alt="The Geek with the Peak"
+           class="masthead-logo masthead-logo--right">
     </div>
 
     <div class="masthead-dateline">
-      <span id="current-date" class="dateline-date">Loading date…</span>
+      <span id="current-date" class="dateline-date">Loading edition…</span>
       <span class="dateline-sep">|</span>
-      <span class="dateline-weather" id="weather-line">☁️ Checking the craic outside…</span>
+      <label for="date-picker" class="sr-only">Choose an edition date</label>
+      <input type="text" id="date-picker" class="date-input" placeholder="📅 change date">
     </div>
   </header>
 
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       MODEL SELECTOR BAR
-       The core UI of the comparator: choose which LLM edition you're reading.
-       Sticky on scroll so you can switch models while reading.
-       ══════════════════════════════════════════════════════════════════════ -->
-  <nav class="model-bar" role="navigation" aria-label="LLM model selector">
-    <div class="model-bar-inner">
-
-      <!-- Date picker -->
-      <div class="model-bar-date">
-        <label for="date-picker" class="sr-only">Select edition date</label>
-        <input type="text" id="date-picker" class="date-input" placeholder="📅 Change date">
-      </div>
-
-      <!-- Model tabs -->
-      <div class="model-tabs" role="tablist" aria-label="Choose AI model edition">
-        <button class="model-tab model-tab--claude active"
-                role="tab"
-                aria-selected="true"
-                data-provider="claude"
-                aria-label="Claude by Anthropic edition">
-          <span class="model-tab-icon">🟣</span>
-          <span class="model-tab-name">CLAUDE</span>
-          <span class="model-tab-by">by Anthropic</span>
-        </button>
-        <button class="model-tab model-tab--gemini"
-                role="tab"
-                aria-selected="false"
-                data-provider="gemini"
-                aria-label="Gemini by Google edition">
-          <span class="model-tab-icon">🔵</span>
-          <span class="model-tab-name">GEMINI</span>
-          <span class="model-tab-by">by Google</span>
-        </button>
-        <button class="model-tab model-tab--local"
-                role="tab"
-                aria-selected="false"
-                data-provider="local"
-                aria-label="Local LLM edition">
-          <span class="model-tab-icon">🟢</span>
-          <span class="model-tab-name">LOCAL LLM</span>
-          <span class="model-tab-by">via LM Studio</span>
-        </button>
-        <button class="model-tab model-tab--compare"
-                role="tab"
-                aria-selected="false"
-                data-provider="compare"
-                aria-label="Compare all models side by side">
-          <span class="model-tab-icon">⚡</span>
-          <span class="model-tab-name">COMPARE ALL</span>
-          <span class="model-tab-by">side by side</span>
-        </button>
-      </div>
-
-      <!-- Active model info badge -->
-      <div class="model-badge" id="active-model-badge">
-        <span class="model-badge-id" id="active-model-id">—</span>
-        <span class="model-badge-latency" id="active-model-latency"></span>
-      </div>
-    </div>
-  </nav>
-
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       KICKER STRIP  (tabloid-style breaking news band)
-       ══════════════════════════════════════════════════════════════════════ -->
-  <div class="kicker-strip" id="kicker-strip" aria-live="polite">
-    <span class="kicker-label">BREAKING</span>
-    <span class="kicker-text" id="kicker-text">
-      AI models asked to write an Irish newspaper. Two immediately reached for the craic. One stared at the wall and thought very hard.
-    </span>
+  <!-- ── KICKER STRIP ─────────────────────────────────────────────────────── -->
+  <div class="kicker-strip">
+    <span class="kicker-label">TODAY</span>
+    <span class="kicker-text">The good stuff from around the world, plus what actually changed
+      in AI — written overnight by open-source models, picked by a human before print.</span>
   </div>
 
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       MAIN CONTENT GRID
-       Four-column newspaper layout. Responds down to single-column mobile.
-       ══════════════════════════════════════════════════════════════════════ -->
-  <main class="paper-grid" id="paper-grid">
-
-    <!-- ── FRONT PAGE LEAD STORY ────────────────────────────────────────── -->
-    <article class="paper-cell cell-lead" id="main-article-cell">
-      <div class="kicker-tag kicker-tag--red">EXCLUSIVE</div>
-      <h2 class="article-headline" id="main-article-title"
-          data-article="main_article"
-          data-field="title">
-        AI ASSIGNED TO WRITE NEWSPAPER, IMMEDIATELY STARTS COMPLAINING ABOUT FORMATTING
-      </h2>
-      <p class="article-standfirst" id="main-article-standfirst"
-         data-article="main_article"
-         data-field="standfirst">
-        In scenes reminiscent of every Monday morning in every open-plan office, the
-        machines have begun procrastinating.
-      </p>
-      <div class="article-body" id="main-article-text"
-           data-article="main_article"
-           data-field="content"
-           data-prompt-type="llm"
-           data-prompt-file="main_article">
-        <p>Loading today's front page lead…</p>
-      </div>
+  <!-- ── THE EDITION (populated from layout by main.js) ───────────────────── -->
+  <main class="edition" id="edition" aria-live="polite">
+    <article class="card card--lead">
+      <div class="kicker kicker--red">LOADING</div>
+      <h2 class="headline headline--lead">Fetching today's edition…</h2>
     </article>
+  </main>
 
-    <!-- ── EDITOR'S NOTE (sidebar) ─────────────────────────────────────── -->
-    <aside class="paper-cell cell-editor" id="editor-note-cell">
-      <div class="kicker-tag kicker-tag--black">FROM THE EDITOR</div>
-      <h3 class="article-headline article-headline--small">Graham's Desk</h3>
-      <div class="author-bio-block">
-        <img src="static_assets/images/GeekWithThePeakLogoJune25.png"
-             alt="The Geek with the Peak"
-             class="author-avatar"
-             data-prompt-type="branding"
-             data-source-image="static_assets/images/GeekWithThePeak.jpeg">
-        <div class="article-body article-body--small" id="editors-note-text"
-             data-article="editors_note"
-             data-field="content"
-             data-prompt-type="llm"
-             data-prompt-file="editors_note">
-          <p>Our esteemed editor, a sophisticated language model inhabiting the spirit of Graham,
-             will be with you shortly…</p>
-        </div>
-      </div>
-
-      <!-- Model performance stats — shown in compare mode -->
-      <div class="model-stats" id="model-stats">
-        <h4 class="model-stats-title">Today's Model Stats</h4>
-        <div class="model-stats-grid" id="model-stats-grid">
-          <!-- Populated by main.js -->
-        </div>
-      </div>
-    </aside>
-
-    <!-- ── AI SHOWDOWN ARTICLE ──────────────────────────────────────────── -->
-    <article class="paper-cell cell-showdown" id="comparison-article-cell">
-      <div class="kicker-tag kicker-tag--yellow">MODEL SHOWDOWN</div>
-      <h2 class="article-headline" id="comparison-article-title"
-          data-article="comparison_article"
-          data-field="title">
-        THE GREAT AI RACE: WHO WROTE IT BEST?
-      </h2>
-      <div class="article-body" id="comparison-article-text"
-           data-article="comparison_article"
-           data-field="content"
-           data-prompt-type="llm"
-           data-prompt-file="comparison_article">
-        <p>Loading the AI showdown coverage…</p>
-      </div>
-    </article>
-
-    <!-- ── LLM MUSES ────────────────────────────────────────────────────── -->
-    <section class="paper-cell cell-muse" id="llm-muse-cell">
-      <div class="kicker-tag kicker-tag--purple">THE LLM MUSES</div>
-      <h3 class="article-headline article-headline--small" id="llm-muse-title">
-        Deep Thoughts from the Machine
-      </h3>
-      <div class="article-body article-body--small" id="llm-muse-text"
-           data-article="llm_muse"
-           data-field="content"
-           data-prompt-type="llm"
-           data-prompt-file="llm_muse">
-        <p>The model stares into the abyss. The abyss returns a 200 OK.</p>
-      </div>
-    </section>
-
-    <!-- ── DAILY GIGGLEBIT ──────────────────────────────────────────────── -->
-    <section class="paper-cell cell-joke" id="joke-cell">
-      <div class="kicker-tag kicker-tag--yellow">DAILY GIGGLEBIT</div>
-      <h3 class="article-headline article-headline--small">Today's Certified Groan</h3>
-      <div class="joke-content" id="joke-text"
-           data-article="daily_joke"
-           data-field="content"
-           data-prompt-type="llm"
-           data-prompt-file="daily_joke">
-        <p class="joke-setup">Why did the AI apply for a newspaper job?</p>
-        <p class="joke-punchline">It heard the deadlines were artificial.</p>
-      </div>
-    </section>
-
-  </main><!-- /.paper-grid -->
-
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       COMPARE ALL PANEL
-       Shown when the "COMPARE ALL" tab is active. Three columns, one per
-       provider, showing the same article in each model's voice.
-       Hidden by default; toggled by main.js.
-       ══════════════════════════════════════════════════════════════════════ -->
-  <section class="compare-panel" id="compare-panel" hidden aria-live="polite">
-    <div class="compare-panel-header">
-      <h2 class="compare-panel-title">⚡ The Craic Gazette — Model Showdown Edition</h2>
-      <p class="compare-panel-subtitle">
-        Every model received the <strong>identical prompt</strong>.
-        These are their completely different responses.
-      </p>
-    </div>
-
-    <!-- Article selector tabs within compare mode -->
-    <div class="compare-article-tabs" role="tablist" aria-label="Select article to compare">
-      <button class="compare-article-tab active" data-article="main_article">Front Page</button>
-      <button class="compare-article-tab" data-article="comparison_article">AI Showdown</button>
-      <button class="compare-article-tab" data-article="llm_muse">LLM Muses</button>
-      <button class="compare-article-tab" data-article="daily_joke">Gigglebit</button>
-      <button class="compare-article-tab" data-article="editors_note">Editor's Note</button>
-    </div>
-
-    <!-- Three-column comparison grid -->
-    <div class="compare-grid" id="compare-grid">
-      <!-- Claude column -->
-      <div class="compare-col compare-col--claude">
-        <div class="compare-col-header">
-          <span class="compare-col-icon">🟣</span>
-          <h3 class="compare-col-title">CLAUDE</h3>
-          <p class="compare-col-meta" id="compare-claude-meta">by Anthropic</p>
-        </div>
-        <div class="compare-col-body" id="compare-claude-body">Loading…</div>
-      </div>
-
-      <!-- Gemini column -->
-      <div class="compare-col compare-col--gemini">
-        <div class="compare-col-header">
-          <span class="compare-col-icon">🔵</span>
-          <h3 class="compare-col-title">GEMINI</h3>
-          <p class="compare-col-meta" id="compare-gemini-meta">by Google</p>
-        </div>
-        <div class="compare-col-body" id="compare-gemini-body">Loading…</div>
-      </div>
-
-      <!-- Local LLM column -->
-      <div class="compare-col compare-col--local">
-        <div class="compare-col-header">
-          <span class="compare-col-icon">🟢</span>
-          <h3 class="compare-col-title">LOCAL LLM</h3>
-          <p class="compare-col-meta" id="compare-local-meta">via LM Studio</p>
-        </div>
-        <div class="compare-col-body" id="compare-local-body">Loading…</div>
-      </div>
-    </div>
+  <!-- ── NEWSLETTER (inert in v1) ─────────────────────────────────────────── -->
+  <section class="newsletter">
+    <h3 class="newsletter-title">The Craic, in your inbox</h3>
+    <p class="newsletter-sub">A longer-form daily AI dispatch with Graham's take. Coming soon.</p>
+    <form id="newsletter-form" class="newsletter-form">
+      <input type="email" required placeholder="you@example.com" aria-label="Email address" class="newsletter-input">
+      <button type="submit" class="newsletter-btn">Subscribe</button>
+    </form>
+    <p id="newsletter-msg" class="newsletter-msg" aria-live="polite"></p>
   </section>
 
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       "UNDER THE HOOD" DRAWER
-       Collapsible panel showing the LangGraph pipeline trace + prompts.
-       The educational core of the site.
-       ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ── UNDER THE HOOD — deep-agent visualiser (the LangChain lesson) ────── -->
   <section class="hood-drawer" id="hood-drawer">
     <button class="hood-toggle" id="hood-toggle" aria-expanded="false" aria-controls="hood-content">
       <span class="hood-toggle-icon">⚙️</span>
-      <span class="hood-toggle-text">Under the Hood — How was this generated?</span>
+      <span class="hood-toggle-text">Under the Hood — how a LangChain deep agent built this</span>
       <span class="hood-toggle-arrow" aria-hidden="true">▼</span>
     </button>
 
     <div class="hood-content" id="hood-content" hidden>
-      <div class="hood-grid">
-
-        <!-- LangGraph pipeline diagram -->
-        <div class="hood-section">
-          <h3 class="hood-section-title">🗺️ LangGraph Pipeline</h3>
-          <div class="pipeline-diagram">
-            <div class="pipeline-node pipeline-node--done" title="Fetches news and weather">
-              <span class="pipeline-node-icon">🔍</span>
-              <span class="pipeline-node-label">research</span>
-              <span class="pipeline-node-sub">ReAct agent</span>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <div class="pipeline-node pipeline-node--done" title="Parallel LLM calls">
-              <span class="pipeline-node-icon">⚡</span>
-              <span class="pipeline-node-label">generate</span>
-              <span class="pipeline-node-sub">RunnableParallel</span>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <div class="pipeline-node pipeline-node--done" title="Assembles JSON">
-              <span class="pipeline-node-icon">📦</span>
-              <span class="pipeline-node-label">compile</span>
-              <span class="pipeline-node-sub">StateGraph node</span>
-            </div>
-            <div class="pipeline-arrow">→</div>
-            <div class="pipeline-node pipeline-node--done" title="Uploads to S3">
-              <span class="pipeline-node-icon">☁️</span>
-              <span class="pipeline-node-label">publish</span>
-              <span class="pipeline-node-sub">boto3 → S3</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Context used -->
-        <div class="hood-section">
-          <h3 class="hood-section-title">📰 Research Context</h3>
-          <div class="hood-context" id="hood-context">
-            <p class="hood-placeholder">Load an edition to see the research agent's context.</p>
-          </div>
-        </div>
-
-        <!-- Research agent trace -->
-        <div class="hood-section hood-section--wide">
-          <h3 class="hood-section-title">🤖 Research Agent Trace</h3>
-          <div class="hood-trace" id="hood-trace">
-            <p class="hood-placeholder">The agent's thought process will appear here.</p>
-          </div>
-        </div>
-
+      <p class="hood-intro">
+        This edition was produced by an <strong>Editor-in-Chief deep agent</strong>
+        (LangChain <code>deepagents</code> + LangGraph, all open source). It planned the
+        edition, delegated to a fun-news researcher, an AI-landscape researcher and an
+        editor, validated every source link, then left a draft for human approval. Below
+        is what it actually did.
+      </p>
+      <div class="hood-stats" id="hood-stats"></div>
+      <div class="hood-trace" id="hood-trace">
+        <p class="hood-placeholder">Load an edition to watch the agent work.</p>
       </div>
     </div>
   </section>
 
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       PROMPT TOOLTIP  (attached to body, positioned by JS)
-       ══════════════════════════════════════════════════════════════════════ -->
-  <div class="prompt-tooltip" id="prompt-tooltip" role="tooltip" hidden>
-    <div class="prompt-tooltip-header" id="tooltip-header">Prompt</div>
-    <div class="prompt-tooltip-body" id="tooltip-body"></div>
-  </div>
-
-
-  <!-- ══════════════════════════════════════════════════════════════════════
-       FOOTER
-       ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ── FOOTER ───────────────────────────────────────────────────────────── -->
   <footer class="site-footer">
     <div class="footer-inner">
-      <p class="footer-copy">
-        &copy; <span id="footer-year"></span> CraicGPT.ie —
-        <em>No hallucinations were harmed in the making of this newspaper.</em>
-      </p>
+      <p class="footer-copy">&copy; <span id="footer-year"></span> CraicGPT.ie —
+        <em>No hallucinations were harmed in the making of this newspaper.</em></p>
       <p class="footer-tech">
-        Powered by
-        <a href="https://python.langchain.com" target="_blank" rel="noopener">LangChain</a> +
-        <a href="https://langchain-ai.github.io/langgraph/" target="_blank" rel="noopener">LangGraph</a> +
-        <a href="https://lmstudio.ai" target="_blank" rel="noopener">LM Studio</a>.
-        Hosted on AWS S3 + CloudFront.
-        Source on <a href="https://github.com/grazzer/craicgpt.ie" target="_blank" rel="noopener">GitHub</a>.
+        Written by open-source <a href="https://qwenlm.github.io" target="_blank" rel="noopener">Qwen3.6</a>
+        + <a href="https://blackforestlabs.ai" target="_blank" rel="noopener">FLUX</a>,
+        orchestrated by <a href="https://github.com/langchain-ai/deepagents" target="_blank" rel="noopener">LangChain deep agents</a>
+        + <a href="https://langchain-ai.github.io/langgraph/" target="_blank" rel="noopener">LangGraph</a>.
+        Source on <a href="https://github.com/allthingsclowd/craicgpt.ie" target="_blank" rel="noopener">GitHub</a>.
       </p>
     </div>
   </footer>
 
-
-  <!-- Scripts: datepicker vendor, then our app -->
-  <script src="static_assets/vendor/js-datepicker/datepicker.min.js"></script>
   <script src="static_assets/main.js"></script>
 </body>
 </html>
