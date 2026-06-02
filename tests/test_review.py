@@ -108,6 +108,30 @@ def test_missing_second_verdict_waits():
     assert c["decision"] == "WAIT"   # no consensus on a single agent's say-so
 
 
+def test_verdict_of_tolerates_agent_schema_variation():
+    # LLM agents vary: 'decision' vs 'verdict', any case.
+    assert review.verdict_of({"decision": "approve"}) == "APPROVE"
+    assert review.verdict_of({"verdict": "APPROVE"}) == "APPROVE"
+    assert review.verdict_of({"vote": "Hold"}) == "HOLD"
+    assert review.verdict_of({"agent": "x"}) == ""          # no verdict field
+    assert review.verdict_of({"verdict": None}) == ""        # null
+    assert review.verdict_of({"verdict": "maybe"}) == ""     # unrecognised
+
+
+def test_consensus_approves_across_mixed_schemas():
+    # The exact shapes openclaw + hermes wrote in the live test.
+    v = {"openclaw": {"agent": "openclaw", "decision": "approve"},
+         "hermes": {"agent": "hermes", "verdict": "APPROVE"}}
+    assert review.compute_consensus(v)["decision"] == "APPROVE"
+
+
+def test_consensus_does_not_approve_on_unparseable_verdict():
+    # Regression: a present-but-unparseable verdict must NOT count as approval.
+    v = {"openclaw": {"agent": "openclaw", "foo": "bar"},   # no usable verdict
+         "hermes": {"verdict": "APPROVE"}}
+    assert review.compute_consensus(v)["decision"] == "WAIT"
+
+
 def test_custom_required_agents():
     v = {"openclaw": {"verdict": "APPROVE"}}
     c = review.compute_consensus(v, required=("openclaw",))

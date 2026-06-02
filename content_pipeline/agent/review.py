@@ -238,19 +238,28 @@ def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
     return {"action": "retry", "decision": "WAIT", "reasons": consensus["reasons"]}
 
 
+def verdict_of(v: dict) -> str:
+    """Extract a normalised verdict from an agent's file. LLM agents vary the
+    schema (``verdict`` vs ``decision``, ``APPROVE`` vs ``approve``), so be
+    tolerant on read — but anything we don't recognise is NOT an approval."""
+    raw = v.get("verdict") or v.get("decision") or v.get("vote") or ""
+    raw = str(raw).strip().upper()
+    return raw if raw in ("APPROVE", "HOLD") else ""
+
+
 def compute_consensus(verdicts: dict[str, dict],
                       *, required: Iterable[str] = DEFAULT_AGENTS) -> dict[str, Any]:
     """Two-agent rule. Returns ``{"decision": APPROVE|HOLD|WAIT, "reasons": [...],
     "approvals": [...], "holds": [...]}``.
 
     * any agent HOLD → ``HOLD`` (surface its reasons)
-    * a required agent has not voted yet → ``WAIT`` (never publish on one say-so)
-    * all required agents APPROVE → ``APPROVE``
+    * APPROVE only if **every required agent explicitly APPROVED** — a missing,
+      unparseable, or null verdict counts as WAIT, never as an approval.
     """
     required = tuple(required)
     holds, approvals, reasons = [], [], []
     for agent, v in verdicts.items():
-        decision = (v.get("verdict") or "").upper()
+        decision = verdict_of(v)
         if decision == "HOLD":
             holds.append(agent)
             reasons.extend(v.get("reasons") or [f"{agent} held"])
@@ -259,8 +268,9 @@ def compute_consensus(verdicts: dict[str, dict],
 
     if holds:
         return {"decision": "HOLD", "reasons": reasons, "approvals": approvals, "holds": holds}
-    missing = [a for a in required if a not in verdicts]
-    if missing:
-        return {"decision": "WAIT", "reasons": [f"awaiting verdict from: {', '.join(missing)}"],
+    not_approved = [a for a in required if a not in approvals]
+    if not_approved:
+        return {"decision": "WAIT",
+                "reasons": [f"awaiting explicit APPROVE from: {', '.join(not_approved)}"],
                 "approvals": approvals, "holds": holds}
     return {"decision": "APPROVE", "reasons": [], "approvals": approvals, "holds": holds}
