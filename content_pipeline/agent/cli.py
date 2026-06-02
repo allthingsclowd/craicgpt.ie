@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from datetime import datetime, timezone
 from typing import Optional
@@ -90,7 +91,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_gate.add_argument("--publish", action="store_true",
                         help="Actually publish on APPROVE (else just report the decision)")
 
+    p_df = sub.add_parser("deploy-frontend",
+                          help="Sync the static frontend to S3 (diff-only) + invalidate the CDN")
+    p_df.add_argument("--dir", dest="frontend_dir", help="frontend dir (default: repo frontend/)")
+
     return parser
+
+
+def _frontend_dir() -> str:
+    # content_pipeline/agent/cli.py → repo root → frontend/
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(repo, "frontend")
 
 
 def cmd_run(args) -> int:
@@ -324,8 +335,31 @@ def cmd_gate(args) -> int:
     if args.publish and g["action"] == "publish":
         rc = _publish_live(args.date, f"/tmp/paper_content_{args.date}.json")
         g["published"] = rc == 0
+        # Keep the deployed frontend in lockstep with the repo so the site can
+        # never render a stale shell against fresh content. Diff-only; failure
+        # here must not fail the content publish.
+        if rc == 0:
+            try:
+                from content_pipeline.agent.frontend import sync_frontend
+
+                g["frontend"] = sync_frontend(_frontend_dir())["uploaded"]
+            except Exception as exc:  # noqa: BLE001
+                logging.warning("[cli] frontend sync after publish failed: %s", exc)
+                g["frontend_error"] = str(exc)
     print(json.dumps(g, indent=2, ensure_ascii=False))
     return {"already-live": 0, "publish": 0, "hold": 2, "retry": 3}.get(g["action"], 3)
+
+
+def cmd_deploy_frontend(args) -> int:
+    from content_pipeline.agent.frontend import sync_frontend
+
+    d = args.frontend_dir or _frontend_dir()
+    res = sync_frontend(d)
+    n = len(res["uploaded"])
+    print(f"frontend: {n} file(s) deployed{' + CDN invalidated' if n else ' (already current)'}")
+    for k in res["uploaded"]:
+        print(f"  ↑ {k}")
+    return 0
 
 
 def main(argv=None) -> int:
@@ -349,6 +383,8 @@ def main(argv=None) -> int:
         return cmd_announce(args)
     if args.command == "gate":
         return cmd_gate(args)
+    if args.command == "deploy-frontend":
+        return cmd_deploy_frontend(args)
     print(f"unknown command {args.command!r}", file=sys.stderr)
     return 2
 
