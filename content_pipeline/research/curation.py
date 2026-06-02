@@ -179,3 +179,39 @@ def validate_source_link(url: str, *, fetch: Optional[Callable[[str], int]] = No
     except Exception:  # noqa: BLE001 — any fetch failure means "don't publish it"
         return False
     return 200 <= status < 300
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The deterministic pipeline the harness runs over a researcher's candidates
+# ─────────────────────────────────────────────────────────────────────────────
+def curate_candidates(
+    stories: list[Story],
+    n: int,
+    *,
+    exclude: bool = True,
+    fetch: Optional[Callable[[str], int]] = None,
+) -> list[Story]:
+    """Reduce raw candidate stories to the final ``n`` picks, deterministically.
+
+    Order of operations (each step is its own tested function):
+        1. drop grim/political stories (:func:`is_excluded_by_keywords`) — unless
+           ``exclude`` is False;
+        2. collapse duplicate URLs / near-identical titles
+           (:func:`dedupe_stories`);
+        3. if ``fetch`` is given, drop stories whose source link doesn't resolve
+           (:func:`validate_source_link`);
+        4. pick the final ``n`` spread across continents
+           (:func:`select_diverse`).
+
+    Args:
+        stories: candidate stories collected by a researcher subagent.
+        n: how many to keep.
+        exclude: apply the grim/political keyword filter (default True).
+        fetch: optional injectable HTTP-status fetcher for link validation; when
+            None, links are NOT checked here (do it as a separate live step).
+    """
+    pool = [s for s in stories if not (exclude and is_excluded_by_keywords(s))]
+    pool = dedupe_stories(pool)
+    if fetch is not None:
+        pool = [s for s in pool if validate_source_link(s.source_url, fetch=fetch)]
+    return select_diverse(pool, n)
