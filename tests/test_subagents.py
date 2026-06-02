@@ -46,10 +46,10 @@ def test_ai_landscape_prompt_encodes_24h_and_counts():
 def test_editor_prompt_requires_persona_and_disclaimer_tools():
     spec = S.by_name("editor")
     low = spec["system_prompt"].lower()
-    assert "marvel" in low or "persona" in low
+    assert "persona" in low
     assert "disclaimer" in low or "satire" in low or "parody" in low
     tool_names = {t.name for t in spec["tools"]}
-    assert "assign_marvel_voices" in tool_names
+    assert "assign_journalist_voices" in tool_names
     # Images are generated deterministically by the harness, not the editor.
 
 

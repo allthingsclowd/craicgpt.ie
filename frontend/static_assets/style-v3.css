@@ -4,15 +4,13 @@
    fun-story cards with images, the newsletter band, and the agent visualiser.
    =========================================================================== */
 
-/* ── The edition grid ─────────────────────────────────────────────────────── */
+/* ── The edition: masonry via CSS columns (packs tightly, no row gaps) ─────── */
 .edition {
   max-width: var(--page-width);
   margin: 1.5rem auto;
   padding: 0 1rem;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--gap);
-  align-items: start;
+  column-width: 320px;
+  column-gap: var(--gap);
 }
 
 .card {
@@ -21,13 +19,18 @@
   border-top: 6px solid var(--ink);
   padding: 1rem 1.1rem 1.2rem;
   border-radius: var(--radius);
+  /* Keep each card whole within a column. */
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  display: inline-block;   /* belt-and-braces against mid-card column breaks */
+  width: 100%;
+  margin: 0 0 var(--gap);
 }
 .card--ai   { border-top-color: var(--red); }
 .card--fun  { border-top-color: var(--flash-dark); background: #fffdf5; }
 .card--ad   { border-style: dashed; background: var(--flash); }
-.card--lead { grid-column: 1 / -1; border-top-width: 10px; padding: 1.4rem 1.6rem; }
-.card--sub  { grid-column: span 2; }
-@media (max-width: 720px) { .card--sub { grid-column: span 1; } }
+/* The headliner spans the full width above the packed columns. */
+.card--lead { column-span: all; border-top-width: 10px; padding: 1.4rem 1.6rem; }
 
 /* ── Kickers / headlines / body ───────────────────────────────────────────── */
 .kicker {
@@ -79,10 +82,15 @@
   width: 100%;
   height: auto;
   display: block;
+  object-fit: cover;
   border: var(--border-thin);
   margin-bottom: .6rem;
   background: var(--newsprint-dark);
 }
+/* The lead photo is a banner — crop tall square images so the text stays visible. */
+.card--lead .card-img { max-height: 360px; }
+.card--ai:not(.card--lead) .card-img,
+.card--fun .card-img { height: 190px; }
 
 /* ── Per-article footer: source link, model note, disclaimer ──────────────── */
 .card-meta {

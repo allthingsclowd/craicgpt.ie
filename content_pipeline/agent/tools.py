@@ -110,13 +110,14 @@ def validate_link(url: str) -> bool:
 # Editor support tools
 # ─────────────────────────────────────────────────────────────────────────────
 @tool
-def assign_marvel_voices(count: int, seed: str) -> str:
-    """Assign `count` distinct Marvel personas (one per fun story) for a day.
+def assign_journalist_voices(count: int, seed: str) -> str:
+    """Assign `count` distinct parody-journalist personas (one per fun story).
 
-    `seed` should be the edition date (YYYY-MM-DD) so the lineup is stable per
-    day and rotates across days. Returns JSON: a list of
-    {character, voice_brief, byline, disclaimer}. Write each fun story in its
-    assigned character's voice and show the disclaimer.
+    Each is a well-known public figure's voice bylined under a punny misspelling
+    (e.g. Donald Trump's style → "Ronald Dump"). `seed` should be the edition
+    date (YYYY-MM-DD) so the lineup is stable per day and rotates across days.
+    Returns JSON: a list of {character, voice_brief, byline, disclaimer}. Write
+    each fun story in its assigned figure's voice and keep the disclaimer.
     """
     characters = assign_personas(count, seed=seed)
     payload = [

@@ -126,7 +126,7 @@ def _extract_file(files: dict, path: str) -> Optional[str]:
 def _finalize_fun(fun: list, date_iso: str) -> None:
     """Stamp persona / byline / satire disclaimer on each fun story.
 
-    The editor writes the prose in a Marvel voice but doesn't reliably populate
+    The editor writes the prose in a persona voice but doesn't reliably populate
     the structured fields. We assign a day-stable persona where the editor left
     one blank, always set the byline, and ALWAYS set the satire disclaimer (a
     legal requirement — every persona piece must carry it).
@@ -135,8 +135,8 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
     for i, item in enumerate(fun):
         if not isinstance(item, dict):
             continue
-        # Keep the editor's choice only if it's a real Marvel roster character;
-        # otherwise (blank, or an off-brand pick like "Aquaman") assign one.
+        # Keep the editor's choice only if it's a real roster persona; otherwise
+        # (blank, or an off-roster invention) assign one deterministically.
         if item.get("persona") not in ROSTER and i < len(assigned):
             item["persona"] = assigned[i]
         if item.get("persona"):
@@ -144,18 +144,27 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
         item["satire_disclaimer"] = SATIRE_DISCLAIMER
 
 
-def _generate_fun_images(fun: list, *, generate=None, image_model: Optional[str] = None) -> Optional[str]:
-    """Generate one image per fun story in the harness; set image_url to the path.
+def _image_prompt(item: dict) -> str:
+    """A photorealistic editorial-photo prompt derived from a story."""
+    return (
+        "Photorealistic editorial news photograph, high detail, natural lighting, "
+        "documentary style, relevant to this story: "
+        f"{item.get('title', '')}. {(item.get('body', '') or '')[:160]} "
+        "No text, no captions, no watermark, no logos."
+    )
 
-    Overwrites whatever the editor put in image_url (it tends to invent stock
-    URLs). ``generate`` is injectable for tests: ``prompt -> (local_path, model)``;
-    the default calls FLUX via :func:`generate.images.save_image`. A failed image
-    leaves image_url empty rather than crashing the edition. Returns the image
-    model actually used (for attribution), if any.
+
+def _generate_images(ai: dict, fun: list, *, generate=None, image_model: Optional[str] = None) -> Optional[str]:
+    """Generate images in the harness: the 3 AI leads + every fun story.
+
+    The main article and the two subarticles get a relevant **photorealistic**
+    image; so does each fun story. Generation is done here (not by the agent,
+    which invents stock URLs), overwriting any image_url the editor set and
+    stamping ``image_alt`` + ``_image_model``. ``generate`` is injectable for
+    tests: ``prompt -> (local_path, model)``; default calls FLUX via
+    :func:`generate.images.save_image`. A failed image clears image_url rather
+    than crashing the edition. Returns the image model actually used.
     """
-    if not fun:
-        return image_model
-
     def _default(prompt: str):
         from content_pipeline.generate.images import save_image
 
@@ -163,16 +172,19 @@ def _generate_fun_images(fun: list, *, generate=None, image_model: Optional[str]
 
     gen = generate or _default
     used_model = image_model
-    for item in fun:
-        if not isinstance(item, dict):
-            continue
-        prompt = (
-            "Tabloid newspaper cover illustration, vivid comic-book style, no text: "
-            f"{item.get('title', '')}. {(item.get('body', '') or '')[:160]}"
-        )
+
+    targets: list[dict] = []
+    if isinstance(ai.get("headliner"), dict):
+        targets.append(ai["headliner"])
+    targets += [s for s in ai.get("subarticles", []) if isinstance(s, dict)]
+    targets += [f for f in fun if isinstance(f, dict)]
+
+    for item in targets:
         try:
-            path, model = gen(prompt)
+            path, model = gen(_image_prompt(item))
             item["image_url"] = path
+            item["image_alt"] = item.get("title", "")
+            item["_image_model"] = model or image_model
             used_model = model or used_model
         except Exception as exc:  # noqa: BLE001 — a bad image must not sink the edition
             logger.warning("[run_edition] image generation failed: %s", exc)
@@ -280,9 +292,9 @@ def run_edition(
             "Read research/fun_candidates.json and research/ai_candidates.json, then "
             "WRITE the complete edition as VALID JSON to draft/edition.json now: "
             "1 AI headliner + 2 subarticles + 10 shorts in Graham's witty house voice, "
-            "and 5 fun stories — each in a distinct Marvel voice (call assign_marvel_voices "
-            "and set persona, byline, satire_disclaimer). Illustrations are added "
-            "automatically afterwards. Shape: "
+            "and 5 fun stories — each in a distinct parody-journalist voice (call "
+            "assign_journalist_voices and set persona, byline, satire_disclaimer). "
+            "Illustrations are added automatically afterwards. Shape: "
             '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
             "Use write_file with path draft/edition.json, then stop."
         )
@@ -309,7 +321,7 @@ def run_edition(
     # image in the harness (the editor invents stock URLs rather than using the
     # FLUX tool output), then stamp model attribution.
     _finalize_fun(fun, date_iso)
-    image_model = _generate_fun_images(fun, generate=image_generate, image_model=image_model)
+    image_model = _generate_images(ai, fun, generate=image_generate, image_model=image_model)
     _stamp_attribution(ai, fun, text_model=text_model, image_model=image_model)
 
     # Build the trace from the agent's actual run, prepended with any

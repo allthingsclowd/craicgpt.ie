@@ -119,6 +119,16 @@ function defaultLayout(data) {
   return refs;
 }
 
+function imageEl(item) {
+  if (!item.image_url) return null;
+  const img = document.createElement('img');
+  img.className = 'card-img';
+  img.src = item.image_url;
+  img.alt = item.image_alt || item.title || '';
+  img.loading = 'lazy';
+  return img;
+}
+
 function aiCard(item, kind) {
   const lead = kind === 'headliner';
   const art = document.createElement('article');
@@ -126,6 +136,8 @@ function aiCard(item, kind) {
   art.append(kicker(lead ? 'HEADLINE' : kind === 'sub' ? 'AI DESK' : 'IN BRIEF', 'red'));
   art.append(headline(item.title, lead));
   if (item.standfirst) art.append(node('p', 'standfirst', item.standfirst));
+  const img = imageEl(item);            // headliner + subarticles carry a photo
+  if (img) art.append(img);
   art.append(body(item.body));
   art.append(meta(item, false));
   return art;
@@ -136,14 +148,8 @@ function funCard(item) {
   const isAd = item.kind === 'ad';
   art.className = `card card--fun ${isAd ? 'card--ad' : ''}`;
   art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `FUN DESK · ${item.persona || ''}`, 'gold'));
-  if (item.image_url) {
-    const img = document.createElement('img');
-    img.className = 'card-img';
-    img.src = item.image_url;
-    img.alt = item.image_alt || item.title || '';
-    img.loading = 'lazy';
-    art.append(img);
-  }
+  const img = imageEl(item);
+  if (img) art.append(img);
   art.append(headline(item.title, false));
   if (item.byline) art.append(node('p', 'byline', item.byline));
   art.append(body(item.body));

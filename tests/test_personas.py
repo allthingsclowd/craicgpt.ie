@@ -1,9 +1,10 @@
-"""Tests for the Marvel-persona assignment used by the fun-news rewriter.
+"""Tests for the parody-journalist persona assignment (fun-news rewriter).
 
-Decision from grilling: real Marvel character names + a visible satire
-disclaimer, one distinct character per article. The voice prompt itself is the
-LLM's to perform; this module just owns the roster, the deterministic
-day-stable assignment, the byline, and the disclaimer text.
+The roster is well-known public figures' voices bylined under punny misspellings
+(e.g. Donald Trump → "Ronald Dump"), with a visible satire disclaimer, one
+distinct persona per article. The voice itself is the LLM's to perform; this
+module owns the roster, the day-stable assignment, the byline, and the
+disclaimer text.
 """
 
 from content_pipeline.generate.personas import (
@@ -40,8 +41,14 @@ def test_assign_caps_at_roster_size():
 
 
 def test_byline_names_the_character():
-    line = persona_byline("Spider-Man")
-    assert "Spider-Man" in line
+    line = persona_byline("Ronald Dump")
+    assert "Ronald Dump" in line
+
+
+def test_roster_is_celebrity_personas_not_superheroes():
+    # The roster pivoted from Marvel characters to parody celebrity/political voices.
+    assert "Ronald Dump" in ROSTER and "Roy Mean" in ROSTER
+    assert "Spider-Man" not in ROSTER
 
 
 def test_voice_brief_is_nonempty_for_roster_members():

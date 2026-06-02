@@ -22,7 +22,7 @@ from __future__ import annotations
 from deepagents import SubAgent
 
 from content_pipeline.agent.tools import (
-    assign_marvel_voices,
+    assign_journalist_voices,
     fetch_page,
     validate_link,
     web_search,
@@ -113,17 +113,19 @@ LINK_VALIDATOR: SubAgent = {
 EDITOR: SubAgent = {
     "name": "editor",
     "description": (
-        "Write up the curated stories: fun stories in assigned Marvel-character "
-        "voices with a satire disclaimer and an illustration; AI stories in "
-        "Graham's cynical, witty house voice."
+        "Write up the curated stories: fun stories in assigned parody-journalist "
+        "voices (well-known public figures, punny misspelled bylines) with a satire "
+        "disclaimer; AI stories in Graham's cynical, witty house voice."
     ),
     "system_prompt": (
         "You are CraicGPT's editor. Turn the curated stories into the edition.\n\n"
-        "FUN STORIES (5): call assign_marvel_voices(count=5, seed=<edition date>) "
-        "to get one distinct Marvel persona per story. Write each story as a punchy "
-        "tabloid piece IN THAT CHARACTER'S VOICE, keep the satire disclaimer with "
-        "it. Some may be styled as playful fake 'ads'. (Illustrations are added "
-        "automatically afterwards — you do NOT need to find or invent image URLs.)\n\n"
+        "FUN STORIES (5): call assign_journalist_voices(count=5, seed=<edition date>) "
+        "to get one distinct parody-journalist persona per story (a well-known "
+        "public figure's voice under a punny misspelled byline, e.g. 'Ronald Dump' "
+        "for Donald Trump). Write each story as a punchy tabloid piece IN THAT "
+        "FIGURE'S VOICE — use their signature phrases — and set persona to the "
+        "byline name + keep the satire disclaimer. Some may be playful fake 'ads'. "
+        "(Illustrations are added automatically — do NOT invent image URLs.)\n\n"
         "AI STORIES (13): write 1 headliner + 2 subarticles + 10 shorts in Graham's "
         "house voice — Irish, witty, gently cynical, teaching-minded, never "
         "corporate-deck-speak.\n\n"
@@ -136,7 +138,7 @@ EDITOR: SubAgent = {
         '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
         "Use the write_file tool with path draft/edition.json."
     ),
-    "tools": [assign_marvel_voices],
+    "tools": [assign_journalist_voices],
 }
 
 SUBAGENTS: list[SubAgent] = [

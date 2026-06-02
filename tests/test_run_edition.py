@@ -100,9 +100,10 @@ def test_run_edition_finalizes_personas_and_disclaimer():
         assert f["byline"].startswith("As told to")
 
 
-def test_run_edition_generates_fun_images_deterministically():
-    # The harness — not the agent — assigns each fun story its image. We inject a
-    # fake generator so this runs offline; it must overwrite any URL the editor set.
+def test_run_edition_generates_images_for_leads_and_fun():
+    # The harness — not the agent — assigns images. Inject a fake generator so
+    # this runs offline; it must image the 3 AI leads + every fun story and
+    # overwrite any URL the editor invented.
     ed = _edition()
     ed["fun"][0]["image_url"] = "https://images.unsplash.com/hallucinated"  # editor's bad guess
     calls = []
@@ -113,18 +114,26 @@ def test_run_edition_generates_fun_images_deterministically():
 
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed),
                         image_generate=fake_gen)
-    # Every fun story got a harness-generated local image, not the Unsplash guess.
+    ai = paper["ai"]
+    # Headliner + 2 subarticles get a photorealistic image; shorts do not.
+    assert ai["headliner"]["image_url"].startswith("/tmp/img/")
+    assert ai["headliner"]["_image_model"] == "m3/ollama/flux2-klein"
+    for s in ai["subarticles"]:
+        assert s["image_url"].startswith("/tmp/img/")
+    assert all("image_url" not in s or s.get("image_url") is None for s in ai["shorts"])
+    # Every fun story imaged too, overwriting the Unsplash guess.
     for f in paper["fun"]:
         assert f["image_url"].startswith("/tmp/img/")
         assert f["_image_model"] == "m3/ollama/flux2-klein"
-    assert len(calls) == len(paper["fun"])  # one image per fun story
+    # 1 headliner + 2 subs + 5 fun = 8 images.
+    assert len(calls) == 3 + len(paper["fun"])
 
 
 def test_run_edition_replaces_off_brand_persona():
     from content_pipeline.generate.personas import ROSTER
 
     ed = _edition()
-    ed["fun"][0]["persona"] = "Aquaman"  # DC, not in our Marvel roster
+    ed["fun"][0]["persona"] = "Aquaman"  # not in our parody-journalist roster
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed))
     assert paper["fun"][0]["persona"] in ROSTER  # replaced with a roster character
 
