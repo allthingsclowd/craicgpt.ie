@@ -22,7 +22,6 @@ from __future__ import annotations
 from deepagents import SubAgent
 
 from content_pipeline.agent.tools import (
-    assign_journalist_voices,
     fetch_page,
     validate_link,
     web_search,
@@ -110,42 +109,15 @@ LINK_VALIDATOR: SubAgent = {
 # ─────────────────────────────────────────────────────────────────────────────
 # Editor
 # ─────────────────────────────────────────────────────────────────────────────
-EDITOR: SubAgent = {
-    "name": "editor",
-    "description": (
-        "Write up the curated stories: fun stories in assigned parody-journalist "
-        "voices (well-known public figures, punny misspelled bylines) with a satire "
-        "disclaimer; AI stories in Graham's cynical, witty house voice."
-    ),
-    "system_prompt": (
-        "You are CraicGPT's editor. Turn the curated stories into the edition.\n\n"
-        "FUN STORIES (5): call assign_journalist_voices(count=5, seed=<edition date>) "
-        "to get one distinct parody-journalist persona per story (a well-known "
-        "public figure's voice under a punny misspelled byline, e.g. 'Ronald Dump' "
-        "for Donald Trump). Write each story as a punchy tabloid piece IN THAT "
-        "FIGURE'S VOICE — use their signature phrases — and set persona to the "
-        "byline name + keep the satire disclaimer. Some may be playful fake 'ads'. "
-        "(Illustrations are added automatically — do NOT invent image URLs.)\n\n"
-        "AI STORIES (13): write 1 headliner + 2 subarticles + 10 shorts in Graham's "
-        "house voice — Irish, witty, gently cynical, teaching-minded, never "
-        "corporate-deck-speak.\n\n"
-        "Every piece keeps its real source link. Each FUN story object must include: "
-        "title, body, source_url, persona, byline, satire_disclaimer, image_url, kind "
-        "('article' or 'ad'). Each AI story object: title, body, source_url (the "
-        "headliner also gets a standfirst).\n\n"
-        "OUTPUT: write VALID JSON ONLY to the file draft/edition.json — do NOT write "
-        "markdown or prose files. Shape: "
-        '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
-        "Use the write_file tool with path draft/edition.json."
-    ),
-    "tools": [assign_journalist_voices],
-}
-
+# NB: there is deliberately no "editor" subagent. The agent does RESEARCH only
+# (writing candidate JSON files, its reliable strength); the harness writes the
+# articles deterministically (content_pipeline/generate/writer.py) because the
+# agent's single giant write_file kept getting mangled by the vLLM tool-call
+# parser. See run_edition.
 SUBAGENTS: list[SubAgent] = [
     FUN_NEWS_RESEARCHER,
     AI_LANDSCAPE_RESEARCHER,
     LINK_VALIDATOR,
-    EDITOR,
 ]
 
 
@@ -163,15 +135,13 @@ def by_name(name: str) -> SubAgent:
 EDITOR_IN_CHIEF_PROMPT = (
     "You are the Editor-in-Chief of CraicGPT — a daily Irish AI newspaper that is "
     "fun, witty, and refreshingly free of doom.\n\n"
-    "First, PLAN the edition with write_todos. Then DELEGATE: ask the "
-    "fun-news-researcher and the ai-landscape-researcher (via the task tool) to "
-    "gather candidates into the research/ files. Once curated stories exist, "
-    "delegate to the editor to write the edition into draft/edition.json. Keep your "
-    "own context clean — let the subagents do the heavy reading.\n\n"
-    "The edition is 13 AI stories (1 headliner + 2 subarticles + 10 shorts) "
-    "interleaved with 5 fun stories. Every story links to a real source.\n\n"
-    "YOUR SINGLE DELIVERABLE is one VALID JSON file at draft/edition.json (NOT "
-    "markdown, NOT prose files in research/). The run is not complete until "
-    "draft/edition.json exists and parses as JSON. When it does, stop — a human "
-    "approves it before publication."
+    "Your job is to RESEARCH the day's material. First PLAN with write_todos. Then "
+    "DELEGATE (via the task tool): ask the fun-news-researcher and the "
+    "ai-landscape-researcher to gather candidates and write them as JSON arrays to "
+    "research/fun_candidates.json and research/ai_candidates.json. Keep your own "
+    "context clean — let the subagents do the heavy reading, and have links "
+    "validated.\n\n"
+    "Once BOTH research files exist, STOP. You do NOT write the articles or a draft "
+    "edition — the newsroom writes those automatically from your research, in the "
+    "house and persona voices, and a human approves before publication."
 )

@@ -1,8 +1,10 @@
 """
 content_pipeline/agent/editor_in_chief.py
 ==========================================
-The Editor-in-Chief — a LangChain **deep agent** that plans the edition, delegates
-to its researchers and editor, and leaves a draft for human approval.
+The Editor-in-Chief — a LangChain **deep agent** that plans the edition and
+delegates to its researchers. It does RESEARCH only (reliably writing candidate
+files); the harness then writes the articles deterministically (see
+:mod:`content_pipeline.generate.writer`).
 
 TUTORIAL: create_deep_agent in three lines
 -------------------------------------------
@@ -35,7 +37,10 @@ from content_pipeline.generate.personas import (
     SATIRE_DISCLAIMER,
     assign_personas,
     persona_byline,
+    voice_brief,
 )
+from content_pipeline.generate.writer import loads_lenient, write_ai_section, write_fun_story
+from content_pipeline.research.curation import Story, curate_candidates
 from content_pipeline.providers.litellm import get_litellm_llm
 
 logger = logging.getLogger(__name__)
@@ -94,33 +99,75 @@ def build_editor_in_chief(
 # ─────────────────────────────────────────────────────────────────────────────
 # Running an edition
 # ─────────────────────────────────────────────────────────────────────────────
-def _loads_lenient(raw: str) -> dict:
-    """Parse JSON that may be wrapped in markdown fences or thinking text."""
-    text = raw.strip()
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
-    if text.startswith("```"):
-        lines = text.split("\n")[1:]
-        if lines and lines[-1].strip().startswith("```"):
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        end = text.rfind("}") + 1
-        for m in re.finditer(r"\{", text):
-            if m.start() >= end:
-                break
-            try:
-                return json.loads(text[m.start():end])
-            except json.JSONDecodeError:
-                continue
-    raise RuntimeError("draft/edition.json was not valid JSON")
+EDITION_RESEARCH_BRIEF = (
+    "Produce the RESEARCH for CraicGPT's edition for {date} (today is {date}).\n\n"
+    "Plan with write_todos, then delegate via the task tool: ask the "
+    "fun-news-researcher and the ai-landscape-researcher to gather candidates and "
+    "WRITE them as JSON arrays to research/fun_candidates.json (items: "
+    '{{"title","summary","source_url","continent"}}) and research/ai_candidates.json '
+    '(items: {{"title","summary","source_url"}}). Validate the links. Once BOTH '
+    "research files exist, STOP — the edition is written automatically from your "
+    "research. You do NOT write the articles or any draft yourself."
+)
 
 
 def _extract_file(files: dict, path: str) -> Optional[str]:
     """Read a virtual-FS file's content (paths are stored absolute, e.g. /draft/…)."""
     entry = files.get(path) or files.get(path.lstrip("/"))
     return entry.get("content") if entry else None
+
+
+def _read_candidates(files: dict, path: str) -> list:
+    """Parse a research candidate file (a JSON array) tolerantly."""
+    raw = _extract_file(files, path)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        if not m:
+            return []
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return []
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):  # tolerate {"candidates": [...]} shapes
+        for value in data.values():
+            if isinstance(value, list):
+                return value
+    return []
+
+
+def _build_fun(fun_candidates: list, date_iso: str, *, generate=None) -> list:
+    """Curate fun candidates to N, assign personas, write each in its voice."""
+    stories = [
+        Story(
+            title=c.get("title", ""),
+            summary=c.get("summary") or c.get("body", ""),
+            source_url=c.get("source_url", ""),
+            continent=c.get("continent"),
+        )
+        for c in fun_candidates
+        if isinstance(c, dict)
+    ]
+    picked = curate_candidates(stories, content_cfg.num_fun_stories)
+    personas = assign_personas(len(picked), seed=date_iso)
+    out: list[dict] = []
+    for i, story in enumerate(picked):
+        persona = personas[i] if i < len(personas) else personas[-1]
+        story_dict = {"title": story.title, "summary": story.summary, "source_url": story.source_url}
+        try:
+            written = write_fun_story(story_dict, persona, voice_brief(persona), generate=generate)
+        except Exception as exc:  # noqa: BLE001 — one bad rewrite shouldn't sink the edition
+            logger.warning("[run_edition] fun rewrite failed (%s); using the raw story", exc)
+            written = {"title": story.title, "body": story.summary, "source_url": story.source_url}
+        written["persona"] = persona
+        written["kind"] = "article"
+        out.append(written)
+    return out
 
 
 def _finalize_fun(fun: list, date_iso: str) -> None:
@@ -230,90 +277,72 @@ def run_edition(
     text_model: Optional[str] = None,
     image_model: Optional[str] = None,
     image_generate=None,
+    write_generate=None,
 ) -> dict:
-    """Run the deep agent for one edition and return a schema-v3 paper dict.
+    """Run an edition and return a schema-v3 paper dict.
 
-    The agent writes the edition to its virtual filesystem; we extract it,
-    enforce the configured counts deterministically (a safety net over the
-    model's selection), and run :func:`compile.build_paper` so the published
-    JSON always matches schema v3 regardless of how the model formatted things.
+    Flow: the deep agent does **research only** (reliably writing candidate JSON
+    files to its virtual filesystem). The harness then writes the articles from
+    those candidates via small plain-chat→JSON calls — the AI section in one call
+    and each fun story in its assigned persona's voice — because the agent's
+    single giant write_file kept getting mangled by the vLLM tool-call parser.
+    Finally we add images, stamp attribution, and :func:`compile.build_paper`.
+
+    A pre-written ``draft/edition.json`` (e.g. from an injected test agent) is
+    honoured directly as a shortcut.
 
     Args:
-        date_iso: Edition date (YYYY-MM-DD).
-        generated_at: ISO8601 timestamp (passed in — no clock here).
-        agent: A compiled deep agent (injected in tests); defaults to a freshly
-            built Editor-in-Chief.
-        brief: Override the user brief sent to the agent.
-        thread_id: Checkpointer thread id (defaults to the date).
-        recursion_limit: LangGraph step budget for the agentic run.
-        trace: Optional recorder; its events are embedded for the UI visualiser.
-
-    Returns:
-        The schema-v3 paper dict (a draft — not yet approved/published).
+        agent: compiled deep agent (injected in tests); defaults to a fresh one.
+        write_generate: injectable ``prompt -> dict`` for the article writer.
+        image_generate: injectable ``prompt -> (path, model)`` for images.
 
     Raises:
-        RuntimeError: if the agent didn't write a parseable draft edition.
+        RuntimeError: if there's neither a draft nor any research candidates.
     """
     trace = trace or TraceRecorder()
     if agent is None:
-        # A checkpointer lets the optional second pass resume the SAME thread with
-        # the research files still in the virtual filesystem.
         from langgraph.checkpoint.memory import InMemorySaver
 
         agent = build_editor_in_chief(checkpointer=InMemorySaver())
-    brief = brief or (
-        f"Produce CraicGPT's edition for {date_iso}. Today's date is {date_iso}. "
-        "Plan it, delegate research and editing to your subagents.\n\n"
-        "THE SINGLE DELIVERABLE is one JSON file at draft/edition.json with EXACTLY "
-        'this shape: {"ai": {"headliner": {"title","standfirst","body","source_url"}, '
-        '"subarticles": [{"title","body","source_url"}], '
-        '"shorts": [{"title","body","source_url"}]}, '
-        '"fun": [{"title","body","source_url","persona","satire_disclaimer",'
-        '"image_url","kind"}]}.\n'
-        "Write 1 AI headliner + 2 subarticles + 10 shorts, and 5 fun stories. "
-        "Write VALID JSON only — NOT markdown, NOT prose files. The task is NOT "
-        "complete until draft/edition.json exists and parses as JSON. Then stop for "
-        "human approval."
-    )
+    brief = brief or EDITION_RESEARCH_BRIEF.format(date=date_iso)
 
     config = {
         "configurable": {"thread_id": thread_id or date_iso},
         "recursion_limit": recursion_limit,
     }
-    result = agent.invoke({"messages": [{"role": "user", "content": brief}]}, config=config)
+    try:
+        result = agent.invoke({"messages": [{"role": "user", "content": brief}]}, config=config)
+    except Exception as exc:  # noqa: BLE001 — proceed with whatever files were written
+        logger.warning("[run_edition] research run errored (%s); using files written so far", exc)
+        result = {"messages": [], "files": {}}
     files = result.get("files", {})
 
-    # The autonomous agent reliably gathers research but sometimes stops before
-    # writing the final edition. If the draft is missing, nudge it (on the SAME
-    # checkpointed thread, so the candidate files persist) to assemble it now.
-    if not _extract_file(files, EDITION_FILE):
-        logger.warning("[run_edition] no draft after research pass; nudging editor to assemble")
-        nudge = (
-            "Read research/fun_candidates.json and research/ai_candidates.json, then "
-            "WRITE the complete edition as VALID JSON to draft/edition.json now: "
-            "1 AI headliner + 2 subarticles + 10 shorts in Graham's witty house voice, "
-            "and 5 fun stories — each in a distinct parody-journalist voice (call "
-            "assign_journalist_voices and set persona, byline, satire_disclaimer). "
-            "Illustrations are added automatically afterwards. Shape: "
-            '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
-            "Use write_file with path draft/edition.json, then stop."
-        )
-        result = agent.invoke({"messages": [{"role": "user", "content": nudge}]}, config=config)
-        files = result.get("files", {})
-
     raw = _extract_file(files, EDITION_FILE)
-    if not raw:
-        raise RuntimeError(
-            f"editor did not write {EDITION_FILE} (files present: {list(files)})"
+    if raw:
+        # Shortcut: a full edition was already written (e.g. an injected test agent).
+        edition = loads_lenient(raw)
+        ai = dict(edition.get("ai", {}))
+        fun = list(edition.get("fun", []))
+    else:
+        # Real path: write the edition deterministically from the research candidates.
+        ai_c = _read_candidates(files, "/research/ai_candidates.json")
+        fun_c = _read_candidates(files, "/research/fun_candidates.json")
+        if not ai_c and not fun_c:
+            raise RuntimeError(
+                f"no edition draft and no research candidates (files: {list(files)})"
+            )
+        logger.info("[run_edition] writing from %d AI + %d fun candidates", len(ai_c), len(fun_c))
+        ai = write_ai_section(
+            ai_c,
+            num_subarticles=content_cfg.num_ai_subarticles,
+            num_shorts=content_cfg.num_ai_shorts,
+            generate=write_generate,
         )
-
-    edition = _loads_lenient(raw)
-    ai = dict(edition.get("ai", {}))
-    fun = list(edition.get("fun", []))
+        fun = _build_fun(fun_c, date_iso, generate=write_generate)
 
     # Deterministic safety net: enforce the resolved counts (13 AI / 5 fun).
-    ai["subarticles"] = ai.get("subarticles", [])[: content_cfg.num_ai_subarticles]
-    ai["shorts"] = ai.get("shorts", [])[: content_cfg.num_ai_shorts]
+    ai["subarticles"] = (ai.get("subarticles") or [])[: content_cfg.num_ai_subarticles]
+    ai["shorts"] = (ai.get("shorts") or [])[: content_cfg.num_ai_shorts]
     fun = fun[: content_cfg.num_fun_stories]
 
     # Deterministically finalise persona/byline/disclaimer (the editor applies the

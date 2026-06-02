@@ -36,19 +36,17 @@ class _FakeAgent:
         return {"messages": [], "files": self._files}
 
 
-class _TwoPassAgent:
-    """First invoke writes only candidates; the nudge (2nd invoke) writes the draft."""
+class _ResearchAgent:
+    """Stands in for the research-only agent: returns candidate JSON files."""
 
-    def __init__(self, edition: dict):
-        self.calls = 0
-        self._candidates = {"/research/fun_candidates.json": {"content": "[]"},
-                            "/research/ai_candidates.json": {"content": "[]"}}
-        self._with_draft = dict(self._candidates)
-        self._with_draft["/draft/edition.json"] = {"content": json.dumps(edition)}
+    def __init__(self, fun_candidates: list, ai_candidates: list):
+        self._files = {
+            "/research/fun_candidates.json": {"content": json.dumps(fun_candidates)},
+            "/research/ai_candidates.json": {"content": json.dumps(ai_candidates)},
+        }
 
     def invoke(self, _inputs, config=None):
-        self.calls += 1
-        return {"messages": [], "files": self._candidates if self.calls == 1 else self._with_draft}
+        return {"messages": [], "files": self._files}
 
 
 def _edition(n_fun=6, n_shorts=12):
@@ -160,11 +158,35 @@ def test_run_edition_raises_if_no_draft_written():
         assert "draft" in str(exc).lower()
 
 
-def test_run_edition_nudges_editor_when_first_pass_skips_draft():
-    # Agent gathers candidates but doesn't write the draft on pass 1; the nudge
-    # (pass 2) produces it. run_edition must do the second pass and succeed.
-    agent = _TwoPassAgent(_edition())
-    paper = run_edition("2026-06-02", generated_at="t", agent=agent)
-    assert agent.calls == 2
-    assert paper["ai"]["headliner"]["title"] == "H"
+def test_run_edition_writes_from_research_candidates():
+    # The real path: agent returns only research candidates; the harness writes
+    # the AI section + fun stories via the injected write generator.
+    ai_c = [{"title": f"AI cand {i}", "summary": "s", "source_url": f"https://ai/{i}"}
+            for i in range(15)]
+    fun_c = [{"title": f"Otters rescued {i}", "summary": "lovely", "source_url": f"https://f/{i}",
+              "continent": ["Europe", "Asia", "Africa", "Americas", "Oceania"][i % 5]}
+             for i in range(12)]
+
+    def fake_write(prompt):
+        if "AI editor" in prompt:  # the AI-section call
+            return {
+                "headliner": {"title": "Big AI Thing", "standfirst": "sf", "body": "b", "source_url": "https://ai/0"},
+                "subarticles": [{"title": f"sub{i}", "body": "b", "source_url": "https://ai/1"} for i in range(2)],
+                "shorts": [{"title": f"short{i}", "body": "b", "source_url": "https://ai/2"} for i in range(10)],
+            }
+        return {"title": "Rewritten in voice", "body": "...", "source_url": ""}  # a fun story
+
+    paper = run_edition("2026-06-02", generated_at="t",
+                        agent=_ResearchAgent(fun_c, ai_c),
+                        write_generate=fake_write,
+                        image_generate=lambda p: ("/tmp/i.png", "flux"))
+    assert paper["ai"]["headliner"]["title"] == "Big AI Thing"
+    assert len(paper["ai"]["shorts"]) == 10
     assert len(paper["fun"]) == 5
+    # Fun stories got a real roster persona + byline + disclaimer + source link.
+    from content_pipeline.generate.personas import ROSTER
+    for f in paper["fun"]:
+        assert f["persona"] in ROSTER
+        assert f["byline"].startswith("As told to")
+        assert f["satire_disclaimer"]
+        assert f["source_url"].startswith("https://f/")
