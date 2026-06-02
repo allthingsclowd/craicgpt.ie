@@ -36,6 +36,7 @@ class Story:
     continent: Optional[str] = None
     score: float = 0.0
     tags: list[str] = field(default_factory=list)
+    category: Optional[str] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

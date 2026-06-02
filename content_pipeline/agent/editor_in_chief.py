@@ -141,6 +141,27 @@ def _read_candidates(files: dict, path: str) -> list:
     return []
 
 
+_ANIMAL_HINTS = (
+    "animal", "wildlife", "nature", "species", "conservation", "penguin", "whale",
+    "dolphin", "tiger", "lion", "panda", "turtle", "elephant", "bird", "shark",
+    "puppy", "dog", "cat", "zoo", "sea lion",
+)
+
+
+def _is_animal_story(story: Story) -> bool:
+    cat = (story.category or "").lower()
+    text = f"{story.title} {story.summary}".lower()
+    return any(h in cat for h in _ANIMAL_HINTS) or any(h in text for h in _ANIMAL_HINTS)
+
+
+def _cap_animal_stories(stories: list, limit: int = 1) -> list:
+    """Keep at most ``limit`` animal/wildlife stories (highest-scored), for topic
+    diversity — the researcher tends to over-index on cute creatures."""
+    animals = sorted((s for s in stories if _is_animal_story(s)), key=lambda s: s.score, reverse=True)
+    others = [s for s in stories if not _is_animal_story(s)]
+    return others + animals[:limit]
+
+
 def _build_fun(fun_candidates: list, date_iso: str, *, generate=None) -> list:
     """Curate fun candidates to N, assign personas, write each in its voice."""
     stories = [
@@ -149,10 +170,12 @@ def _build_fun(fun_candidates: list, date_iso: str, *, generate=None) -> list:
             summary=c.get("summary") or c.get("body", ""),
             source_url=c.get("source_url", ""),
             continent=c.get("continent"),
+            category=c.get("category"),
         )
         for c in fun_candidates
         if isinstance(c, dict)
     ]
+    stories = _cap_animal_stories(stories)  # at most one wildlife story
     picked = curate_candidates(stories, content_cfg.num_fun_stories)
     personas = assign_personas(len(picked), seed=date_iso)
     out: list[dict] = []
@@ -192,12 +215,18 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
 
 
 def _image_prompt(item: dict) -> str:
-    """A photorealistic editorial-photo prompt derived from a story."""
+    """A photorealistic editorial-photo prompt derived from a story.
+
+    Heavy no-text framing — FLUX otherwise scrawls garbled faux-text/brand names
+    when the subject contains proper nouns.
+    """
     return (
-        "Photorealistic editorial news photograph, high detail, natural lighting, "
-        "documentary style, relevant to this story: "
-        f"{item.get('title', '')}. {(item.get('body', '') or '')[:160]} "
-        "No text, no captions, no watermark, no logos."
+        "Candid photorealistic editorial news photograph, documentary style, high "
+        "detail, natural lighting, depicting the scene of: "
+        f"{item.get('title', '')}. {(item.get('body', '') or '')[:140]}\n"
+        "IMPORTANT: absolutely NO text, NO letters, NO words, NO numbers, NO "
+        "signage, NO logos, NO brand names, NO screens showing text, NO watermarks, "
+        "NO captions anywhere in the frame. A clean photograph with zero typography."
     )
 
 

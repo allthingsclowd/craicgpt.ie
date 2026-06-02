@@ -19,6 +19,8 @@
   border-top: 6px solid var(--ink);
   padding: 1rem 1.1rem 1.2rem;
   border-radius: var(--radius);
+  /* Lift cards off the newsprint background so the gaps read as clean gutters. */
+  box-shadow: 3px 3px 0 rgba(26, 26, 26, 0.12);
   /* Keep each card whole within a column. */
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
@@ -133,10 +135,13 @@
 .newsletter-msg { font-family: var(--font-ui); font-size: .8rem; color: var(--flash); margin: .7rem 0 0; min-height: 1em; }
 
 /* ── Under the Hood — agent visualiser ────────────────────────────────────── */
-.hood-intro { font-family: var(--font-body); font-size: .9rem; line-height: 1.5; max-width: 70ch; margin: 0 auto 1rem; }
-.hood-intro code { background: var(--newsprint-dark); padding: 0 .25em; border-radius: 2px; }
+/* The drawer is dark (style.css), so force readable dark text on the light chips
+   and inline code we add here — otherwise it's light-on-light and unreadable. */
+.hood-intro { font-family: var(--font-body); font-size: .92rem; line-height: 1.55; max-width: 72ch; margin: 0 auto 1rem; color: var(--newsprint); }
+.hood-intro code { background: var(--flash); color: var(--ink); padding: .05em .35em; border-radius: 2px; font-weight: 700; }
+.hood-intro strong { color: var(--flash); }
 .hood-stats { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin-bottom: 1rem; }
-.hood-stat { font-family: var(--font-ui); font-size: .75rem; font-weight: 700; background: var(--newsprint-dark); border: var(--border-thin); border-radius: 999px; padding: .25rem .7rem; }
+.hood-stat { font-family: var(--font-ui); font-size: .78rem; font-weight: 700; background: var(--white); color: var(--ink); border-radius: 999px; padding: .3rem .8rem; }
 
 .hood-trace { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: .4rem; }
 .trace-row { display: grid; grid-template-columns: 1.6rem 1fr; gap: .5rem; background: var(--white); border: var(--border-thin); border-left: 4px solid var(--ink-soft); padding: .5rem .7rem; border-radius: var(--radius); text-align: left; }
