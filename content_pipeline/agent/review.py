@@ -147,6 +147,89 @@ def read_verdicts(date_iso: str, *, s3: Any | None = None,
     return out
 
 
+def status_key(date_iso: str) -> str:
+    return s3_key(date_iso, content_cfg.preview_prefix, "status.json")
+
+
+def review_request_key(date_iso: str) -> str:
+    return s3_key(date_iso, content_cfg.preview_prefix, "review-request.json")
+
+
+def _get_json(s3, bucket, key) -> Optional[dict]:
+    try:
+        return json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+    except Exception:  # noqa: BLE001 — missing key / not-yet-written → None
+        return None
+
+
+def write_status(date_iso: str, state: str, *, s3: Any | None = None,
+                 bucket: Optional[str] = None, at: Optional[str] = None,
+                 extra: Optional[dict] = None) -> str:
+    """Write the generation status flag (``generating`` | ``complete`` | ``failed``).
+
+    The decoupled publisher polls this; nothing is physically chained."""
+    s3 = s3 or _default_s3()
+    bucket = bucket or content_cfg.s3_bucket
+    obj = {"date": date_iso, "state": state, "at": at}
+    if extra:
+        obj.update(extra)
+    s3.put_object(Bucket=bucket, Key=status_key(date_iso),
+                  Body=json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json", CacheControl="no-cache")
+    logger.info("[review] status %s for %s", state, date_iso)
+    return status_key(date_iso)
+
+
+def read_status(date_iso: str, *, s3: Any | None = None,
+                bucket: Optional[str] = None) -> Optional[dict]:
+    s3 = s3 or _default_s3()
+    return _get_json(s3, bucket or content_cfg.s3_bucket, status_key(date_iso))
+
+
+def write_review_request(date_iso: str, *, agents: Iterable[str], draft_url: str,
+                         s3: Any | None = None, bucket: Optional[str] = None,
+                         at: Optional[str] = None) -> str:
+    """Drop the marker the agents poll for: 'a draft is ready for your review'."""
+    s3 = s3 or _default_s3()
+    bucket = bucket or content_cfg.s3_bucket
+    s3.put_object(Bucket=bucket, Key=review_request_key(date_iso),
+                  Body=json.dumps({"date": date_iso, "draft_url": draft_url,
+                                   "agents": list(agents), "requested_at": at},
+                                  ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json", CacheControl="no-cache")
+    logger.info("[review] review-request for %s → agents %s", date_iso, list(agents))
+    return review_request_key(date_iso)
+
+
+def read_review_request(date_iso: str, *, s3: Any | None = None,
+                        bucket: Optional[str] = None) -> Optional[dict]:
+    s3 = s3 or _default_s3()
+    return _get_json(s3, bucket or content_cfg.s3_bucket, review_request_key(date_iso))
+
+
+def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
+         already_live: bool, required: Iterable[str] = DEFAULT_AGENTS) -> dict[str, Any]:
+    """Pure decision for the idempotent publisher poll. Returns
+    ``{"action": ..., "decision": ..., "reasons": [...]}`` where action is one of:
+
+    * ``"already-live"`` — content/<date> exists; nothing to do.
+    * ``"retry"``        — no complete content yet, or awaiting a verdict.
+    * ``"publish"``      — complete + two-agent APPROVE → publish now.
+    * ``"hold"``         — an agent held; notify, do not publish.
+    """
+    if already_live:
+        return {"action": "already-live", "decision": "APPROVE", "reasons": []}
+    if not status or status.get("state") != "complete":
+        return {"action": "retry", "decision": "WAIT",
+                "reasons": [f"content not ready (state={status.get('state') if status else None})"]}
+    consensus = compute_consensus(verdicts, required=required)
+    if consensus["decision"] == "APPROVE":
+        return {"action": "publish", "decision": "APPROVE", "reasons": []}
+    if consensus["decision"] == "HOLD":
+        return {"action": "hold", "decision": "HOLD", "reasons": consensus["reasons"]}
+    return {"action": "retry", "decision": "WAIT", "reasons": consensus["reasons"]}
+
+
 def compute_consensus(verdicts: dict[str, dict],
                       *, required: Iterable[str] = DEFAULT_AGENTS) -> dict[str, Any]:
     """Two-agent rule. Returns ``{"decision": APPROVE|HOLD|WAIT, "reasons": [...],

@@ -78,6 +78,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_con.add_argument("--publish", action="store_true",
                        help="On APPROVE, publish live (idempotent — skips if already live)")
 
+    p_ann = sub.add_parser("announce", help="Write the generation status flag (decoupling marker)")
+    p_ann.add_argument("--date", required=True)
+    p_ann.add_argument("--state", required=True, choices=["generating", "complete", "failed"])
+    p_ann.add_argument("--require", default="openclaw,hermes",
+                       help="agents to request review from when state=complete")
+
+    p_gate = sub.add_parser("gate", help="Idempotent publisher poll: publish when ready + consensus")
+    p_gate.add_argument("--date", required=True)
+    p_gate.add_argument("--require", default="openclaw,hermes")
+    p_gate.add_argument("--publish", action="store_true",
+                        help="Actually publish on APPROVE (else just report the decision)")
+
     return parser
 
 
@@ -87,6 +99,12 @@ def cmd_run(args) -> int:
 
     date_iso = args.date or _today()
     logging.info("[cli] running edition for %s", date_iso)
+
+    # Decoupling marker: tell the (independent) publisher a run is in flight, so a
+    # poll that races generation sees `generating` and simply retries later.
+    if getattr(args, "publish_draft", False):
+        _announce_safe(date_iso, "generating")
+
     paper = run_edition(date_iso, generated_at=_now_iso())
 
     # The local copy keeps LOCAL image paths so a later `approve` can re-publish
@@ -106,7 +124,29 @@ def cmd_run(args) -> int:
         preview = copy.deepcopy(paper)  # don't mutate the local copy's image paths
         key = publish_paper(preview, date_iso, live=False)
         print(f"draft published to preview: {key}")
+        # Mark complete + drop the review-request the agents poll for.
+        _announce_safe(date_iso, "complete")
     return 0
+
+
+def _announce_safe(date_iso: str, state: str) -> None:
+    """Write the status flag (+ review-request on complete). Never let a status
+    write break generation — the publisher just retries if the flag is missing."""
+    from content_pipeline.agent import review
+
+    try:
+        if state == "complete":
+            ymd = "/".join(date_iso.split("-"))
+            review.write_review_request(
+                date_iso, agents=review.DEFAULT_AGENTS,
+                draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json",
+                at=_now_iso())
+            review.write_status(date_iso, "complete", at=_now_iso(),
+                                extra={"draft_key": f"preview/{ymd}/paper_content.json"})
+        else:
+            review.write_status(date_iso, state, at=_now_iso())
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("[cli] status announce (%s) failed: %s", state, exc)
 
 
 def _publish_live(date_iso: str, draft_path: str) -> int:
@@ -237,6 +277,44 @@ def cmd_consensus(args) -> int:
     return 0 if result["decision"] == "APPROVE" else 2
 
 
+def _require(args) -> tuple:
+    return tuple(a.strip() for a in args.require.split(",") if a.strip())
+
+
+def cmd_announce(args) -> int:
+    from content_pipeline.agent import review
+
+    ymd = "/".join(args.date.split("-"))
+    extra = None
+    if args.state == "complete":
+        draft_url = f"https://craicgpt.ie/preview/{ymd}/paper_content.json"
+        review.write_review_request(args.date, agents=_require(args),
+                                    draft_url=draft_url, at=_now_iso())
+        extra = {"draft_key": f"preview/{ymd}/paper_content.json"}
+    key = review.write_status(args.date, args.state, at=_now_iso(), extra=extra)
+    print(f"status={args.state} → {key}")
+    return 0
+
+
+def cmd_gate(args) -> int:
+    """The decoupled, idempotent publisher poll. Exit 0 published/already-live,
+    2 hold, 3 retry-later (no content yet / awaiting a verdict)."""
+    from content_pipeline.agent import review
+
+    required = _require(args)
+    status = review.read_status(args.date)
+    verdicts = review.read_verdicts(args.date)
+    g = review.gate(args.date, verdicts=verdicts, status=status,
+                    already_live=_already_live(args.date), required=required)
+    g["voted"] = {a: verdicts[a].get("verdict") for a in verdicts}
+
+    if args.publish and g["action"] == "publish":
+        rc = _publish_live(args.date, f"/tmp/paper_content_{args.date}.json")
+        g["published"] = rc == 0
+    print(json.dumps(g, indent=2, ensure_ascii=False))
+    return {"already-live": 0, "publish": 0, "hold": 2, "retry": 3}.get(g["action"], 3)
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
@@ -254,6 +332,10 @@ def main(argv=None) -> int:
         return cmd_verdict(args)
     if args.command == "consensus":
         return cmd_consensus(args)
+    if args.command == "announce":
+        return cmd_announce(args)
+    if args.command == "gate":
+        return cmd_gate(args)
     print(f"unknown command {args.command!r}", file=sys.stderr)
     return 2
 
