@@ -20,10 +20,10 @@
 
 'use strict';
 
-// On localhost / file:// serve content relatively; in production from the CDN.
-const LOCAL = location.protocol === 'file:' || /^(localhost|127\.|0\.0\.0\.0)/.test(location.hostname);
-const BASE = LOCAL ? '' : 'https://craicgpt.ie';
-const CONTENT_PATH = (y, m, d) => `${BASE}/content/${y}/${m}/${d}/paper_content.json`;
+// Content is served from the SAME origin as the page (the CDN in production, a
+// preview server locally / on the LAN), so always fetch it origin-relative —
+// this avoids the CORS errors you'd hit pointing at an absolute host.
+const CONTENT_PATH = (y, m, d) => `/content/${y}/${m}/${d}/paper_content.json`;
 const MAX_FALLBACK_DAYS = 14;
 
 let currentPaperData = null;
