@@ -58,6 +58,19 @@ def test_run_edition_embeds_agent_trace():
     assert "agent_trace" in paper["context"]
 
 
+def test_run_edition_finalizes_personas_and_disclaimer():
+    from content_pipeline.generate.personas import SATIRE_DISCLAIMER
+
+    ed = _edition()
+    ed["fun"][0].pop("persona", None)        # editor left the field blank
+    ed["fun"][0]["satire_disclaimer"] = ""   # and the disclaimer blank
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed))
+    for f in paper["fun"]:
+        assert f["satire_disclaimer"] == SATIRE_DISCLAIMER  # always present (legal)
+        assert f.get("persona")                              # assigned where blank
+        assert f["byline"].startswith("As told to")
+
+
 def test_run_edition_stamps_model_attribution():
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
                         text_model="dgx/vllm/qwen3.6-35b-a3b-fp8",

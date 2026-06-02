@@ -125,8 +125,12 @@ EDITOR: SubAgent = {
         "AI STORIES (13): write 1 headliner + 2 subarticles + 10 shorts in Graham's "
         "house voice — Irish, witty, gently cynical, teaching-minded, never "
         "corporate-deck-speak.\n\n"
-        "Every piece keeps its real source link. Write the finished edition to "
-        "draft/edition.json."
+        "Every piece keeps its real source link. Each FUN story object must include: "
+        "title, body, source_url, persona, byline, satire_disclaimer, image_url, kind "
+        "('article' or 'ad'). Each AI story object: title, body, source_url (the "
+        "headliner also gets a standfirst). Write the finished edition to "
+        "draft/edition.json as "
+        '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}.'
     ),
     "tools": [assign_marvel_voices, generate_cover_image],
 }

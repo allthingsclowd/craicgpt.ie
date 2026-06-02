@@ -51,3 +51,35 @@ class TraceRecorder:
     def as_list(self) -> list[dict[str, Any]]:
         """Return the events for embedding in paper_content.context.agent_trace."""
         return list(self.events)
+
+
+def _tool_calls_of(message: Any) -> list[dict[str, Any]]:
+    """Pull the tool_calls list off a LangChain message or a plain dict."""
+    if isinstance(message, dict):
+        return message.get("tool_calls") or []
+    return getattr(message, "tool_calls", None) or []
+
+
+def extract_trace(messages: list[Any]) -> list[dict[str, Any]]:
+    """Build a trace event list from a deep-agent run's messages.
+
+    Walks the message history and turns the agent's actual tool calls into the
+    visualiser payload: ``write_todos`` → a plan event, ``task`` → a subagent
+    delegation, everything else → a tool event. This is what populates
+    ``paper_content.context.agent_trace`` so "Under the Hood" shows the real run.
+    """
+    rec = TraceRecorder()
+    for message in messages:
+        for call in _tool_calls_of(message):
+            name = call.get("name", "")
+            args = call.get("args", {}) or {}
+            if name == "write_todos":
+                todos = args.get("todos") or []
+                rec.plan([t.get("content", t) if isinstance(t, dict) else t for t in todos])
+            elif name == "task":
+                sub = args.get("subagent_type") or args.get("name") or "subagent"
+                rec.delegate(sub, str(args.get("description", ""))[:200])
+            else:
+                # Keep the detail short — a glimpse of the args, not the payload.
+                rec.tool_call(name, "; ".join(f"{k}={v}" for k, v in args.items())[:200])
+    return rec.as_list()

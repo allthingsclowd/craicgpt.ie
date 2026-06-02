@@ -38,3 +38,42 @@ def test_fallback_event_is_recorded():
     e = rec.as_list()[0]
     assert e["kind"] == "fallback"
     assert e["detail"]["to"] == "claude-sonnet-4-6"
+
+
+# ── extracting a trace from a real agent run's messages ──────────────────────
+class _Msg:
+    """Minimal stand-in for a LangChain AIMessage carrying tool_calls."""
+
+    def __init__(self, tool_calls):
+        self.tool_calls = tool_calls
+
+
+def test_extract_trace_reads_plan_delegations_and_tools():
+    from content_pipeline.agent.trace import extract_trace
+
+    messages = [
+        _Msg([{"name": "write_todos", "args": {"todos": [
+            {"content": "research fun news", "status": "pending"},
+            {"content": "edit", "status": "pending"}]}}]),
+        _Msg([{"name": "task", "args": {"subagent_type": "fun-news-researcher",
+                                        "description": "find 5 positive stories"}}]),
+        _Msg([{"name": "web_search", "args": {"query": "good news Europe"}}]),
+        _Msg([]),  # a plain assistant message, no tool calls
+    ]
+    events = extract_trace(messages)
+    kinds = [e["kind"] for e in events]
+    assert kinds == ["plan", "subagent", "tool"]
+    assert events[0]["detail"]["todos"] == ["research fun news", "edit"]
+    assert events[1]["name"] == "fun-news-researcher"
+    assert events[2]["name"] == "web_search"
+
+
+def test_extract_trace_handles_dict_messages_and_is_serialisable():
+    import json
+
+    from content_pipeline.agent.trace import extract_trace
+
+    events = extract_trace([{"tool_calls": [{"name": "validate_link",
+                                             "args": {"url": "https://x"}}]}])
+    assert events[0]["name"] == "validate_link"
+    json.dumps(events)
