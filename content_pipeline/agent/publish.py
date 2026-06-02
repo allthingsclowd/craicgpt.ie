@@ -73,7 +73,14 @@ def publish_paper(
     prefix = content_cfg.content_prefix if live else content_cfg.preview_prefix
 
     # 1) Upload any locally-generated images and rewrite their URLs to the CDN.
-    for item in paper.get("fun", []):
+    #    This MUST cover the AI lead images (headliner + subarticles) as well as
+    #    the fun-story images — they are all written as local /tmp paths by the
+    #    image step, and any left un-uploaded render as broken images on the site.
+    ai = paper.get("ai") or {}
+    image_items = [ai.get("headliner"), *(ai.get("subarticles") or []), *(paper.get("fun") or [])]
+    for item in image_items:
+        if not item:
+            continue
         url = item.get("image_url")
         if not _is_local_path(url):
             continue
