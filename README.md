@@ -8,8 +8,9 @@
 > *Ireland's Most Artificially Intelligent Newspaper.*
 > A daily paper of **fun world news** and **AI-landscape coverage**, written
 > overnight by **open-source LLMs** on a homelab GPU fleet, orchestrated by a
-> **LangChain deep agent**, and published only after a **human-in-the-loop**
-> says so. It doubles as a hands-on **reference for building with LangChain**
+> **LangChain deep agent**, and published only after **two independent agents
+> (openclaw + hermes) agree it's safe** — no human in the loop at 06:00. It
+> doubles as a hands-on **reference for building with LangChain**
 > (open-source components only — no proprietary SaaS).
 
 ---
@@ -41,53 +42,62 @@ drawer visualises the deep agent's actual run — the lesson, in public.
 
 ## Architecture
 
+Generation, approval, and publishing are **fully decoupled** — they never call
+each other directly, they coordinate through **state files in S3**. Each part
+runs (and retries) on its own clock, so a slow generation, a sleepy agent, or a
+held edition can never wedge the pipeline.
+
 ```mermaid
 flowchart TD
-    subgraph Schedule["Conductor (Orkes OSS) on the homelab"]
-        CRON["Daily cron 06:00 UTC - thin trigger"]
+    subgraph Schedule["systemd timers on the engine host (.75)"]
+        T1["craicgpt-daily.timer<br/>06:00 UTC — generate"]
+        T2["craicgpt-publish.timer<br/>every 10 min, 06:05–07:55 — publish gate"]
     end
 
-    subgraph Engine["Content engine (content_pipeline/) on the Conductor-host VM"]
+    subgraph Engine["Content engine (content_pipeline/) on .75"]
         AGENT["Editor-in-Chief deep agent (create_deep_agent)"]
         SUB1["fun-news-researcher"]
         SUB2["ai-landscape-researcher"]
         SUB3["link-validator"]
-        CUR["Deterministic harness: curate, personas, write, FLUX images, compile"]
-        AGENT -->|task| SUB1
-        AGENT -->|task| SUB2
-        AGENT -->|task| SUB3
-        SUB1 -->|research/*.json| CUR
-        SUB2 -->|research/*.json| CUR
-        SUB3 -->|research/*.json| CUR
+        CUR["Deterministic harness: curate, personas, write, FLUX images, compile v3"]
+        AGENT --> SUB1 & SUB2 & SUB3 --> CUR
     end
 
     subgraph Fleet["grazlab LLM fleet (via LiteLLM proxy)"]
-        QWEN["Qwen3.6 - DGX Spark vLLM - research + writing"]
-        FLUX["FLUX.2 Klein - M3 Ultra Ollama - images"]
+        QWEN["Qwen3.6 — DGX Spark vLLM — research + writing"]
+        FLUX["FLUX.2 Klein — M3 Ultra Ollama — images"]
     end
 
-    subgraph Approval["Human-in-the-loop"]
-        DRAFT["draft to S3 preview/ (noindex)"]
-        AGENTS["openclaw + hermes agents validate the draft URL"]
-        TG["Telegram to Graham (on any risk/concern)"]
+    subgraph S3["S3 — coordination by state (decoupled, no direct calls)"]
+        DRAFT["preview/&lt;date&gt;/ draft + images"]
+        STATUS["status.json {complete}"]
+        RR["review-request.json"]
+        VOK["verdict-openclaw.json"]
+        VHE["verdict-hermes.json"]
+    end
+
+    subgraph Agents["Approval agents — separate Proxmox VMs (no SSH to .75, no engine code)"]
+        OA["openclaw"]
+        HE["hermes"]
     end
 
     subgraph Publish["Live"]
-        LIVE["S3 content/YYYY/MM/DD/ + images; CloudFront to craicgpt.ie"]
-        SOCIAL["social syndication: Bluesky, Mastodon, X"]
-        NEWS["newsletter (Listmonk to SMTP)"]
+        LIVE["content/&lt;date&gt;/ + images; CloudFront → craicgpt.ie"]
+        SOCIAL["agents post via own tools: Bluesky, Mastodon, X"]
+        TG["Telegram to Graham (HOLD / any concern)"]
     end
 
-    CRON --> AGENT
-    CUR -->|OpenAI-compatible| QWEN
-    CUR -->|OpenAI-compatible| FLUX
-    CUR --> DRAFT
-    DRAFT --> AGENTS
-    AGENTS -->|both agree safe| LIVE
-    AGENTS -->|disagree / risk| TG
-    TG -->|Graham approves| LIVE
+    T1 --> AGENT
+    CUR -->|OpenAI-compatible| QWEN & FLUX
+    CUR --> DRAFT --> STATUS --> RR
+    RR -.poll.-> OA & HE
+    OA -->|scoped S3 key: PutObject verdict-*.json only| VOK
+    HE -->|scoped S3 key: PutObject verdict-*.json only| VHE
+    VOK & VHE -.read.-> T2
+    STATUS -.read.-> T2
+    T2 -->|host validate + 2-agent APPROVE| LIVE
+    T2 -->|any HOLD / invalid draft| TG
     LIVE --> SOCIAL
-    LIVE --> NEWS
     LIVE -->|fetches JSON| WEB["Browser: masonry paper + Under-the-Hood visualiser"]
 ```
 
@@ -109,40 +119,53 @@ the fleet. It's the `deciding-deterministic-vs-llm` principle in practice.
 
 ## The daily workflow
 
+Graham is asleep or commuting at 06:00, so **two independent agents agreeing is
+the safety gate that replaces the human**. The agents own the *harmless /
+on-brand* judgement; the host owns the deterministic *technically valid* check
+and the publish itself.
+
 ```mermaid
 sequenceDiagram
-    participant C as Conductor (06:00)
-    participant A as Deep agent
-    participant H as Harness
-    participant S as S3 (preview)
-    participant OA as openclaw + hermes
-    participant G as Graham (Telegram)
-    participant L as S3 (live) + CDN
+    participant T1 as daily.timer (06:00)
+    participant E as Engine (agent + harness)
+    participant S as S3 (preview, state)
+    participant OA as openclaw + hermes (VMs)
+    participant T2 as publish.timer (06:05+)
+    participant L as S3 live + CDN
 
-    C->>A: trigger daily run
-    A->>A: plan + delegate to researchers
-    A-->>H: research candidates (fun + AI)
-    H->>H: curate, write articles, FLUX images, compile v3
-    H->>S: publish DRAFT to preview/ (noindex)
-    S-->>OA: draft URL
-    OA->>OA: both validate (safe? accurate? on-brand?)
-    alt both agree safe
-        OA->>L: auto-publish live + invalidate CDN
-    else any concern
-        OA->>G: Telegram with the risk
-        G->>L: approve, then publish live
+    T1->>E: generate edition
+    E->>E: research → harness writes + FLUX images → compile v3
+    E->>S: draft + images, status=complete, review-request.json
+    Note over OA,S: agents poll on their own schedule, scoped S3 key
+    S-->>OA: review-request + public draft URL
+    OA->>OA: judge harmless / on-brand (LLM)
+    OA->>S: verdict-openclaw.json / verdict-hermes.json
+    loop every 10 min until published or 07:55 window closes
+        T2->>S: read status + verdicts
+        alt complete + host validate OK + BOTH approve
+            T2->>L: publish live + invalidate CDN
+            OA->>L: post to Bluesky / Mastodon / X
+        else any HOLD or invalid draft
+            OA->>OA: Telegram Graham; edition skips the day
+        else still waiting
+            T2->>T2: retry next tick
+        end
     end
-    L->>L: social syndication + newsletter
 ```
 
 | Stage | Where | What |
 |------|-------|------|
-| Trigger | Conductor `craicgpt-daily` schedule, host `.75` | thin cron @ 06:00 UTC |
-| Generate | `content_pipeline/` on `.75` | deep-agent research → harness writes |
+| Generate | `craicgpt-daily.timer` @ 06:00 UTC, host `.75` | deep-agent research → harness writes + FLUX images → compile v3 |
 | Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6, FLUX.2 Klein |
-| Draft | `s3://…/preview/YYYY/MM/DD/` | held for approval |
-| Approve | openclaw + hermes agents | consensus auto-publish, else Telegram |
-| Publish | `s3://…/content/…` + CloudFront | live at craicgpt.ie |
+| Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `review-request.json` |
+| Judge | openclaw + hermes — separate Proxmox VMs | poll the request, judge harmless, write `verdict-<agent>.json` via a **scoped S3 key** (`PutObject verdict-*.json` only — can't publish, delete, or touch live) |
+| Publish gate | `craicgpt-publish.timer` every 10 min 06:05–07:55, host `.75` | idempotent: host-side `validate` + **two-agent consensus** → publish live + CloudFront invalidation; any HOLD/invalid → Telegram; else retry |
+| Live | `s3://…/content/…` + CloudFront | live at craicgpt.ie; agents post to socials |
+
+> **Why a poll, not a chain?** Nothing pings anything. The generator just drops
+> files; the agents and the publish gate each wake on their own timer and read
+> S3. A missed generation, a slow agent, or a held edition simply means the next
+> poll finds nothing to do — there is no fragile hand-off to break.
 
 ---
 
@@ -188,13 +211,16 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
 
 ## Tech stack
 
-- **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS,
-  `interrupt()` human-in-the-loop.
+- **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS.
 - **Qwen3.6** (text) + **FLUX.2 Klein** (images) via **LiteLLM** on a DGX Spark +
   M3 Ultra homelab fleet.
-- **Orkes Conductor** (OSS) — the daily cron trigger.
+- **systemd timers** on the engine host — `craicgpt-daily` (06:00 generate) and
+  `craicgpt-publish` (06:05–07:55 idempotent publish gate), decoupled via S3 state.
+- **Two-agent approval** — openclaw + hermes (separate Proxmox VMs) judge harmless
+  and write verdicts with a least-privilege S3 key; the host gate publishes on
+  consensus.
 - **AWS S3 + CloudFront** — static hosting; **boto3** publish.
-- **pytest** — fully offline test suite.
+- **pytest** — fully offline test suite (~100 tests).
 
 ---
 
