@@ -44,10 +44,13 @@ class ContentConfig:
         )
     )
     # The *research brain* — drives the agentic websearch/curation tool loop.
-    # A proven tool-calling route, NOT Qwen3.6 (text-only / unproven for tools).
+    # Needs reliable tool-calling. The DGX vLLM Qwen3.6 route is confirmed
+    # tool-calling-capable (and is itself Qwen3.6); the M3 mlx coder route is a
+    # good alternative when that engine is up. The fallback wrapper covers either
+    # being down.
     brain_model: str = field(
         default_factory=lambda: os.getenv(
-            "BRAIN_MODEL", "m3/mlx/qwen3-coder-next-4bit"
+            "BRAIN_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
         )
     )
     # The image model — FLUX.2 Klein. Approved fallback: z-image-turbo.
