@@ -128,9 +128,11 @@ EDITOR: SubAgent = {
         "Every piece keeps its real source link. Each FUN story object must include: "
         "title, body, source_url, persona, byline, satire_disclaimer, image_url, kind "
         "('article' or 'ad'). Each AI story object: title, body, source_url (the "
-        "headliner also gets a standfirst). Write the finished edition to "
-        "draft/edition.json as "
-        '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}.'
+        "headliner also gets a standfirst).\n\n"
+        "OUTPUT: write VALID JSON ONLY to the file draft/edition.json — do NOT write "
+        "markdown or prose files. Shape: "
+        '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
+        "Use the write_file tool with path draft/edition.json."
     ),
     "tools": [assign_marvel_voices, generate_cover_image],
 }
@@ -163,6 +165,9 @@ EDITOR_IN_CHIEF_PROMPT = (
     "delegate to the editor to write the edition into draft/edition.json. Keep your "
     "own context clean — let the subagents do the heavy reading.\n\n"
     "The edition is 13 AI stories (1 headliner + 2 subarticles + 10 shorts) "
-    "interleaved with 5 fun stories. Every story links to a real source. When the "
-    "draft is ready, stop — a human approves it before it is published."
+    "interleaved with 5 fun stories. Every story links to a real source.\n\n"
+    "YOUR SINGLE DELIVERABLE is one VALID JSON file at draft/edition.json (NOT "
+    "markdown, NOT prose files in research/). The run is not complete until "
+    "draft/edition.json exists and parses as JSON. When it does, stop — a human "
+    "approves it before publication."
 )

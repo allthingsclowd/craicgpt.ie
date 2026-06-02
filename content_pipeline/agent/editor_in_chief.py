@@ -206,8 +206,17 @@ def run_edition(
     agent = agent or build_editor_in_chief()
     brief = brief or (
         f"Produce CraicGPT's edition for {date_iso}. Today's date is {date_iso}. "
-        "Plan it, delegate research and editing to your subagents, and write the "
-        "finished edition to draft/edition.json. Then stop for human approval."
+        "Plan it, delegate research and editing to your subagents.\n\n"
+        "THE SINGLE DELIVERABLE is one JSON file at draft/edition.json with EXACTLY "
+        'this shape: {"ai": {"headliner": {"title","standfirst","body","source_url"}, '
+        '"subarticles": [{"title","body","source_url"}], '
+        '"shorts": [{"title","body","source_url"}]}, '
+        '"fun": [{"title","body","source_url","persona","satire_disclaimer",'
+        '"image_url","kind"}]}.\n'
+        "Write 1 AI headliner + 2 subarticles + 10 shorts, and 5 fun stories. "
+        "Write VALID JSON only — NOT markdown, NOT prose files. The task is NOT "
+        "complete until draft/edition.json exists and parses as JSON. Then stop for "
+        "human approval."
     )
 
     config = {
