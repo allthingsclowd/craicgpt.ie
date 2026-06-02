@@ -47,24 +47,28 @@ def web_search(query: str) -> str:
     Use this to discover candidate news stories or AI-landscape developments.
     Returns a block of text results (titles, snippets, and URLs).
     """
-    # Use ddgs directly with the auto backend, which rotates providers
-    # (brave/bing/…). The legacy DuckDuckGoSearchRun hits html.duckduckgo.com,
-    # which is frequently rate-limited/blocked; auto avoids that single point.
+    # The legacy DuckDuckGoSearchRun hits html.duckduckgo.com, which is
+    # frequently rate-limited/blocked. Use ddgs and try reliable backends in
+    # order (the bare "duckduckgo" backend is deliberately last); return the
+    # first that yields results.
     from ddgs import DDGS
 
-    try:
-        results = list(DDGS().text(query, max_results=6, backend="auto"))
-        if not results:
-            return "no results found"
-        blocks = [
-            f"{r.get('title', '')}\n{r.get('body', '')}\n{r.get('href', '')}"
-            for r in results
-        ]
-        # Cap the blob — long search dumps accumulate and blow the context window.
-        return "\n\n".join(blocks)[:1800]
-    except Exception as exc:  # noqa: BLE001 — tool failures must not crash the agent
-        logger.warning("[tool:web_search] failed: %s", exc)
-        return f"web_search error: {exc}"
+    last_err = None
+    for backend in ("brave", "bing", "auto"):
+        try:
+            results = list(DDGS().text(query, max_results=6, backend=backend))
+        except Exception as exc:  # noqa: BLE001 — try the next backend
+            last_err = exc
+            continue
+        if results:
+            blocks = [
+                f"{r.get('title', '')}\n{r.get('body', '')}\n{r.get('href', '')}"
+                for r in results
+            ]
+            # Cap the blob — long dumps accumulate and blow the context window.
+            return "\n\n".join(blocks)[:1800]
+    logger.warning("[tool:web_search] no backend returned results (last err: %s)", last_err)
+    return "no results found"
 
 
 @tool
