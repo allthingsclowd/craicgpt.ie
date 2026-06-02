@@ -69,13 +69,42 @@ def cmd_run(args) -> int:
     return 0
 
 
+def _publish_live(date_iso: str, draft_path: str) -> int:
+    from content_pipeline.agent.publish import publish_paper
+    from content_pipeline.compile import mark_approved
+
+    with open(draft_path, encoding="utf-8") as fh:
+        paper = json.load(fh)
+    paper = mark_approved(paper, approver="cli", at=_now_iso())
+    key = publish_paper(paper, date_iso, live=True)
+    print(f"published live: s3://{paper.get('_bucket', '')} {key}")
+    return 0
+
+
+def cmd_approve(args) -> int:
+    if args.reject:
+        print(f"edition {args.date} rejected — nothing published")
+        return 0
+    # The draft staged in preview/ IS the durable pause; approval republishes live.
+    draft = f"/tmp/paper_content_{args.date}.json"
+    print(f"approving {args.date} from {draft}")
+    return _publish_live(args.date, draft)
+
+
+def cmd_publish(args) -> int:
+    return _publish_live(args.date, args.draft)
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
     if args.command == "run":
         return cmd_run(args)
-    # approve/publish are wired in the publish slice (HITL resume + S3 draft/live).
-    print(f"'{args.command}' is not yet implemented in this build", file=sys.stderr)
+    if args.command == "approve":
+        return cmd_approve(args)
+    if args.command == "publish":
+        return cmd_publish(args)
+    print(f"unknown command {args.command!r}", file=sys.stderr)
     return 2
 
 

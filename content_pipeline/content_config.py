@@ -92,6 +92,26 @@ class ContentConfig:
     preview_prefix: str = field(
         default_factory=lambda: os.getenv("S3_PREVIEW_PREFIX", "preview")
     )
+    content_prefix: str = field(
+        default_factory=lambda: os.getenv("S3_CONTENT_PREFIX", "content")
+    )
+    s3_bucket: str = field(
+        default_factory=lambda: os.getenv("S3_BUCKET", "craicgpt-ie-production")
+    )
+    aws_region: str = field(
+        default_factory=lambda: os.getenv("AWS_REGION", "eu-west-1")
+    )
+    cloudfront_distribution_id: str = field(
+        default_factory=lambda: os.getenv("CLOUDFRONT_DISTRIBUTION_ID", "")
+    )
+    site_base_url: str = field(
+        default_factory=lambda: os.getenv("SITE_BASE_URL", "https://craicgpt.ie")
+    )
+    # Local scratch dir where the image tool writes generated PNGs before publish
+    # uploads them. Keeps base64 out of the agent's context window.
+    image_dir: str = field(
+        default_factory=lambda: os.getenv("CRAICGPT_IMAGE_DIR", "/tmp/craicgpt-images")
+    )
 
 
 # Module-level singleton, mirroring the ``cfg`` pattern in config.py.

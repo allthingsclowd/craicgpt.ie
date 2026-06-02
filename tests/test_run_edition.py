@@ -58,6 +58,16 @@ def test_run_edition_embeds_agent_trace():
     assert "agent_trace" in paper["context"]
 
 
+def test_run_edition_stamps_model_attribution():
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
+                        text_model="dgx/vllm/qwen3.6-35b-a3b-fp8",
+                        image_model="m3/ollama/flux2-klein")
+    assert paper["ai"]["headliner"]["_text_model"] == "dgx/vllm/qwen3.6-35b-a3b-fp8"
+    assert paper["fun"][0]["_text_model"] == "dgx/vllm/qwen3.6-35b-a3b-fp8"
+    # fun item has image_url in the fixture → image attribution stamped too.
+    assert paper["fun"][0]["_image_model"] == "m3/ollama/flux2-klein"
+
+
 def test_run_edition_raises_if_no_draft_written():
     class _Empty:
         def invoke(self, _i, config=None):

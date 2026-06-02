@@ -122,10 +122,22 @@ def generate_cover_image(prompt: str) -> str:
     """Generate an illustration for a story from a vivid visual prompt.
 
     Describe the scene concretely (subject, setting, mood, tabloid-cover style).
-    Returns JSON: {model, size, b64_png_len} — the bytes are handled by the
-    harness, which saves and links the image. Generate one image per fun story,
+    The PNG is saved locally and the path returned as JSON
+    {image_url, model} — set the story's image_url to this value. The harness
+    uploads the file and rewrites the URL to the public CDN path at publish time
+    (base64 never enters your context). Generate one image per fun story,
     directly related to that story.
     """
+    import hashlib
+    import os
+
+    from content_pipeline.content_config import content_cfg
+
     img = _generate_image(prompt)
-    return json.dumps({"model": img.model, "size": "1024x1024",
-                       "b64_png_len": len(img.b64_png)})
+    os.makedirs(content_cfg.image_dir, exist_ok=True)
+    fname = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16] + ".png"
+    path = os.path.join(content_cfg.image_dir, fname)
+    with open(path, "wb") as fh:
+        fh.write(img.to_bytes())
+    logger.info("[tool:generate_cover_image] saved %s (%s)", path, img.model)
+    return json.dumps({"image_url": path, "model": img.model})
