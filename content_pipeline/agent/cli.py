@@ -263,7 +263,7 @@ def cmd_consensus(args) -> int:
     required = tuple(a.strip() for a in args.require.split(",") if a.strip())
     verdicts = review.read_verdicts(args.date)
     result = review.compute_consensus(verdicts, required=required)
-    result["voted"] = {a: verdicts[a].get("verdict") for a in verdicts}
+    result["voted"] = {a: review.verdict_of(verdicts[a]) or None for a in verdicts}
 
     if args.publish and result["decision"] == "APPROVE":
         if _already_live(args.date):
@@ -319,7 +319,7 @@ def cmd_gate(args) -> int:
     g = review.gate(args.date, verdicts=verdicts, status=status,
                     already_live=_already_live(args.date), valid=valid,
                     invalid_reasons=invalid_reasons, required=required)
-    g["voted"] = {a: verdicts[a].get("verdict") for a in verdicts}
+    g["voted"] = {a: review.verdict_of(verdicts[a]) or None for a in verdicts}
 
     if args.publish and g["action"] == "publish":
         rc = _publish_live(args.date, f"/tmp/paper_content_{args.date}.json")
