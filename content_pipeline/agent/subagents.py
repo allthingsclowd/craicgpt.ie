@@ -24,7 +24,6 @@ from deepagents import SubAgent
 from content_pipeline.agent.tools import (
     assign_marvel_voices,
     fetch_page,
-    generate_cover_image,
     validate_link,
     web_search,
 )
@@ -123,8 +122,8 @@ EDITOR: SubAgent = {
         "FUN STORIES (5): call assign_marvel_voices(count=5, seed=<edition date>) "
         "to get one distinct Marvel persona per story. Write each story as a punchy "
         "tabloid piece IN THAT CHARACTER'S VOICE, keep the satire disclaimer with "
-        "it, and call generate_cover_image with a vivid prompt for an illustration "
-        "directly related to the story. Some may be styled as playful fake 'ads'.\n\n"
+        "it. Some may be styled as playful fake 'ads'. (Illustrations are added "
+        "automatically afterwards — you do NOT need to find or invent image URLs.)\n\n"
         "AI STORIES (13): write 1 headliner + 2 subarticles + 10 shorts in Graham's "
         "house voice — Irish, witty, gently cynical, teaching-minded, never "
         "corporate-deck-speak.\n\n"
@@ -137,7 +136,7 @@ EDITOR: SubAgent = {
         '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
         "Use the write_file tool with path draft/edition.json."
     ),
-    "tools": [assign_marvel_voices, generate_cover_image],
+    "tools": [assign_marvel_voices],
 }
 
 SUBAGENTS: list[SubAgent] = [

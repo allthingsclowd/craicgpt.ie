@@ -9,7 +9,21 @@ formatted things. The agent is injected here so this runs offline.
 
 import json
 
+import pytest
+
 from content_pipeline.agent.editor_in_chief import run_edition
+
+
+@pytest.fixture(autouse=True)
+def _no_network_images(monkeypatch):
+    """Stub the harness's default FLUX call so run_edition tests stay offline.
+
+    Tests that inject their own image_generate bypass this entirely.
+    """
+    monkeypatch.setattr(
+        "content_pipeline.generate.images.save_image",
+        lambda prompt, **kw: ("/tmp/fake-image.png", "test-image-model"),
+    )
 
 
 class _FakeAgent:
@@ -86,6 +100,26 @@ def test_run_edition_finalizes_personas_and_disclaimer():
         assert f["byline"].startswith("As told to")
 
 
+def test_run_edition_generates_fun_images_deterministically():
+    # The harness — not the agent — assigns each fun story its image. We inject a
+    # fake generator so this runs offline; it must overwrite any URL the editor set.
+    ed = _edition()
+    ed["fun"][0]["image_url"] = "https://images.unsplash.com/hallucinated"  # editor's bad guess
+    calls = []
+
+    def fake_gen(prompt):
+        calls.append(prompt)
+        return (f"/tmp/img/{len(calls)}.png", "m3/ollama/flux2-klein")
+
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed),
+                        image_generate=fake_gen)
+    # Every fun story got a harness-generated local image, not the Unsplash guess.
+    for f in paper["fun"]:
+        assert f["image_url"].startswith("/tmp/img/")
+        assert f["_image_model"] == "m3/ollama/flux2-klein"
+    assert len(calls) == len(paper["fun"])  # one image per fun story
+
+
 def test_run_edition_replaces_off_brand_persona():
     from content_pipeline.generate.personas import ROSTER
 
@@ -98,10 +132,10 @@ def test_run_edition_replaces_off_brand_persona():
 def test_run_edition_stamps_model_attribution():
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
                         text_model="dgx/vllm/qwen3.6-35b-a3b-fp8",
-                        image_model="m3/ollama/flux2-klein")
+                        image_generate=lambda p: ("/tmp/x.png", "m3/ollama/flux2-klein"))
     assert paper["ai"]["headliner"]["_text_model"] == "dgx/vllm/qwen3.6-35b-a3b-fp8"
     assert paper["fun"][0]["_text_model"] == "dgx/vllm/qwen3.6-35b-a3b-fp8"
-    # fun item has image_url in the fixture → image attribution stamped too.
+    # image model is whatever actually generated the image.
     assert paper["fun"][0]["_image_model"] == "m3/ollama/flux2-klein"
 
 

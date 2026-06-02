@@ -144,6 +144,42 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
         item["satire_disclaimer"] = SATIRE_DISCLAIMER
 
 
+def _generate_fun_images(fun: list, *, generate=None, image_model: Optional[str] = None) -> Optional[str]:
+    """Generate one image per fun story in the harness; set image_url to the path.
+
+    Overwrites whatever the editor put in image_url (it tends to invent stock
+    URLs). ``generate`` is injectable for tests: ``prompt -> (local_path, model)``;
+    the default calls FLUX via :func:`generate.images.save_image`. A failed image
+    leaves image_url empty rather than crashing the edition. Returns the image
+    model actually used (for attribution), if any.
+    """
+    if not fun:
+        return image_model
+
+    def _default(prompt: str):
+        from content_pipeline.generate.images import save_image
+
+        return save_image(prompt)
+
+    gen = generate or _default
+    used_model = image_model
+    for item in fun:
+        if not isinstance(item, dict):
+            continue
+        prompt = (
+            "Tabloid newspaper cover illustration, vivid comic-book style, no text: "
+            f"{item.get('title', '')}. {(item.get('body', '') or '')[:160]}"
+        )
+        try:
+            path, model = gen(prompt)
+            item["image_url"] = path
+            used_model = model or used_model
+        except Exception as exc:  # noqa: BLE001 — a bad image must not sink the edition
+            logger.warning("[run_edition] image generation failed: %s", exc)
+            item["image_url"] = None
+    return used_model
+
+
 def _stamp_attribution(
     ai: dict,
     fun: list,
@@ -181,6 +217,7 @@ def run_edition(
     trace: Optional[TraceRecorder] = None,
     text_model: Optional[str] = None,
     image_model: Optional[str] = None,
+    image_generate=None,
 ) -> dict:
     """Run the deep agent for one edition and return a schema-v3 paper dict.
 
@@ -244,8 +281,8 @@ def run_edition(
             "WRITE the complete edition as VALID JSON to draft/edition.json now: "
             "1 AI headliner + 2 subarticles + 10 shorts in Graham's witty house voice, "
             "and 5 fun stories — each in a distinct Marvel voice (call assign_marvel_voices "
-            "and set persona, byline, satire_disclaimer) with an illustration (call "
-            "generate_cover_image and set image_url). Shape: "
+            "and set persona, byline, satire_disclaimer). Illustrations are added "
+            "automatically afterwards. Shape: "
             '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
             "Use write_file with path draft/edition.json, then stop."
         )
@@ -268,8 +305,11 @@ def run_edition(
     fun = fun[: content_cfg.num_fun_stories]
 
     # Deterministically finalise persona/byline/disclaimer (the editor applies the
-    # voice but doesn't reliably fill these fields) and stamp model attribution.
+    # voice but doesn't reliably fill these fields), generate each fun story's
+    # image in the harness (the editor invents stock URLs rather than using the
+    # FLUX tool output), then stamp model attribution.
     _finalize_fun(fun, date_iso)
+    image_model = _generate_fun_images(fun, generate=image_generate, image_model=image_model)
     _stamp_attribution(ai, fun, text_model=text_model, image_model=image_model)
 
     # Build the trace from the agent's actual run, prepended with any

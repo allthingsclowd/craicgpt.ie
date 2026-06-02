@@ -89,3 +89,27 @@ def generate_image(
         b64_png=getattr(datum, "b64_json", None),
         url=getattr(datum, "url", None),
     )
+
+
+def save_image(
+    prompt: str,
+    *,
+    model: Optional[str] = None,
+    client: Optional[Any] = None,
+) -> tuple[str, str]:
+    """Generate an image for ``prompt`` and save it to the scratch dir.
+
+    Returns ``(local_path, model_used)``. Content-addressed filename so repeat
+    prompts don't pile up. Shared by the editor tool and the harness's
+    deterministic per-fun-story image step.
+    """
+    import hashlib
+    import os
+
+    img = generate_image(prompt, model=model, client=client)
+    os.makedirs(content_cfg.image_dir, exist_ok=True)
+    fname = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16] + ".png"
+    path = os.path.join(content_cfg.image_dir, fname)
+    with open(path, "wb") as fh:
+        fh.write(img.to_bytes())
+    return path, img.model

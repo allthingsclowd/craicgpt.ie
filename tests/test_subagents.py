@@ -50,7 +50,7 @@ def test_editor_prompt_requires_persona_and_disclaimer_tools():
     assert "disclaimer" in low or "satire" in low or "parody" in low
     tool_names = {t.name for t in spec["tools"]}
     assert "assign_marvel_voices" in tool_names
-    assert "generate_cover_image" in tool_names
+    # Images are generated deterministically by the harness, not the editor.
 
 
 def test_editor_in_chief_prompt_mentions_plan_and_delegation():
