@@ -86,6 +86,15 @@ def test_run_edition_finalizes_personas_and_disclaimer():
         assert f["byline"].startswith("As told to")
 
 
+def test_run_edition_replaces_off_brand_persona():
+    from content_pipeline.generate.personas import ROSTER
+
+    ed = _edition()
+    ed["fun"][0]["persona"] = "Aquaman"  # DC, not in our Marvel roster
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed))
+    assert paper["fun"][0]["persona"] in ROSTER  # replaced with a roster character
+
+
 def test_run_edition_stamps_model_attribution():
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
                         text_model="dgx/vllm/qwen3.6-35b-a3b-fp8",

@@ -31,6 +31,7 @@ from content_pipeline.agent.trace import TraceRecorder, extract_trace
 from content_pipeline.compile import build_paper
 from content_pipeline.content_config import content_cfg
 from content_pipeline.generate.personas import (
+    ROSTER,
     SATIRE_DISCLAIMER,
     assign_personas,
     persona_byline,
@@ -134,7 +135,9 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
     for i, item in enumerate(fun):
         if not isinstance(item, dict):
             continue
-        if not item.get("persona") and i < len(assigned):
+        # Keep the editor's choice only if it's a real Marvel roster character;
+        # otherwise (blank, or an off-brand pick like "Aquaman") assign one.
+        if item.get("persona") not in ROSTER and i < len(assigned):
             item["persona"] = assigned[i]
         if item.get("persona"):
             item["byline"] = persona_byline(item["persona"])
