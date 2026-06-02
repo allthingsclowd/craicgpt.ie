@@ -47,11 +47,21 @@ def web_search(query: str) -> str:
     Use this to discover candidate news stories or AI-landscape developments.
     Returns a block of text results (titles, snippets, and URLs).
     """
-    # Lazy import keeps the heavy community package out of unit-test import paths.
-    from langchain_community.tools import DuckDuckGoSearchRun
+    # Use ddgs directly with the auto backend, which rotates providers
+    # (brave/bing/…). The legacy DuckDuckGoSearchRun hits html.duckduckgo.com,
+    # which is frequently rate-limited/blocked; auto avoids that single point.
+    from ddgs import DDGS
 
     try:
-        return DuckDuckGoSearchRun().run(query)
+        results = list(DDGS().text(query, max_results=6, backend="auto"))
+        if not results:
+            return "no results found"
+        blocks = [
+            f"{r.get('title', '')}\n{r.get('body', '')}\n{r.get('href', '')}"
+            for r in results
+        ]
+        # Cap the blob — long search dumps accumulate and blow the context window.
+        return "\n\n".join(blocks)[:1800]
     except Exception as exc:  # noqa: BLE001 — tool failures must not crash the agent
         logger.warning("[tool:web_search] failed: %s", exc)
         return f"web_search error: {exc}"
@@ -76,7 +86,7 @@ def fetch_page(url: str) -> str:
                       flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
-        return text[:6000]
+        return text[:2500]  # enough for the gist; keeps the context window in check
     except Exception as exc:  # noqa: BLE001
         logger.warning("[tool:fetch_page] failed for %s: %s", url, exc)
         return f"fetch_page error: {exc}"

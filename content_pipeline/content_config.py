@@ -68,8 +68,16 @@ class ContentConfig:
     temperature: float = field(
         default_factory=lambda: float(os.getenv("CONTENT_TEMPERATURE", "0.8"))
     )
+    # Per-call output cap. Kept well below the model's context window so a long
+    # agentic run (accumulated tool outputs) doesn't blow the input+output total.
     max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("CONTENT_MAX_TOKENS", "8192"))
+        default_factory=lambda: int(os.getenv("CONTENT_MAX_TOKENS", "4096"))
+    )
+    # Summarise the running history once it crosses this many input tokens, to
+    # keep long research loops under the model's context window (DGX Qwen3.6 is
+    # ~98k; 60k leaves comfortable headroom for the next prompt + output).
+    summarize_at_tokens: int = field(
+        default_factory=lambda: int(os.getenv("CONTENT_SUMMARIZE_AT_TOKENS", "60000"))
     )
     request_timeout: float = field(
         default_factory=lambda: float(os.getenv("CONTENT_REQUEST_TIMEOUT", "180"))

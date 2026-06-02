@@ -71,6 +71,12 @@ def build_editor_in_chief(
     brain = model or build_brain()
     logger.info("[editor-in-chief] assembling deep agent on %s",
                 getattr(brain, "model_name", brain))
+
+    # NB: deepagents already includes a SummarizationMiddleware in its default
+    # stack, so we don't add our own (it would trip the duplicate-middleware
+    # check). We keep context bounded instead via small tool outputs (see
+    # agent/tools.py) and a modest per-call max_tokens (content_config), with the
+    # built-in summarizer as the backstop on long research loops.
     return create_deep_agent(
         model=brain,
         system_prompt=EDITOR_IN_CHIEF_PROMPT,
