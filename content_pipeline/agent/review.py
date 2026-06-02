@@ -208,14 +208,19 @@ def read_review_request(date_iso: str, *, s3: Any | None = None,
 
 
 def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
-         already_live: bool, required: Iterable[str] = DEFAULT_AGENTS) -> dict[str, Any]:
+         already_live: bool, valid: bool = True, invalid_reasons: Optional[list] = None,
+         required: Iterable[str] = DEFAULT_AGENTS) -> dict[str, Any]:
     """Pure decision for the idempotent publisher poll. Returns
     ``{"action": ..., "decision": ..., "reasons": [...]}`` where action is one of:
 
     * ``"already-live"`` — content/<date> exists; nothing to do.
     * ``"retry"``        — no complete content yet, or awaiting a verdict.
-    * ``"publish"``      — complete + two-agent APPROVE → publish now.
-    * ``"hold"``         — an agent held; notify, do not publish.
+    * ``"publish"``      — complete + two-agent APPROVE + host-valid → publish now.
+    * ``"hold"``         — an agent held, OR host-side validation failed; notify.
+
+    ``valid`` is the host-side deterministic check (the agents own "harmless",
+    the host owns "technically valid") — a draft the agents somehow approved but
+    that fails structural validation is held, never published.
     """
     if already_live:
         return {"action": "already-live", "decision": "APPROVE", "reasons": []}
@@ -224,6 +229,9 @@ def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
                 "reasons": [f"content not ready (state={status.get('state') if status else None})"]}
     consensus = compute_consensus(verdicts, required=required)
     if consensus["decision"] == "APPROVE":
+        if not valid:
+            return {"action": "hold", "decision": "HOLD",
+                    "reasons": ["host validation failed: " + r for r in (invalid_reasons or [])]}
         return {"action": "publish", "decision": "APPROVE", "reasons": []}
     if consensus["decision"] == "HOLD":
         return {"action": "hold", "decision": "HOLD", "reasons": consensus["reasons"]}
