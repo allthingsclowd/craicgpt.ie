@@ -147,11 +147,17 @@ def generate_cover_image(prompt: str) -> str:
 
     from content_pipeline.content_config import content_cfg
 
-    img = _generate_image(prompt)
-    os.makedirs(content_cfg.image_dir, exist_ok=True)
-    fname = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16] + ".png"
-    path = os.path.join(content_cfg.image_dir, fname)
-    with open(path, "wb") as fh:
-        fh.write(img.to_bytes())
-    logger.info("[tool:generate_cover_image] saved %s (%s)", path, img.model)
-    return json.dumps({"image_url": path, "model": img.model})
+    # Resilient: a failed image must not crash the whole edition — return an
+    # error string and let the editor continue without that illustration.
+    try:
+        img = _generate_image(prompt)
+        os.makedirs(content_cfg.image_dir, exist_ok=True)
+        fname = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16] + ".png"
+        path = os.path.join(content_cfg.image_dir, fname)
+        with open(path, "wb") as fh:
+            fh.write(img.to_bytes())
+        logger.info("[tool:generate_cover_image] saved %s (%s)", path, img.model)
+        return json.dumps({"image_url": path, "model": img.model})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[tool:generate_cover_image] failed: %s", exc)
+        return json.dumps({"image_url": None, "error": str(exc)[:200]})

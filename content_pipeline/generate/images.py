@@ -25,15 +25,26 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GeneratedImage:
-    """A generated image plus the model that made it."""
+    """A generated image plus the model that made it.
 
-    b64_png: str
+    The proxy may return the image inline (``b64_png``) or as a ``url`` depending
+    on the backend (Ollama image routes vary), so we carry whichever we got.
+    """
+
     model: str
     prompt: str
+    b64_png: Optional[str] = None
+    url: Optional[str] = None
 
     def to_bytes(self) -> bytes:
-        """Decode the base64 PNG to raw bytes (for saving / uploading)."""
-        return base64.b64decode(self.b64_png)
+        """Return the raw PNG bytes (decoding b64, or fetching the URL)."""
+        if self.b64_png:
+            return base64.b64decode(self.b64_png)
+        if self.url:
+            import httpx
+
+            return httpx.get(self.url, timeout=60, follow_redirects=True).content
+        raise ValueError("GeneratedImage has neither b64_png nor url")
 
 
 def _default_client() -> Any:
@@ -68,11 +79,13 @@ def generate_image(
     model = model or content_cfg.image_model
     cli = client if client is not None else _default_client()
     logger.info("[images] generating model=%s size=%s", model, size)
-    resp = cli.images.generate(
+    # NB: do NOT pass response_format — the Ollama image routes reject it
+    # (LiteLLM 400 UnsupportedParamsError). Read whichever field comes back.
+    resp = cli.images.generate(model=model, prompt=prompt, size=size)
+    datum = resp.data[0]
+    return GeneratedImage(
         model=model,
         prompt=prompt,
-        size=size,
-        response_format="b64_json",
+        b64_png=getattr(datum, "b64_json", None),
+        url=getattr(datum, "url", None),
     )
-    b64 = resp.data[0].b64_json
-    return GeneratedImage(b64_png=b64, model=model, prompt=prompt)

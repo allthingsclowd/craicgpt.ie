@@ -51,3 +51,32 @@ def test_generate_image_decodes_to_bytes():
     b64 = base64.b64encode(b"PNGDATA").decode()
     img = generate_image("x", client=_FakeClient(b64), model="m")
     assert img.to_bytes() == b"PNGDATA"
+
+
+def test_generate_image_does_not_send_response_format():
+    # The Ollama image route rejects response_format — we must not send it.
+    client = _FakeClient(base64.b64encode(b"x").decode())
+    generate_image("x", client=client, model="m")
+    assert "response_format" not in client.calls[0]
+
+
+class _UrlResp:
+    def __init__(self, url):
+        class _I:
+            def __init__(s):
+                s.b64_json = None
+                s.url = url
+        self.data = [_I()]
+
+
+def test_generate_image_handles_url_response():
+    class _UrlClient:
+        def __init__(self):
+            class _Images:
+                def generate(_s, **kw):
+                    return _UrlResp("https://cdn/x.png")
+            self.images = _Images()
+
+    img = generate_image("x", client=_UrlClient(), model="m")
+    assert img.url == "https://cdn/x.png"
+    assert img.b64_png is None
