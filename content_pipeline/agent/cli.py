@@ -40,6 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--dry-run", action="store_true",
                        help="Write the draft to /tmp instead of the configured location")
     p_run.add_argument("--out", help="Explicit output path for the draft JSON")
+    p_run.add_argument("--publish-draft", action="store_true",
+                       help="Also upload the draft (+ images) to the S3 preview/ prefix "
+                            "for review (this is what the daily Conductor run does)")
 
     p_app = sub.add_parser("approve", help="Approve (or reject) a held draft edition")
     p_app.add_argument("--date", required=True)
@@ -60,12 +63,23 @@ def cmd_run(args) -> int:
     logging.info("[cli] running edition for %s", date_iso)
     paper = run_edition(date_iso, generated_at=_now_iso())
 
+    # The local copy keeps LOCAL image paths so a later `approve` can re-publish
+    # the images to the live content/ prefix.
     out = args.out or f"/tmp/paper_content_{date_iso}.json"
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(paper, fh, indent=2, ensure_ascii=False)
     print(f"draft written: {out}")
     print(f"  AI: 1 headliner + {len(paper['ai']['subarticles'])} subs + "
           f"{len(paper['ai']['shorts'])} shorts | fun: {len(paper['fun'])}")
+
+    if getattr(args, "publish_draft", False):
+        import copy
+
+        from content_pipeline.agent.publish import publish_paper
+
+        preview = copy.deepcopy(paper)  # don't mutate the local copy's image paths
+        key = publish_paper(preview, date_iso, live=False)
+        print(f"draft published to preview: {key}")
     return 0
 
 

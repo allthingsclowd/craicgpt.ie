@@ -17,6 +17,11 @@ def test_run_accepts_date_and_dry_run():
     assert args.dry_run is True
 
 
+def test_run_accepts_publish_draft():
+    args = build_parser().parse_args(["run", "--date", "2026-06-02", "--publish-draft"])
+    assert args.publish_draft is True
+
+
 def test_approve_requires_date():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["approve"])  # --date required
