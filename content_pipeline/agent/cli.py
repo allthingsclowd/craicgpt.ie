@@ -52,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_pub.add_argument("--date", required=True)
     p_pub.add_argument("--draft", required=True, help="Path to the approved draft JSON")
 
+    p_syn = sub.add_parser("syndicate", help="Emit per-platform social posts for a published edition")
+    p_syn.add_argument("--date", required=True)
+    p_syn.add_argument("--from", dest="source",
+                       help="Edition JSON URL or path (default: the live content URL)")
+
     return parser
 
 
@@ -109,6 +114,22 @@ def cmd_publish(args) -> int:
     return _publish_live(args.date, args.draft)
 
 
+def cmd_syndicate(args) -> int:
+    from content_pipeline.social.syndicate import build_posts
+
+    y, m, d = args.date.split("-")
+    source = args.source or f"https://craicgpt.ie/content/{y}/{m}/{d}/paper_content.json"
+    if source.startswith("http"):
+        import httpx
+
+        paper = httpx.get(source, timeout=20, follow_redirects=True).json()
+    else:
+        with open(source, encoding="utf-8") as fh:
+            paper = json.load(fh)
+    print(json.dumps(build_posts(paper), indent=2, ensure_ascii=False))
+    return 0
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args(argv)
@@ -118,6 +139,8 @@ def main(argv=None) -> int:
         return cmd_approve(args)
     if args.command == "publish":
         return cmd_publish(args)
+    if args.command == "syndicate":
+        return cmd_syndicate(args)
     print(f"unknown command {args.command!r}", file=sys.stderr)
     return 2
 
