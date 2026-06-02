@@ -1,91 +1,43 @@
 /**
- * main.js — The Craic Gazette comparator frontend
+ * main.js — The Craic Gazette (schema v3, deep-agent edition)
  *
- * Fetches paper_content.json from S3 and renders the selected LLM provider's
- * content into the newspaper layout. Handles model switching, Compare All mode,
- * the "Under the Hood" trace drawer, and date navigation.
+ * Fetches paper_content.json and renders the daily paper: an AI headliner +
+ * subarticles + shorts interleaved with the Marvel-voiced fun stories, per the
+ * `layout` order. The "Under the Hood" drawer visualises the deep agent's run
+ * (plan → subagent delegations → tool calls) from context.agent_trace.
  *
- * Pipeline v2 JSON schema:
+ * Schema v3:
  * {
- *   "date": "YYYY-MM-DD",
- *   "context": { "news_headlines": [], "weather": {}, "research_trace": [] },
- *   "articles": {
- *     "main_article": {
- *       "outputs": {
- *         "claude": { "title": "", "content": "", "_model_id": "", "_latency_ms": 0 },
- *         "gemini": { ... },
- *         "local":  { ... }
- *       }
- *     },
- *     ...
- *   }
+ *   "date","generated_at","pipeline_version":"3.0",
+ *   "edition": { "approved_by", "approved_at" },
+ *   "ai": { "headliner": {...}, "subarticles": [...], "shorts": [...] },
+ *   "fun": [ { title, body, source_url, persona, byline, satire_disclaimer,
+ *              image_url, kind, _text_model, _image_model } ],
+ *   "layout": [ "ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0", ... ],
+ *   "context": { "agent_trace": [ {kind,name,detail} ], "files": [...] }
  * }
  */
 
 'use strict';
 
-// ── Configuration ─────────────────────────────────────────────────────────────
-
-// Base URL where S3 content is served from (via CloudFront).
-const S3_BASE_URL = 'https://craicgpt.ie';
-
-// Content path template: base + /content/YYYY/MM/DD/paper_content.json
-const CONTENT_PATH = (y, m, d) =>
-  `${S3_BASE_URL}/content/${y}/${m}/${d}/paper_content.json`;
-
-// How many days back to search for the most recent available edition.
+// Content is served from the SAME origin as the page (the CDN in production, a
+// preview server locally / on the LAN), so always fetch it origin-relative —
+// this avoids the CORS errors you'd hit pointing at an absolute host.
+const CONTENT_PATH = (y, m, d) => `/content/${y}/${m}/${d}/paper_content.json`;
 const MAX_FALLBACK_DAYS = 14;
 
-// ── State ─────────────────────────────────────────────────────────────────────
-
-let currentPaperData = null;   // The full parsed paper_content.json
-let activeProvider   = 'claude'; // 'claude' | 'gemini' | 'local' | 'compare'
-let activeCompareArticle = 'main_article';
-
-// ── DOM references ─────────────────────────────────────────────────────────────
-
+let currentPaperData = null;
 const el = id => document.getElementById(id);
-
-const ARTICLE_MAP = {
-  // Maps article_id in JSON to DOM elements in index.html
-  // format: { titleEl, bodyEl, standfirstEl (optional) }
-  main_article: {
-    title:      el('main-article-title'),
-    standfirst: el('main-article-standfirst'),
-    body:       el('main-article-text'),
-  },
-  comparison_article: {
-    title: el('comparison-article-title'),
-    body:  el('comparison-article-text'),
-  },
-  llm_muse: {
-    body: el('llm-muse-text'),
-  },
-  daily_joke: {
-    body: el('joke-text'),
-  },
-  editors_note: {
-    body: el('editors-note-text'),
-  },
-};
-
 
 // ════════════════════════════════════════════════════════════════════════════
 // DATA FETCHING
 // ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Fetch paper_content.json for the given Date object.
- * Returns the parsed JSON or null on failure.
- */
 async function fetchPaperContent(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
-  const url = CONTENT_PATH(y, m, d);
-
   try {
-    const resp = await fetch(url, { cache: 'no-cache' });
+    const resp = await fetch(CONTENT_PATH(y, m, d), { cache: 'no-cache' });
     if (!resp.ok) return null;
     return await resp.json();
   } catch {
@@ -93,547 +45,273 @@ async function fetchPaperContent(date) {
   }
 }
 
-/**
- * Walk backwards from today to find the most recent available edition.
- * Updates the date picker and current-date display.
- */
 async function loadMostRecentEdition() {
   const today = new Date();
   for (let i = 0; i < MAX_FALLBACK_DAYS; i++) {
     const candidate = new Date(today);
     candidate.setDate(today.getDate() - i);
-
     const data = await fetchPaperContent(candidate);
     if (data) {
       currentPaperData = data;
-      renderPaper(data, activeProvider);
+      renderPaper(data);
       updateDateDisplay(candidate);
       return;
     }
   }
-  // Nothing found — render placeholders
-  renderPlaceholders();
+  renderPlaceholder();
 }
 
-/**
- * Load content for a specific date (from the date picker).
- */
 async function loadEditionForDate(dateStr) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
-
   const data = await fetchPaperContent(date);
   if (data) {
     currentPaperData = data;
-    renderPaper(data, activeProvider);
+    renderPaper(data);
     updateDateDisplay(date);
   } else {
     alert(`No edition found for ${dateStr}. The Craic Gazette was probably on holidays.`);
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// SCHEMA HELPERS
+// ════════════════════════════════════════════════════════════════════════════
+function resolveRef(data, ref) {
+  const parts = ref.split('.');
+  try {
+    if (ref === 'ai.headliner') return { type: 'ai', kind: 'headliner', item: data.ai.headliner };
+    if (parts[0] === 'ai' && parts[1] === 'subarticles') return { type: 'ai', kind: 'sub', item: data.ai.subarticles[+parts[2]] };
+    if (parts[0] === 'ai' && parts[1] === 'shorts') return { type: 'ai', kind: 'short', item: data.ai.shorts[+parts[2]] };
+    if (parts[0] === 'fun') return { type: 'fun', kind: 'fun', item: data.fun[+parts[1]] };
+  } catch { return null; }
+  return null;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // RENDERING
 // ════════════════════════════════════════════════════════════════════════════
+function renderPaper(data) {
+  const grid = el('edition');
+  if (!grid) return;
+  const layout = Array.isArray(data.layout) && data.layout.length
+    ? data.layout
+    : defaultLayout(data);
 
-/**
- * Main render entry point. Called whenever provider changes or new data loads.
- */
-function renderPaper(data, provider) {
-  if (provider === 'compare') {
-    renderCompareMode(data);
-    return;
-  }
-  renderSingleProvider(data, provider);
-  updateModelBadge(data, provider);
-  renderHoodContext(data);
-}
-
-/**
- * Render all articles for a single provider into the newspaper grid.
- */
-function renderSingleProvider(data, provider) {
-  const articles = data.articles || {};
-
-  for (const [articleId, domRefs] of Object.entries(ARTICLE_MAP)) {
-    const articleData = articles[articleId];
-    if (!articleData) continue;
-
-    const output = articleData.outputs?.[provider] || {};
-
-    if (domRefs.title) {
-      domRefs.title.textContent = output.title || `[No title from ${provider}]`;
-    }
-    if (domRefs.standfirst && output.standfirst) {
-      domRefs.standfirst.textContent = output.standfirst;
-    }
-    if (domRefs.body) {
-      // Split content on double newline into paragraphs
-      const content = output.content || output.error || `Content unavailable from ${provider}.`;
-      domRefs.body.innerHTML = contentToParagraphs(content);
-
-      // Tag the element with prompt data for the tooltip
-      domRefs.body.dataset.promptText = formatPromptTooltip(articleId, data);
-      domRefs.body.dataset.modelId = output._model_id || '';
-      domRefs.body.dataset.latencyMs = output._latency_ms || '';
-    }
+  grid.innerHTML = '';
+  for (const ref of layout) {
+    const resolved = resolveRef(data, ref);
+    if (!resolved || !resolved.item) continue;
+    grid.appendChild(resolved.type === 'fun'
+      ? funCard(resolved.item)
+      : aiCard(resolved.item, resolved.kind));
   }
 
-  // Render model stats in the editor cell
-  renderModelStats(data);
-
-  // Special: daily joke needs split setup/punchline rendering
-  renderJoke(data, provider);
+  renderAttribution(data);
+  renderHood(data);
 }
 
-/**
- * Convert a content string to HTML paragraphs.
- * Splits on double-newline or newline-newline.
- */
-function contentToParagraphs(text) {
-  if (!text) return '<p></p>';
-  const paras = text.split(/\n\n+/).map(p => p.trim()).filter(Boolean);
-  if (paras.length === 0) return `<p>${escapeHtml(text)}</p>`;
-  return paras.map(p => `<p>${escapeHtml(p)}</p>`).join('');
+function defaultLayout(data) {
+  const refs = ['ai.headliner'];
+  (data.ai?.subarticles || []).forEach((_, i) => refs.push(`ai.subarticles.${i}`));
+  (data.ai?.shorts || []).forEach((_, i) => refs.push(`ai.shorts.${i}`));
+  (data.fun || []).forEach((_, i) => refs.push(`fun.${i}`));
+  return refs;
 }
 
-/**
- * Render the daily joke with separate setup / punchline elements.
- */
-function renderJoke(data, provider) {
-  const jokeCell = el('joke-text');
-  if (!jokeCell) return;
+function imageEl(item) {
+  if (!item.image_url) return null;
+  const img = document.createElement('img');
+  img.className = 'card-img';
+  img.src = item.image_url;
+  img.alt = item.image_alt || item.title || '';
+  img.loading = 'lazy';
+  return img;
+}
 
-  const jokeOutput = data.articles?.daily_joke?.outputs?.[provider] || {};
-  const setup = jokeOutput.setup || '';
-  const punchline = jokeOutput.punchline || '';
-  const content = jokeOutput.content || jokeOutput.error || '';
+function aiCard(item, kind) {
+  const lead = kind === 'headliner';
+  const art = document.createElement('article');
+  art.className = `card card--ai ${lead ? 'card--lead' : kind === 'sub' ? 'card--sub' : 'card--short'}`;
+  art.append(kicker(lead ? 'HEADLINE' : kind === 'sub' ? 'AI DESK' : 'IN BRIEF', 'red'));
+  art.append(headline(item.title, lead));
+  if (item.standfirst) art.append(node('p', 'standfirst', item.standfirst));
+  const img = imageEl(item);            // headliner + subarticles carry a photo
+  if (img) art.append(img);
+  art.append(body(item.body));
+  art.append(meta(item, false));
+  return art;
+}
 
-  if (setup && punchline) {
-    jokeCell.innerHTML = `
-      <p class="joke-setup">${escapeHtml(setup)}</p>
-      <p class="joke-punchline">${escapeHtml(punchline)}</p>
-    `;
-  } else if (content) {
-    jokeCell.innerHTML = contentToParagraphs(content);
+function funCard(item) {
+  const art = document.createElement('article');
+  const isAd = item.kind === 'ad';
+  art.className = `card card--fun ${isAd ? 'card--ad' : ''}`;
+  art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `FUN DESK · ${item.persona || ''}`, 'gold'));
+  const img = imageEl(item);
+  if (img) art.append(img);
+  art.append(headline(item.title, false));
+  if (item.byline) art.append(node('p', 'byline', item.byline));
+  art.append(body(item.body));
+  art.append(meta(item, true));
+  return art;
+}
+
+function kicker(text, tone) {
+  return node('div', `kicker kicker--${tone}`, text);
+}
+
+function headline(text, lead) {
+  return node(lead ? 'h2' : 'h3', `headline ${lead ? 'headline--lead' : ''}`, text || '');
+}
+
+function body(text) {
+  const div = document.createElement('div');
+  div.className = 'body';
+  const paras = String(text || '').split(/\n\n+/).map(p => p.trim()).filter(Boolean);
+  (paras.length ? paras : [String(text || '')]).forEach(p => div.append(node('p', '', p)));
+  return div;
+}
+
+/** The per-article footer: source link + the subtle "generated by" note + disclaimer. */
+function meta(item, isFun) {
+  const wrap = document.createElement('div');
+  wrap.className = 'card-meta';
+  if (item.source_url) {
+    const a = document.createElement('a');
+    a.className = 'source-link';
+    a.href = item.source_url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = '↗ source';
+    wrap.append(a);
   }
+  const models = [item._text_model, item._image_model].filter(Boolean).join(' · ');
+  if (models) wrap.append(node('span', 'model-note', `✨ generated by ${models}`));
+  if (isFun && item.satire_disclaimer) wrap.append(node('p', 'disclaimer', item.satire_disclaimer));
+  return wrap;
 }
 
-/**
- * Render the model performance stats card in the editor sidebar.
- */
-function renderModelStats(data) {
-  const grid = el('model-stats-grid');
-  if (!grid || !data.articles) return;
-
-  // Aggregate average latency per provider across all articles.
-  const latencies = { claude: [], gemini: [], local: [] };
-
-  for (const article of Object.values(data.articles)) {
-    for (const [prov, output] of Object.entries(article.outputs || {})) {
-      if (output._latency_ms && latencies[prov]) {
-        latencies[prov].push(output._latency_ms);
-      }
-    }
-  }
-
-  const avg = arr => arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
-
-  const providers = [
-    { key: 'claude', label: '🟣 Claude', cls: 'claude' },
-    { key: 'gemini', label: '🔵 Gemini', cls: 'gemini' },
-    { key: 'local',  label: '🟢 Local',  cls: 'local'  },
-  ];
-
-  grid.innerHTML = providers.map(({ key, label, cls }) => {
-    const ms = avg(latencies[key]);
-    const val = ms !== null ? `${(ms / 1000).toFixed(1)}s` : 'n/a';
-    return `
-      <div class="model-stat-card model-stat-card--${cls}">
-        <div class="stat-label">${label}</div>
-        <div class="stat-value">${val}</div>
-      </div>`;
-  }).join('');
-}
-
-/**
- * Update the model badge in the sticky nav bar with the active model ID.
- */
-function updateModelBadge(data, provider) {
-  const idEl = el('active-model-id');
-  const latEl = el('active-model-latency');
-  if (!idEl || !latEl) return;
-
-  // Get model_id from the first article that has this provider.
-  const firstArticle = Object.values(data.articles || {})[0];
-  const output = firstArticle?.outputs?.[provider] || {};
-
-  idEl.textContent  = output._model_id || provider;
-  latEl.textContent = output._latency_ms ? `avg ~${output._latency_ms}ms` : '';
-}
-
-/**
- * Render the "Compare All" three-column panel.
- */
-function renderCompareMode(data) {
-  renderCompareArticle(data, activeCompareArticle);
-}
-
-function renderCompareArticle(data, articleId) {
-  const article = data.articles?.[articleId] || {};
-  const outputs = article.outputs || {};
-
-  const providers = ['claude', 'gemini', 'local'];
-  const colMeta = {
-    claude: { metaEl: el('compare-claude-meta'), bodyEl: el('compare-claude-body') },
-    gemini: { metaEl: el('compare-gemini-meta'), bodyEl: el('compare-gemini-body') },
-    local:  { metaEl: el('compare-local-meta'),  bodyEl: el('compare-local-body')  },
-  };
-
-  for (const provider of providers) {
-    const output = outputs[provider] || {};
-    const { metaEl, bodyEl } = colMeta[provider];
-
-    if (metaEl) {
-      const modelId = output._model_id || 'unavailable';
-      const latency = output._latency_ms ? ` · ${(output._latency_ms / 1000).toFixed(1)}s` : '';
-      metaEl.textContent = `${modelId}${latency}`;
-    }
-
-    if (bodyEl) {
-      let html = '';
-      if (output.title) {
-        html += `<h4 style="font-family:var(--font-headline);margin-bottom:.5rem">${escapeHtml(output.title)}</h4>`;
-      }
-      if (output.standfirst) {
-        html += `<p style="font-style:italic;opacity:.75;margin-bottom:.5rem">${escapeHtml(output.standfirst)}</p>`;
-      }
-      if (output.setup) {
-        html += `<p><strong>${escapeHtml(output.setup)}</strong></p>`;
-        html += `<p style="font-style:italic;color:var(--red)">${escapeHtml(output.punchline || '')}</p>`;
-      } else {
-        html += contentToParagraphs(output.content || output.error || 'No content available.');
-      }
-      if (output._latency_ms) {
-        html += `<p style="margin-top:.75rem;font-size:.7rem;opacity:.5">Generated in ${output._latency_ms}ms</p>`;
-      }
-      bodyEl.innerHTML = html;
-    }
+function renderAttribution(data) {
+  const note = el('edition-attribution');
+  if (note) {
+    const approved = data.edition?.approved_by ? '✓ approved' : '⏳ draft';
+    note.textContent = `${data.pipeline_version ? 'v' + data.pipeline_version : ''} · ${approved}`;
   }
 }
 
-/**
- * Populate the "Under the Hood" drawer with research context.
- */
-function renderHoodContext(data) {
-  const contextEl = el('hood-context');
-  const traceEl   = el('hood-trace');
-  if (!data?.context) return;
+// ── Under the Hood: deep-agent visualiser ──────────────────────────────────
+const TRACE_ICON = { plan: '🗒️', subagent: '🤝', tool: '🔧', fallback: '↩️', note: '•' };
 
-  const ctx = data.context;
-
-  // Weather + headlines
-  if (contextEl) {
-    const weather = ctx.weather || {};
-    const headlines = ctx.news_headlines || [];
-    let html = '<dl>';
-    if (weather.location) {
-      html += `<dt>Weather</dt><dd>${weather.temp_c}°C — ${weather.conditions} in ${weather.location}</dd>`;
+function renderHood(data) {
+  const trace = data.context?.agent_trace || [];
+  const traceEl = el('hood-trace');
+  if (traceEl) {
+    if (!trace.length) {
+      traceEl.innerHTML = '<p class="hood-placeholder">No agent trace recorded for this edition.</p>';
+    } else {
+      traceEl.innerHTML = trace.map(ev => {
+        const icon = TRACE_ICON[ev.kind] || '•';
+        let detail = '';
+        if (ev.kind === 'plan') detail = (ev.detail?.todos || []).map(t => `<li>${escapeHtml(t)}</li>`).join('');
+        else if (ev.kind === 'subagent') detail = `<div class="trace-detail">${escapeHtml(ev.detail?.task || '')}</div>`;
+        else if (ev.kind === 'fallback') detail = `<div class="trace-detail">${escapeHtml(ev.detail?.local || '')} → ${escapeHtml(ev.detail?.to || '')} (${escapeHtml(ev.detail?.reason || '')})</div>`;
+        else detail = `<div class="trace-detail">${escapeHtml(ev.detail?.info || '')}</div>`;
+        return `<div class="trace-row trace-row--${ev.kind}">
+          <span class="trace-icon">${icon}</span>
+          <div class="trace-main"><span class="trace-name">${escapeHtml(ev.name || ev.kind)}</span>
+          ${ev.kind === 'plan' ? `<ul class="trace-todos">${detail}</ul>` : detail}</div>
+        </div>`;
+      }).join('');
     }
-    if (headlines.length) {
-      html += `<dt>Headlines (${headlines.length})</dt>`;
-      headlines.forEach(h => { html += `<dd>• ${escapeHtml(h.slice(0, 100))}</dd>`; });
-    }
-    if (ctx.ai_trends) {
-      html += `<dt>AI Trends</dt><dd>${escapeHtml(ctx.ai_trends.slice(0, 200))}…</dd>`;
-    }
-    html += '</dl>';
-    contextEl.innerHTML = html;
   }
 
-  // Agent trace
-  if (traceEl && ctx.research_trace?.length) {
-    traceEl.innerHTML = ctx.research_trace.map(entry => `
-      <div class="trace-entry">
-        <span class="trace-entry-role">${escapeHtml(entry.role || '')}</span>
-        <div class="trace-entry-content">${escapeHtml(String(entry.content || '').slice(0, 400))}</div>
-      </div>
-    `).join('');
+  const counts = trace.reduce((acc, e) => { acc[e.kind] = (acc[e.kind] || 0) + 1; return acc; }, {});
+  const statEl = el('hood-stats');
+  if (statEl) {
+    statEl.innerHTML = `
+      <span class="hood-stat">🗒️ ${counts.plan || 0} plans</span>
+      <span class="hood-stat">🤝 ${counts.subagent || 0} delegations</span>
+      <span class="hood-stat">🔧 ${counts.tool || 0} tool calls</span>
+      <span class="hood-stat">↩️ ${counts.fallback || 0} fallbacks</span>`;
   }
 }
 
-/**
- * Format a tooltip string showing the prompt for a given article.
- */
-function formatPromptTooltip(articleId, data) {
-  const article = data.articles?.[articleId];
-  if (!article) return '';
-  return [
-    `Article: ${articleId}`,
-    `LangChain node: ${article.langchain_node || 'generate/RunnableParallel'}`,
-    article.prompt_text ? `\nPrompt:\n${article.prompt_text.slice(0, 500)}` : '',
-  ].filter(Boolean).join('\n');
+function renderPlaceholder() {
+  const grid = el('edition');
+  if (grid) grid.innerHTML =
+    `<article class="card card--lead"><div class="kicker kicker--red">ER, ABOUT TODAY…</div>
+     <h2 class="headline headline--lead">AI EDITOR TAKES THE DAY OFF; EXISTENTIAL CRISIS ENSUES</h2>
+     <div class="body"><p>No edition was found for the last fortnight. The deep agent may not
+     have run yet, or it's still waiting on a human to approve today's draft.</p></div></article>`;
 }
-
-/**
- * Show placeholder text when no edition is available.
- */
-function renderPlaceholders() {
-  el('main-article-title').textContent = 'AI JOURNALIST TAKES DAY OFF; EXISTENTIAL CRISIS ENSUES';
-  el('main-article-standfirst').textContent =
-    'Sources close to the language model confirm it simply "needed a moment."';
-  el('main-article-text').innerHTML =
-    '<p>No content was found for today. The pipeline may not have run yet, ' +
-    'or your AWS credentials need updating. Check the GitHub Actions logs for clues.</p>';
-}
-
 
 // ════════════════════════════════════════════════════════════════════════════
-// UI — MODEL TABS
+// UI plumbing
 // ════════════════════════════════════════════════════════════════════════════
-
-function initModelTabs() {
-  document.querySelectorAll('.model-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const provider = tab.dataset.provider;
-      setActiveProvider(provider);
-    });
-  });
+function updateDateDisplay(date) {
+  const dateEl = el('current-date');
+  if (dateEl) dateEl.textContent = date.toLocaleDateString('en-IE',
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
-
-function setActiveProvider(provider) {
-  activeProvider = provider;
-
-  // Update tab active states
-  document.querySelectorAll('.model-tab').forEach(t => {
-    const isActive = t.dataset.provider === provider;
-    t.classList.toggle('active', isActive);
-    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-
-  // Toggle body class for CSS provider colours
-  document.body.classList.remove('provider-claude', 'provider-gemini', 'provider-local');
-  if (['claude', 'gemini', 'local'].includes(provider)) {
-    document.body.classList.add(`provider-${provider}`);
-    document.body.classList.remove('compare-mode');
-  } else if (provider === 'compare') {
-    document.body.classList.add('compare-mode');
-  }
-
-  if (currentPaperData) {
-    renderPaper(currentPaperData, provider);
-  }
-}
-
-// ── Compare article tabs ──────────────────────────────────────────────────────
-
-function initCompareArticleTabs() {
-  document.querySelectorAll('.compare-article-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.compare-article-tab')
-        .forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      activeCompareArticle = tab.dataset.article;
-      if (currentPaperData) {
-        renderCompareArticle(currentPaperData, activeCompareArticle);
-      }
-    });
-  });
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// UI — DATE PICKER
-// ════════════════════════════════════════════════════════════════════════════
 
 function initDatePicker() {
   const input = el('date-picker');
   if (!input) return;
-
-  // Use the js-datepicker vendor library if available, else a plain input.
-  if (typeof datepicker === 'function') {
-    datepicker('#date-picker', {
-      onSelect: (inst, date) => {
-        if (!date) return;
-        const iso = toISODate(date);
-        loadEditionForDate(iso);
-      },
-      maxDate: new Date(),
-      startDay: 1, // Monday start
-    });
-  } else {
-    // Fallback: plain date input
-    input.type = 'date';
-    input.max  = toISODate(new Date());
-    input.addEventListener('change', e => {
-      if (e.target.value) loadEditionForDate(e.target.value);
-    });
-  }
+  input.type = 'date';
+  input.max = toISODate(new Date());
+  input.addEventListener('change', e => { if (e.target.value) loadEditionForDate(e.target.value); });
 }
-
-function updateDateDisplay(date) {
-  const dateEl = el('current-date');
-  if (dateEl) {
-    dateEl.textContent = date.toLocaleDateString('en-IE', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-    });
-  }
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// UI — "UNDER THE HOOD" DRAWER
-// ════════════════════════════════════════════════════════════════════════════
 
 function initHoodDrawer() {
-  const toggle  = el('hood-toggle');
+  const toggle = el('hood-toggle');
   const content = el('hood-content');
   if (!toggle || !content) return;
-
   toggle.addEventListener('click', () => {
     const expanded = toggle.getAttribute('aria-expanded') === 'true';
     toggle.setAttribute('aria-expanded', String(!expanded));
-    if (expanded) {
-      content.hidden = true;
-    } else {
-      content.hidden = false;
-    }
+    content.hidden = expanded;
   });
 }
 
-
-// ════════════════════════════════════════════════════════════════════════════
-// UI — PROMPT TOOLTIP
-// ════════════════════════════════════════════════════════════════════════════
-
-function initPromptTooltips() {
-  const tooltip = el('prompt-tooltip');
-  const header  = el('tooltip-header');
-  const body    = el('tooltip-body');
-  if (!tooltip) return;
-
-  let hideTimer;
-
-  document.addEventListener('mouseover', e => {
-    const target = e.target.closest('[data-prompt-type]');
-    if (!target) return;
-
-    clearTimeout(hideTimer);
-    const promptText = target.dataset.promptText || target.dataset.promptFile || '';
-    const type = target.dataset.promptType || 'prompt';
-
-    if (!promptText) return;
-
-    header.textContent = `Prompt — ${type}`;
-    body.textContent   = promptText;
-    tooltip.hidden     = false;
-    tooltip.classList.add('visible');
-    positionTooltip(tooltip, e);
-  });
-
-  document.addEventListener('mousemove', e => {
-    if (!tooltip.hidden) positionTooltip(tooltip, e);
-  });
-
-  document.addEventListener('mouseout', e => {
-    if (!e.target.closest('[data-prompt-type]')) return;
-    hideTimer = setTimeout(() => {
-      tooltip.classList.remove('visible');
-      setTimeout(() => { tooltip.hidden = true; }, 150);
-    }, 200);
+function initNewsletter() {
+  const form = el('newsletter-form');
+  if (!form) return;
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const msg = el('newsletter-msg');
+    if (msg) msg.textContent = "Thanks! Sign-ups open in a future edition — you're on the list in spirit.";
+    form.reset();
   });
 }
-
-function positionTooltip(tooltip, e) {
-  const margin = 16;
-  const tw = tooltip.offsetWidth  || 340;
-  const th = tooltip.offsetHeight || 100;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-
-  let x = e.clientX + margin;
-  let y = e.clientY + margin;
-
-  if (x + tw > vw) x = e.clientX - tw - margin;
-  if (y + th > vh) y = e.clientY - th - margin;
-
-  tooltip.style.left = `${Math.max(4, x)}px`;
-  tooltip.style.top  = `${Math.max(4, y)}px`;
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// UI — WEATHER LINE IN MASTHEAD
-// ════════════════════════════════════════════════════════════════════════════
-
-function updateWeatherLine(data) {
-  const weatherEl = el('weather-line');
-  if (!weatherEl || !data?.context?.weather) return;
-
-  const w = data.context.weather;
-  const icon = weatherIcon(w.conditions || '');
-  weatherEl.textContent =
-    `${icon} ${w.location}: ${w.temp_c}°C — ${w.conditions}`;
-}
-
-function weatherIcon(conditions) {
-  const c = (conditions || '').toLowerCase();
-  if (c.includes('sun') || c.includes('clear')) return '☀️';
-  if (c.includes('rain') || c.includes('shower')) return '🌧️';
-  if (c.includes('cloud') || c.includes('overcast')) return '☁️';
-  if (c.includes('snow')) return '❄️';
-  if (c.includes('fog') || c.includes('mist')) return '🌫️';
-  if (c.includes('thunder') || c.includes('storm')) return '⛈️';
-  if (c.includes('drizzle')) return '🌦️';
-  return '🌤️';
-}
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// UTILITIES
-// ════════════════════════════════════════════════════════════════════════════
 
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = String(str);
+  div.textContent = String(str ?? '');
   return div.innerHTML;
 }
-
-function toISODate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+function node(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
 }
-
+function toISODate(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // BOOT
 // ════════════════════════════════════════════════════════════════════════════
-
 async function init() {
-  // Set footer year
-  const fyEl = el('footer-year');
-  if (fyEl) fyEl.textContent = new Date().getFullYear();
-
-  // Wire up UI
-  initModelTabs();
-  initCompareArticleTabs();
+  const fy = el('footer-year');
+  if (fy) fy.textContent = new Date().getFullYear();
   initDatePicker();
   initHoodDrawer();
-  initPromptTooltips();
-
-  // Load content — most recent available edition
+  initNewsletter();
   await loadMostRecentEdition();
-
-  // Update weather line from loaded data
-  if (currentPaperData) {
-    updateWeatherLine(currentPaperData);
-  }
 }
 
-// Start when the DOM is ready.
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
 } else {

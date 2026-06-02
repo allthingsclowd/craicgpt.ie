@@ -1,0 +1,159 @@
+/* ===========================================================================
+   style-v3.css — daily deep-agent edition layout (loads after style.css,
+   reuses its :root tokens). Covers the #edition grid, article cards, the
+   fun-story cards with images, the newsletter band, and the agent visualiser.
+   =========================================================================== */
+
+/* ── The edition: masonry via CSS columns (packs tightly, no row gaps) ─────── */
+.edition {
+  max-width: var(--page-width);
+  margin: 1.5rem auto;
+  padding: 0 1rem;
+  column-width: 320px;
+  column-gap: var(--gap);
+}
+
+.card {
+  background: var(--white);
+  border: var(--border-mid);
+  border-top: 6px solid var(--ink);
+  padding: 1rem 1.1rem 1.2rem;
+  border-radius: var(--radius);
+  /* Lift cards off the newsprint background so the gaps read as clean gutters. */
+  box-shadow: 3px 3px 0 rgba(26, 26, 26, 0.12);
+  /* Keep each card whole within a column. */
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  display: inline-block;   /* belt-and-braces against mid-card column breaks */
+  width: 100%;
+  margin: 0 0 var(--gap);
+}
+.card--ai   { border-top-color: var(--red); }
+.card--fun  { border-top-color: var(--flash-dark); background: #fffdf5; }
+.card--ad   { border-style: dashed; background: var(--flash); }
+/* The headliner spans the full width above the packed columns. */
+.card--lead { column-span: all; border-top-width: 10px; padding: 1.4rem 1.6rem; }
+
+/* ── Kickers / headlines / body ───────────────────────────────────────────── */
+.kicker {
+  display: inline-block;
+  font-family: var(--font-ui);
+  font-weight: 800;
+  font-size: .66rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: .2rem .5rem;
+  margin-bottom: .55rem;
+  color: var(--white);
+  background: var(--ink);
+}
+.kicker--red  { background: var(--red); }
+.kicker--gold { background: var(--flash-dark); color: var(--ink); }
+
+.headline {
+  font-family: var(--font-headline);
+  font-weight: 700;
+  line-height: 1.08;
+  color: var(--ink);
+  margin: 0 0 .5rem;
+  font-size: 1.35rem;
+}
+.headline--lead { font-size: clamp(2rem, 4.5vw, 3.4rem); }
+.card--short .headline { font-size: 1.1rem; }
+
+.standfirst {
+  font-family: var(--font-headline);
+  font-style: italic;
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  margin: 0 0 .7rem;
+}
+.byline {
+  font-family: var(--font-ui);
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--red-dark);
+  margin: 0 0 .5rem;
+}
+.body { font-family: var(--font-body); font-size: .92rem; line-height: 1.55; color: var(--ink); }
+.body p { margin: 0 0 .65rem; }
+.card--lead .body { columns: 2; column-gap: 2rem; font-size: .98rem; }
+@media (max-width: 720px) { .card--lead .body { columns: 1; } }
+
+.card-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: cover;
+  border: var(--border-thin);
+  margin-bottom: .6rem;
+  background: var(--newsprint-dark);
+}
+/* The lead photo is a banner — crop tall square images so the text stays visible. */
+.card--lead .card-img { max-height: 360px; }
+.card--ai:not(.card--lead) .card-img,
+.card--fun .card-img { height: 190px; }
+
+/* ── Per-article footer: source link, model note, disclaimer ──────────────── */
+.card-meta {
+  margin-top: .7rem;
+  padding-top: .5rem;
+  border-top: 1px dotted var(--ink-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: baseline;
+}
+.source-link { font-family: var(--font-ui); font-size: .72rem; font-weight: 700; color: var(--gemini); text-decoration: none; }
+.source-link:hover { text-decoration: underline; }
+.model-note { font-family: var(--font-ui); font-size: .68rem; color: var(--local); opacity: .85; }
+.disclaimer {
+  flex-basis: 100%;
+  font-family: var(--font-ui);
+  font-size: .62rem;
+  font-style: italic;
+  color: var(--ink-soft);
+  margin: .2rem 0 0;
+  opacity: .8;
+}
+
+/* ── Newsletter band (inert v1) ───────────────────────────────────────────── */
+.newsletter {
+  max-width: var(--page-width);
+  margin: 1.5rem auto;
+  padding: 1.5rem 1rem;
+  text-align: center;
+  background: var(--ink);
+  color: var(--newsprint);
+  border-radius: var(--radius);
+}
+.newsletter-title { font-family: var(--font-display); font-size: 1.6rem; letter-spacing: .02em; margin: 0; }
+.newsletter-sub { font-family: var(--font-body); opacity: .8; margin: .3rem 0 1rem; }
+.newsletter-form { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; }
+.newsletter-input { font-family: var(--font-ui); padding: .55rem .8rem; border: none; border-radius: var(--radius); min-width: 240px; }
+.newsletter-btn { font-family: var(--font-ui); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: .55rem 1.2rem; border: none; border-radius: var(--radius); background: var(--flash); color: var(--ink); cursor: pointer; }
+.newsletter-msg { font-family: var(--font-ui); font-size: .8rem; color: var(--flash); margin: .7rem 0 0; min-height: 1em; }
+
+/* ── Under the Hood — agent visualiser ────────────────────────────────────── */
+/* The drawer is dark (style.css), so force readable dark text on the light chips
+   and inline code we add here — otherwise it's light-on-light and unreadable. */
+.hood-intro { font-family: var(--font-body); font-size: .92rem; line-height: 1.55; max-width: 72ch; margin: 0 auto 1rem; color: var(--newsprint); }
+.hood-intro code { background: var(--flash); color: var(--ink); padding: .05em .35em; border-radius: 2px; font-weight: 700; }
+.hood-intro strong { color: var(--flash); }
+.hood-stats { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin-bottom: 1rem; }
+.hood-stat { font-family: var(--font-ui); font-size: .78rem; font-weight: 700; background: var(--white); color: var(--ink); border-radius: 999px; padding: .3rem .8rem; }
+
+.hood-trace { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: .4rem; }
+.trace-row { display: grid; grid-template-columns: 1.6rem 1fr; gap: .5rem; background: var(--white); border: var(--border-thin); border-left: 4px solid var(--ink-soft); padding: .5rem .7rem; border-radius: var(--radius); text-align: left; }
+.trace-row--plan     { border-left-color: var(--red); }
+.trace-row--subagent { border-left-color: var(--claude); }
+.trace-row--tool     { border-left-color: var(--gemini); }
+.trace-row--fallback { border-left-color: var(--flash-dark); }
+.trace-icon { font-size: 1rem; }
+.trace-name { font-family: var(--font-ui); font-weight: 800; font-size: .8rem; }
+.trace-detail { font-family: var(--font-ui); font-size: .74rem; color: var(--ink-soft); word-break: break-word; }
+.trace-todos { margin: .3rem 0 0; padding-left: 1.1rem; font-family: var(--font-body); font-size: .8rem; }
+.hood-placeholder { font-family: var(--font-body); font-style: italic; color: var(--ink-soft); text-align: center; }
+
+/* The v3 body retires the comparator chrome if any leaks through. */
+body.v3 .model-bar, body.v3 .compare-panel { display: none; }

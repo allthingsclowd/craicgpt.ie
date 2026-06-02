@@ -194,3 +194,4 @@ coverage.xml
 # -----------------------------------------------------------------------------
 # Add any project-specific patterns here
 # Example: generated content, compiled assets, etc.
+frontend/content/

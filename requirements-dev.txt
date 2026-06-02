@@ -1,0 +1,5 @@
+# Development / test dependencies (not needed to run the pipeline).
+# Install:  pip install -r requirements-dev.txt
+-r content_pipeline/requirements.txt
+
+pytest>=8.0.0

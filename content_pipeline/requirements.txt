@@ -15,8 +15,19 @@ langchain>=1.0.0
 
 # ─── LangGraph ───────────────────────────────────────────────────────────────
 # Stateful, multi-step agentic workflows. Builds on top of LangChain.
-# Used for the main pipeline StateGraph (research → generate → publish).
+# Used for the main pipeline StateGraph (research → generate → publish) and the
+# deep-agent's interrupt()-based human-in-the-loop approval gate.
 langgraph>=1.0.0
+
+# ─── Deep Agents (open source) ───────────────────────────────────────────────
+# LangChain's batteries-included agent harness: a planning tool (write_todos),
+# subagent delegation (task), and a virtual filesystem. The Editor-in-Chief
+# agent is a create_deep_agent with fun-news / AI-landscape / validator / editor
+# subagents. OSS only — no LangSmith, no LangGraph Platform.
+deepagents>=0.6.7
+
+# Durable checkpointer so an interrupt()-paused run survives until human approval.
+langgraph-checkpoint-sqlite>=2.0.0
 
 # ─── LLM Provider Packages ───────────────────────────────────────────────────
 # Each of these adds a ChatModel class for a specific provider.
