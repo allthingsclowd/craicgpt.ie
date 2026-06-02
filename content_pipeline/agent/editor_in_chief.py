@@ -203,7 +203,12 @@ def run_edition(
         RuntimeError: if the agent didn't write a parseable draft edition.
     """
     trace = trace or TraceRecorder()
-    agent = agent or build_editor_in_chief()
+    if agent is None:
+        # A checkpointer lets the optional second pass resume the SAME thread with
+        # the research files still in the virtual filesystem.
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        agent = build_editor_in_chief(checkpointer=InMemorySaver())
     brief = brief or (
         f"Produce CraicGPT's edition for {date_iso}. Today's date is {date_iso}. "
         "Plan it, delegate research and editing to your subagents.\n\n"
@@ -224,8 +229,26 @@ def run_edition(
         "recursion_limit": recursion_limit,
     }
     result = agent.invoke({"messages": [{"role": "user", "content": brief}]}, config=config)
-
     files = result.get("files", {})
+
+    # The autonomous agent reliably gathers research but sometimes stops before
+    # writing the final edition. If the draft is missing, nudge it (on the SAME
+    # checkpointed thread, so the candidate files persist) to assemble it now.
+    if not _extract_file(files, EDITION_FILE):
+        logger.warning("[run_edition] no draft after research pass; nudging editor to assemble")
+        nudge = (
+            "Read research/fun_candidates.json and research/ai_candidates.json, then "
+            "WRITE the complete edition as VALID JSON to draft/edition.json now: "
+            "1 AI headliner + 2 subarticles + 10 shorts in Graham's witty house voice, "
+            "and 5 fun stories — each in a distinct Marvel voice (call assign_marvel_voices "
+            "and set persona, byline, satire_disclaimer) with an illustration (call "
+            "generate_cover_image and set image_url). Shape: "
+            '{"ai": {"headliner": {...}, "subarticles": [...], "shorts": [...]}, "fun": [...]}. '
+            "Use write_file with path draft/edition.json, then stop."
+        )
+        result = agent.invoke({"messages": [{"role": "user", "content": nudge}]}, config=config)
+        files = result.get("files", {})
+
     raw = _extract_file(files, EDITION_FILE)
     if not raw:
         raise RuntimeError(

@@ -50,10 +50,12 @@ FUN_NEWS_RESEARCHER: SubAgent = {
         "one place.\n"
         "- Every story MUST have a real, reachable source link. Call validate_link "
         "on each URL and drop any that don't resolve.\n\n"
-        "Collect ~15-20 strong candidates with {title, summary, source_url, "
-        "continent}, then write them to the file research/fun_candidates.json. The "
-        "harness will dedupe, re-validate, and pick the final 5 deterministically — "
-        "your job is breadth and good judgement on tone, not the final cut."
+        "Do at most ~6 searches; if search is rate-limited, work with what you have "
+        "rather than retrying endlessly. Collect ~12-15 strong candidates with "
+        "{title, summary, source_url, continent}, then write them to the file "
+        "research/fun_candidates.json. The harness will dedupe, re-validate, and pick "
+        "the final 5 deterministically — your job is breadth and good judgement on "
+        "tone, not the final cut."
     ),
     "tools": [web_search, fetch_page, validate_link],
 }
@@ -81,9 +83,10 @@ AI_LANDSCAPE_RESEARCHER: SubAgent = {
         "- Focus on the last 24 hours — what is NEW or changed, not background.\n"
         "- Every item needs a real, reachable source link (call validate_link).\n"
         "- Rank by genuine significance.\n\n"
-        "Write ~20 candidates with {title, summary, source_url, why_it_matters} to "
-        "research/ai_candidates.json. The harness ranks and trims to 13 "
-        "(1 headliner + 2 subarticles + 10 shorts)."
+        "Do at most ~6 searches; if search is rate-limited, work with what you have "
+        "rather than retrying endlessly. Write ~15 candidates with "
+        "{title, summary, source_url, why_it_matters} to research/ai_candidates.json. "
+        "The harness ranks and trims to 13 (1 headliner + 2 subarticles + 10 shorts)."
     ),
     "tools": [web_search, fetch_page, validate_link],
 }
