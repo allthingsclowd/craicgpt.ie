@@ -304,8 +304,21 @@ def cmd_gate(args) -> int:
     required = _require(args)
     status = review.read_status(args.date)
     verdicts = review.read_verdicts(args.date)
+
+    # Host-side deterministic re-check before any publish (only worth fetching the
+    # draft once content is marked complete). The agents own "harmless"; we own
+    # "technically valid" — belt and braces against a bad draft slipping through.
+    valid, invalid_reasons = True, []
+    if status and status.get("state") == "complete" and not _already_live(args.date):
+        try:
+            vres = review.validate_paper(_load_edition(args.date, None, prefix="preview"))
+            valid, invalid_reasons = vres["valid"], vres["reasons"]
+        except Exception as exc:  # noqa: BLE001 — can't fetch draft → treat as not-yet-valid, retry
+            valid, invalid_reasons = False, [f"could not fetch/validate draft: {exc}"]
+
     g = review.gate(args.date, verdicts=verdicts, status=status,
-                    already_live=_already_live(args.date), required=required)
+                    already_live=_already_live(args.date), valid=valid,
+                    invalid_reasons=invalid_reasons, required=required)
     g["voted"] = {a: verdicts[a].get("verdict") for a in verdicts}
 
     if args.publish and g["action"] == "publish":

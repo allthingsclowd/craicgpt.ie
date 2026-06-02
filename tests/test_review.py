@@ -213,3 +213,11 @@ def test_gate_hold_when_an_agent_holds():
 def test_gate_already_live_short_circuits():
     g = review.gate("2026-06-02", verdicts={}, status=None, already_live=True)
     assert g["action"] == "already-live"
+
+
+def test_gate_holds_when_agents_approve_but_host_validation_fails():
+    v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
+    g = review.gate("2026-06-02", verdicts=v, status={"state": "complete"},
+                    already_live=False, valid=False, invalid_reasons=["fun 2 missing image"])
+    assert g["action"] == "hold"
+    assert any("fun 2 missing image" in r for r in g["reasons"])
