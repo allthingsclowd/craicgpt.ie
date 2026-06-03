@@ -523,7 +523,7 @@ def cmd_directive(args) -> int:
     from content_pipeline.agent import review
 
     if args.clear:
-        review.clear_directive(args.date)
+        review.clear_directive(args.date, at=_now_iso())
         print(f"directive cleared for {args.date}")
         return 0
     d = review.read_directive(args.date)

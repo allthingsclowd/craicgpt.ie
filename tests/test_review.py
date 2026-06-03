@@ -331,3 +331,28 @@ def test_gate_normal_approve_unaffected_by_no_directive():
     v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
     g = review.gate("2026-06-03", verdicts=v, status=COMPLETE, already_live=False, valid=True)
     assert g["action"] == "publish"
+
+
+def test_clear_directive_tombstones_via_put_not_delete():
+    # The publish IAM can't DeleteObject, so clear MUST tombstone via PutObject.
+    class PutOnlyS3(FakeS3):
+        def delete_object(self, **kw):
+            raise AssertionError("clear_directive must not call delete_object")
+
+    s3 = PutOnlyS3()
+    review.write_directive("2026-06-03", "force-publish", s3=s3, bucket="b", at="t0")
+    review.clear_directive("2026-06-03", s3=s3, bucket="b", at="t1")
+    raw = json.loads(s3.store[("b", review.directive_key("2026-06-03"))])
+    assert raw.get("consumed") is True            # tombstone written
+    assert review.read_directive("2026-06-03", s3=s3, bucket="b") is None  # hidden
+
+
+def test_gate_ignores_a_consumed_directive():
+    # A cleared/consumed force-publish must NOT override a HOLD.
+    s3 = FakeS3()
+    review.write_directive("2026-06-03", "force-publish", s3=s3, bucket="b", at="t0")
+    review.clear_directive("2026-06-03", s3=s3, bucket="b", at="t1")
+    directive = review.read_directive("2026-06-03", s3=s3, bucket="b")  # → None
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE,
+                    already_live=False, valid=True, directive=directive)
+    assert g["action"] == "hold"
