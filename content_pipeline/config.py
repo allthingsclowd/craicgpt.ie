@@ -21,13 +21,12 @@ Usage:
 
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
-from dotenv import load_dotenv
 
-# Load .env file if present (local development only — ignored in CI).
-# The .env file is in the repo root, one level up from this package.
-_repo_root = Path(__file__).parent.parent
-load_dotenv(_repo_root / ".env", override=False)
+# Environment variables are loaded in one of two ways:
+#   - Locally:  source .env   (shell script using 1Password op CLI)
+#   - CI:       GitHub Actions secrets / vars injected at workflow runtime
+# There is no load_dotenv() call — the .env file is a shell script, not a
+# dotenv file, so it must be sourced into the shell before running Python.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +73,13 @@ class ProviderConfig:
     lm_studio_model: str = field(
         # "auto" tells LM Studio to use whichever model is currently loaded.
         default_factory=lambda: os.getenv("LM_STUDIO_MODEL", "local-model")
+    )
+    local_llm_display_name: str = field(
+        # Human-readable label for the local LLM shown in the frontend UI.
+        # Set LOCAL_LLM_DISPLAY_NAME in .env to match whatever model is loaded
+        # in LM Studio (e.g. "Llama 3.3 70B"). Embedded in paper_content.json
+        # so the frontend can update the button label dynamically.
+        default_factory=lambda: os.getenv("LOCAL_LLM_DISPLAY_NAME", "Local LLM")
     )
 
     # ── LLM generation parameters ─────────────────────────────────────────────

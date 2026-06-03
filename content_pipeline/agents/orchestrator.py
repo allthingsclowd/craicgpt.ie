@@ -208,6 +208,9 @@ def node_compile(state: PipelineState) -> dict:
         "date": target_date.isoformat(),
         "generated_at": _utcnow_iso(),
         "pipeline_version": cfg.pipeline_version,
+        # Embed the local LLM display name so the frontend can label its button
+        # dynamically without needing a separate config endpoint.
+        "local_llm_display_name": cfg.providers.local_llm_display_name,
         "context": {
             "news_headlines": context.get("headlines", []),
             "weather": context.get("weather", {}),
