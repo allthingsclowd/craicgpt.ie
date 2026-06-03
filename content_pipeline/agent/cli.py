@@ -91,6 +91,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_gate.add_argument("--publish", action="store_true",
                         help="Actually publish on APPROVE (else just report the decision)")
 
+    # --- human-in-the-loop override / remediate (Graham via CLI or an agent) ---
+    p_ovr = sub.add_parser("override",
+                           help="Human override: publish the edition over the agents' HOLD")
+    p_ovr.add_argument("--date", required=True)
+    p_ovr.add_argument("--require", default="openclaw,hermes")
+    p_ovr.add_argument("--publish", action="store_true",
+                       help="Enact now (else just write the directive for the gate to honour)")
+    p_ovr.add_argument("--by", help="who issued the override, e.g. 'graham via openclaw'")
+    p_ovr.add_argument("--reason", help="why the override")
+
+    p_rem = sub.add_parser("remediate",
+                           help="Human remediation: drop flagged article(s) by title, then publish")
+    p_rem.add_argument("--date", required=True)
+    p_rem.add_argument("--drop", action="append", default=[], required=True,
+                       help="article title (case-insensitive substring) to drop; repeatable")
+    p_rem.add_argument("--require", default="openclaw,hermes")
+    p_rem.add_argument("--publish", action="store_true", help="Enact now (else just write the directive)")
+    p_rem.add_argument("--by", help="who issued the remediation")
+    p_rem.add_argument("--reason", help="why the remediation")
+
+    p_dir = sub.add_parser("directive", help="Inspect or clear the pending human directive")
+    p_dir.add_argument("--date", required=True)
+    p_dir.add_argument("--clear", action="store_true", help="Remove the pending directive")
+
     p_df = sub.add_parser("deploy-frontend",
                           help="Sync the static frontend to S3 (diff-only) + invalidate the CDN")
     p_df.add_argument("--dir", dest="frontend_dir", help="frontend dir (default: repo frontend/)")
@@ -153,7 +177,7 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
         if event == "generated":
             notifications.notify_generated(date_iso, kw["draft_url"])
         elif event == "published":
-            notifications.notify_published(date_iso, kw["live_url"])
+            notifications.notify_published(date_iso, kw["live_url"], note=kw.get("note"))
         elif event == "held":
             notifications.notify_held(date_iso, kw.get("reasons") or [])
     except Exception as exc:  # noqa: BLE001
@@ -180,16 +204,34 @@ def _announce_safe(date_iso: str, state: str) -> None:
         logging.warning("[cli] status announce (%s) failed: %s", state, exc)
 
 
-def _publish_live(date_iso: str, draft_path: str) -> int:
+def _draft_path(date_iso: str) -> str:
+    return f"/tmp/paper_content_{date_iso}.json"
+
+
+def _load_draft(date_iso: str) -> dict:
+    """The locally-staged draft (preferred — it keeps local image paths so publish
+    can re-upload them) or, if absent, the published preview copy."""
+    path = _draft_path(date_iso)
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    return _load_edition(date_iso, None, prefix="preview")
+
+
+def _publish_paper_live(date_iso: str, paper: dict, *, note: Optional[str] = None) -> int:
     from content_pipeline.agent.publish import publish_paper
     from content_pipeline.compile import mark_approved
 
-    with open(draft_path, encoding="utf-8") as fh:
-        paper = json.load(fh)
     paper = mark_approved(paper, approver="cli", at=_now_iso())
     key = publish_paper(paper, date_iso, live=True)
-    print(f"published live: s3://{paper.get('_bucket', '')} {key}")
+    print(f"published live{f' ({note})' if note else ''}: s3://{paper.get('_bucket', '')} {key}")
     return 0
+
+
+def _publish_live(date_iso: str, draft_path: str) -> int:
+    with open(draft_path, encoding="utf-8") as fh:
+        paper = json.load(fh)
+    return _publish_paper_live(date_iso, paper)
 
 
 def cmd_approve(args) -> int:
@@ -327,55 +369,166 @@ def cmd_announce(args) -> int:
     return 0
 
 
-def cmd_gate(args) -> int:
-    """The decoupled, idempotent publisher poll. Exit 0 published/already-live,
-    2 hold, 3 retry-later (no content yet / awaiting a verdict)."""
+def _after_publish(date_iso: str, *, note: Optional[str] = None) -> dict:
+    """Post-publish side effects shared by every publish path: keep the deployed
+    frontend in lockstep with the repo (so the site never renders a stale shell
+    against fresh content) and fire the 'published' Telegram alert. Frontend sync
+    failure must not fail the content publish."""
+    out: dict = {}
+    try:
+        from content_pipeline.agent.frontend import sync_frontend
+
+        out["frontend"] = sync_frontend(_frontend_dir())["uploaded"]
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("[cli] frontend sync after publish failed: %s", exc)
+        out["frontend_error"] = str(exc)
+    ymd = "/".join(date_iso.split("-"))
+    _notify_safe("published", date_iso,
+                 live_url=f"https://craicgpt.ie/content/{ymd}/paper_content.json", note=note)
+    return out
+
+
+def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
+    """The decoupled, idempotent publisher decision + enactment. Reads status,
+    verdicts and any human directive; computes the host-side structural check;
+    decides via :func:`review.gate`; and (when ``publish``) enacts publish /
+    override / remediate / hold, firing the matching Telegram alert. Returns the
+    decision dict (with ``published`` / ``dropped`` annotations)."""
     from content_pipeline.agent import review
 
-    required = _require(args)
-    status = review.read_status(args.date)
-    verdicts = review.read_verdicts(args.date)
+    status = review.read_status(date_iso)
+    verdicts = review.read_verdicts(date_iso)
+    directive = review.read_directive(date_iso)
 
     # Host-side deterministic re-check before any publish (only worth fetching the
     # draft once content is marked complete). The agents own "harmless"; we own
     # "technically valid" — belt and braces against a bad draft slipping through.
     valid, invalid_reasons = True, []
-    if status and status.get("state") == "complete" and not _already_live(args.date):
+    if status and status.get("state") == "complete" and not _already_live(date_iso):
         try:
-            vres = review.validate_paper(_load_edition(args.date, None, prefix="preview"))
-            valid, invalid_reasons = vres["valid"], vres["reasons"]
-        except Exception as exc:  # noqa: BLE001 — can't fetch draft → treat as not-yet-valid, retry
+            valid, invalid_reasons = _host_validate(date_iso)
+        except Exception as exc:  # noqa: BLE001 — can't fetch draft → not-yet-valid, retry
             valid, invalid_reasons = False, [f"could not fetch/validate draft: {exc}"]
 
-    g = review.gate(args.date, verdicts=verdicts, status=status,
-                    already_live=_already_live(args.date), valid=valid,
-                    invalid_reasons=invalid_reasons, required=required)
+    g = review.gate(date_iso, verdicts=verdicts, status=status,
+                    already_live=_already_live(date_iso), valid=valid,
+                    invalid_reasons=invalid_reasons, required=required, directive=directive)
     g["voted"] = {a: review.verdict_of(verdicts[a]) or None for a in verdicts}
+    if not publish:
+        return g
 
-    if args.publish and g["action"] == "publish":
-        rc = _publish_live(args.date, f"/tmp/paper_content_{args.date}.json")
+    by = (directive or {}).get("by") or "operator"
+    if g["action"] in ("publish", "override-publish"):
+        note = None if g["action"] == "publish" else f"override by {by}"
+        rc = _publish_live(date_iso, _draft_path(date_iso))
         g["published"] = rc == 0
-        # Keep the deployed frontend in lockstep with the repo so the site can
-        # never render a stale shell against fresh content. Diff-only; failure
-        # here must not fail the content publish.
         if rc == 0:
-            try:
-                from content_pipeline.agent.frontend import sync_frontend
-
-                g["frontend"] = sync_frontend(_frontend_dir())["uploaded"]
-            except Exception as exc:  # noqa: BLE001
-                logging.warning("[cli] frontend sync after publish failed: %s", exc)
-                g["frontend_error"] = str(exc)
-            # Edition is live — notify both agents' channels (once per date).
-            ymd = "/".join(args.date.split("-"))
-            _notify_safe("published", args.date,
-                         live_url=f"https://craicgpt.ie/content/{ymd}/paper_content.json")
-    elif args.publish and g["action"] == "hold":
+            g.update(_after_publish(date_iso, note=note))
+    elif g["action"] == "remediate-publish":
+        g.update(_remediate_and_publish(date_iso, g.get("drop") or [], by=by))
+    elif g["action"] == "hold":
         # An editorial HOLD (or failed host validation) is exactly the case that
         # used to go unseen — surface it to both agents' channels (once per date).
-        _notify_safe("held", args.date, reasons=g.get("reasons"))
+        _notify_safe("held", date_iso, reasons=g.get("reasons"))
+    return g
+
+
+def _host_validate(date_iso: str) -> tuple:
+    from content_pipeline.agent import review
+
+    vres = review.validate_paper(_load_edition(date_iso, None, prefix="preview"))
+    return vres["valid"], vres["reasons"]
+
+
+def _remediate_and_publish(date_iso: str, drop: list, *, by: str) -> dict:
+    """Drop the flagged item(s), re-validate the cleaned edition structurally, then
+    republish it to preview/ AND publish live. If removal leaves a structurally
+    invalid edition, hold instead (and say so)."""
+    from content_pipeline.agent import review
+    from content_pipeline.agent.publish import publish_paper
+
+    out: dict = {}
+    paper = _load_draft(date_iso)
+    cleaned, dropped = review.remove_items(paper, drop)
+    out["dropped"] = dropped
+    vres = review.validate_paper(cleaned)
+    if not vres["valid"]:
+        out["action"] = "hold"
+        out["published"] = False
+        reasons = ["remediation left the edition structurally invalid: " + r
+                   for r in vres["reasons"]]
+        out["reasons"] = reasons
+        _notify_safe("held", date_iso, reasons=reasons)
+        return out
+
+    # Persist the cleaned edition: refresh the local draft + the preview copy so
+    # what goes live and what's in preview match, then publish live.
+    with open(_draft_path(date_iso), "w", encoding="utf-8") as fh:
+        json.dump(cleaned, fh, indent=2, ensure_ascii=False)
+    import copy
+
+    publish_paper(copy.deepcopy(cleaned), date_iso, live=False)
+    rc = _publish_paper_live(date_iso, cleaned, note=f"remediated by {by}")
+    out["published"] = rc == 0
+    if rc == 0:
+        note = f"remediated by {by}: dropped {len(dropped)} item(s)"
+        out.update(_after_publish(date_iso, note=note))
+    return out
+
+
+def cmd_gate(args) -> int:
+    """The decoupled, idempotent publisher poll. Exit 0 published/already-live,
+    2 hold, 3 retry-later (no content yet / awaiting a verdict)."""
+    g = _run_gate(args.date, _require(args), publish=args.publish)
     print(json.dumps(g, indent=2, ensure_ascii=False))
-    return {"already-live": 0, "publish": 0, "hold": 2, "retry": 3}.get(g["action"], 3)
+    return {"already-live": 0, "publish": 0, "override-publish": 0,
+            "remediate-publish": 0, "hold": 2, "retry": 3}.get(g["action"], 3)
+
+
+def cmd_override(args) -> int:
+    """Human override: publish the edition over the agents' HOLD. Writes the
+    directive (so an out-of-band gate poll will also honour it) and, with
+    --publish, enacts it now."""
+    from content_pipeline.agent import review
+
+    key = review.write_directive(args.date, "force-publish", by=args.by,
+                                 reason=args.reason, at=_now_iso())
+    print(f"directive written: force-publish {args.date} → {key}")
+    if not args.publish:
+        return 0
+    g = _run_gate(args.date, _require(args), publish=True)
+    print(json.dumps(g, indent=2, ensure_ascii=False))
+    return {"already-live": 0, "override-publish": 0, "publish": 0,
+            "hold": 2, "retry": 3}.get(g["action"], 3)
+
+
+def cmd_remediate(args) -> int:
+    """Human remediation: drop the flagged article(s) (matched on title) and
+    publish the cleaned edition. Writes the directive and, with --publish, enacts."""
+    from content_pipeline.agent import review
+
+    key = review.write_directive(args.date, "remove-and-publish", drop=args.drop,
+                                 by=args.by, reason=args.reason, at=_now_iso())
+    print(f"directive written: remove-and-publish {args.date} drop={args.drop} → {key}")
+    if not args.publish:
+        return 0
+    g = _run_gate(args.date, _require(args), publish=True)
+    print(json.dumps(g, indent=2, ensure_ascii=False))
+    return {"already-live": 0, "remediate-publish": 0, "publish": 0,
+            "hold": 2, "retry": 3}.get(g["action"], 3)
+
+
+def cmd_directive(args) -> int:
+    """Inspect or clear the pending human directive for a date."""
+    from content_pipeline.agent import review
+
+    if args.clear:
+        review.clear_directive(args.date)
+        print(f"directive cleared for {args.date}")
+        return 0
+    d = review.read_directive(args.date)
+    print(json.dumps(d, indent=2, ensure_ascii=False) if d else "(no directive)")
+    return 0
 
 
 def cmd_deploy_frontend(args) -> int:
@@ -411,6 +564,12 @@ def main(argv=None) -> int:
         return cmd_announce(args)
     if args.command == "gate":
         return cmd_gate(args)
+    if args.command == "override":
+        return cmd_override(args)
+    if args.command == "remediate":
+        return cmd_remediate(args)
+    if args.command == "directive":
+        return cmd_directive(args)
     if args.command == "deploy-frontend":
         return cmd_deploy_frontend(args)
     print(f"unknown command {args.command!r}", file=sys.stderr)

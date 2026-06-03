@@ -30,3 +30,26 @@ def test_approve_requires_date():
 def test_publish_requires_date_and_draft():
     args = build_parser().parse_args(["publish", "--date", "2026-06-02", "--draft", "/tmp/d.json"])
     assert args.draft == "/tmp/d.json"
+
+
+# --- HITL override / remediate / directive ----------------------------------
+def test_override_parses_with_publish_and_by():
+    a = build_parser().parse_args(
+        ["override", "--date", "2026-06-03", "--publish", "--by", "graham via openclaw"])
+    assert a.command == "override" and a.publish is True and a.by == "graham via openclaw"
+
+
+def test_remediate_requires_drop():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["remediate", "--date", "2026-06-03"])  # --drop required
+
+
+def test_remediate_parses_multiple_drops():
+    a = build_parser().parse_args(
+        ["remediate", "--date", "2026-06-03", "--drop", "china", "--drop", "war"])
+    assert a.drop == ["china", "war"]
+
+
+def test_directive_parses_clear():
+    a = build_parser().parse_args(["directive", "--date", "2026-06-03", "--clear"])
+    assert a.command == "directive" and a.clear is True

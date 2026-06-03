@@ -209,18 +209,25 @@ def read_review_request(date_iso: str, *, s3: Any | None = None,
 
 def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
          already_live: bool, valid: bool = True, invalid_reasons: Optional[list] = None,
-         required: Iterable[str] = DEFAULT_AGENTS) -> dict[str, Any]:
+         required: Iterable[str] = DEFAULT_AGENTS,
+         directive: Optional[dict] = None) -> dict[str, Any]:
     """Pure decision for the idempotent publisher poll. Returns
     ``{"action": ..., "decision": ..., "reasons": [...]}`` where action is one of:
 
-    * ``"already-live"`` — content/<date> exists; nothing to do.
-    * ``"retry"``        — no complete content yet, or awaiting a verdict.
-    * ``"publish"``      — complete + two-agent APPROVE + host-valid → publish now.
-    * ``"hold"``         — an agent held, OR host-side validation failed; notify.
+    * ``"already-live"``      — content/<date> exists; nothing to do.
+    * ``"retry"``             — no complete content yet, or awaiting a verdict.
+    * ``"publish"``           — complete + two-agent APPROVE + host-valid → publish.
+    * ``"hold"``              — an agent held, OR host-side validation failed; notify.
+    * ``"override-publish"``  — a human directive force-publishes over a HOLD/WAIT.
+    * ``"remediate-publish"`` — a human directive drops the flagged item(s), then
+                                publishes (the host re-validates AFTER removal).
 
     ``valid`` is the host-side deterministic check (the agents own "harmless",
     the host owns "technically valid") — a draft the agents somehow approved but
-    that fails structural validation is held, never published.
+    that fails structural validation is held, never published. A human
+    ``directive`` (see :func:`read_directive`) overrides an agent HOLD/WAIT, but a
+    force-publish still requires structural validity — you can override the
+    "harmless" judgement, not ship a structurally broken page.
     """
     if already_live:
         return {"action": "already-live", "decision": "APPROVE", "reasons": []}
@@ -233,9 +240,108 @@ def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
             return {"action": "hold", "decision": "HOLD",
                     "reasons": ["host validation failed: " + r for r in (invalid_reasons or [])]}
         return {"action": "publish", "decision": "APPROVE", "reasons": []}
+
+    # Consensus is HOLD or WAIT. A human directive (issued via the CLI on .75 or
+    # written to S3 by an approval agent on Graham's say-so) overrides it.
+    action = (directive or {}).get("action")
+    if action == "force-publish":
+        if not valid:
+            return {"action": "hold", "decision": "HOLD",
+                    "reasons": ["override blocked — structural validation failed: "
+                                + r for r in (invalid_reasons or [])],
+                    "directive": directive}
+        return {"action": "override-publish", "decision": "OVERRIDE",
+                "reasons": [f"human override by {directive.get('by') or 'operator'}"],
+                "directive": directive}
+    if action == "remove-and-publish":
+        return {"action": "remediate-publish", "decision": "OVERRIDE",
+                "reasons": [f"human remediation by {directive.get('by') or 'operator'}"],
+                "drop": list(directive.get("drop") or []), "directive": directive}
+
     if consensus["decision"] == "HOLD":
         return {"action": "hold", "decision": "HOLD", "reasons": consensus["reasons"]}
     return {"action": "retry", "decision": "WAIT", "reasons": consensus["reasons"]}
+
+
+# --- human-in-the-loop directive (override / remediate) ---------------------
+DIRECTIVE_ACTIONS = ("force-publish", "remove-and-publish")
+
+
+def directive_key(date_iso: str) -> str:
+    return s3_key(date_iso, content_cfg.preview_prefix, "directive.json")
+
+
+def write_directive(date_iso: str, action: str, *, drop: Optional[Iterable[str]] = None,
+                    by: Optional[str] = None, reason: Optional[str] = None,
+                    s3: Any | None = None, bucket: Optional[str] = None,
+                    at: Optional[str] = None) -> str:
+    """Write the human override directive the publish gate honours. ``action`` is
+    ``force-publish`` (publish over the HOLD) or ``remove-and-publish`` (drop the
+    items named in ``drop`` — matched on title — then publish)."""
+    if action not in DIRECTIVE_ACTIONS:
+        raise ValueError(f"action must be one of {DIRECTIVE_ACTIONS}, got {action!r}")
+    s3 = s3 or _default_s3()
+    bucket = bucket or content_cfg.s3_bucket
+    body = {"date": date_iso, "action": action, "drop": list(drop or []),
+            "by": by, "reason": reason, "at": at}
+    s3.put_object(Bucket=bucket, Key=directive_key(date_iso),
+                  Body=json.dumps(body, ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json", CacheControl="no-cache")
+    logger.info("[review] directive %s for %s (by %s)", action, date_iso, by)
+    return directive_key(date_iso)
+
+
+def read_directive(date_iso: str, *, s3: Any | None = None,
+                   bucket: Optional[str] = None) -> Optional[dict]:
+    s3 = s3 or _default_s3()
+    return _get_json(s3, bucket or content_cfg.s3_bucket, directive_key(date_iso))
+
+
+def clear_directive(date_iso: str, *, s3: Any | None = None,
+                    bucket: Optional[str] = None) -> None:
+    """Remove the directive (e.g. after it's been enacted, so it can't re-fire)."""
+    s3 = s3 or _default_s3()
+    try:
+        s3.delete_object(Bucket=bucket or content_cfg.s3_bucket, Key=directive_key(date_iso))
+    except Exception:  # noqa: BLE001 — already gone is fine
+        pass
+
+
+def _norm_title(s: Any) -> str:
+    return " ".join(str(s or "").split()).casefold()
+
+
+def remove_items(paper: dict, titles: Iterable[str]) -> tuple[dict, list[dict]]:
+    """Drop list-section items (ai.shorts / ai.subarticles / fun) whose title
+    matches any of ``titles`` (case-insensitive, whitespace-normalised substring).
+    The single required headliner is never removed (that would break the edition;
+    a held headliner is a regenerate, not a remediate). Returns
+    ``(new_paper, dropped)`` where dropped is ``[{"section","title"}]``."""
+    import copy
+
+    wanted = [_norm_title(t) for t in titles if _norm_title(t)]
+    paper = copy.deepcopy(paper)
+    dropped: list[dict] = []
+
+    def _filter(items, section):
+        kept = []
+        for it in items or []:
+            title = (it or {}).get("title", "")
+            if wanted and any(w in _norm_title(title) for w in wanted):
+                dropped.append({"section": section, "title": title})
+            else:
+                kept.append(it)
+        return kept
+
+    ai = paper.get("ai") or {}
+    if "shorts" in ai:
+        ai["shorts"] = _filter(ai.get("shorts"), "ai.shorts")
+    if "subarticles" in ai:
+        ai["subarticles"] = _filter(ai.get("subarticles"), "ai.subarticles")
+    paper["ai"] = ai
+    if "fun" in paper:
+        paper["fun"] = _filter(paper.get("fun"), "fun")
+    return paper, dropped
 
 
 def verdict_of(v: dict) -> str:

@@ -156,6 +156,9 @@ class FakeS3:
         keys = [{"Key": k} for (b, k) in self.store if b == Bucket and k.startswith(Prefix)]
         return {"Contents": keys} if keys else {}
 
+    def delete_object(self, *, Bucket, Key):
+        self.store.pop((Bucket, Key), None)
+
 
 class _Body:
     def __init__(self, b):
@@ -245,3 +248,86 @@ def test_gate_holds_when_agents_approve_but_host_validation_fails():
                     already_live=False, valid=False, invalid_reasons=["fun 2 missing image"])
     assert g["action"] == "hold"
     assert any("fun 2 missing image" in r for r in g["reasons"])
+
+
+# --- human directive: write/read/clear --------------------------------------
+def test_directive_roundtrip_and_clear():
+    s3 = FakeS3()
+    assert review.read_directive("2026-06-03", s3=s3, bucket="b") is None
+    review.write_directive("2026-06-03", "force-publish", by="graham via openclaw",
+                           reason="override", s3=s3, bucket="b", at="t0")
+    d = review.read_directive("2026-06-03", s3=s3, bucket="b")
+    assert d["action"] == "force-publish" and d["by"] == "graham via openclaw"
+    review.clear_directive("2026-06-03", s3=s3, bucket="b")
+    assert review.read_directive("2026-06-03", s3=s3, bucket="b") is None
+
+
+def test_write_directive_rejects_bad_action():
+    with pytest.raises(ValueError):
+        review.write_directive("2026-06-03", "nuke-it", s3=FakeS3(), bucket="b")
+
+
+# --- remove_items -----------------------------------------------------------
+def test_remove_items_drops_by_title_substring():
+    paper = good_paper()
+    paper["ai"]["shorts"][1]["title"] = "China's Predictive Police State"
+    cleaned, dropped = review.remove_items(paper, ["china's predictive police"])
+    assert len(cleaned["ai"]["shorts"]) == 9
+    assert dropped == [{"section": "ai.shorts", "title": "China's Predictive Police State"}]
+    # deep-copied: the original is untouched
+    assert len(paper["ai"]["shorts"]) == 10
+
+
+def test_remove_items_no_match_is_noop():
+    cleaned, dropped = review.remove_items(good_paper(), ["nothing matches this"])
+    assert dropped == []
+    assert len(cleaned["ai"]["shorts"]) == 10
+
+
+def test_remove_items_empty_titles_drops_nothing():
+    cleaned, dropped = review.remove_items(good_paper(), [])
+    assert dropped == [] and len(cleaned["ai"]["shorts"]) == 10
+
+
+# --- gate honouring a human directive ---------------------------------------
+COMPLETE = {"state": "complete"}
+_HOLD2 = {"openclaw": {"verdict": "HOLD", "reasons": ["grim"]},
+          "hermes": {"verdict": "HOLD", "reasons": ["grim"]}}
+
+
+def test_gate_force_publish_overrides_hold():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    valid=True, directive={"action": "force-publish", "by": "graham"})
+    assert g["action"] == "override-publish" and g["decision"] == "OVERRIDE"
+
+
+def test_gate_force_publish_still_blocked_when_invalid():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    valid=False, invalid_reasons=["headliner missing an image_url"],
+                    directive={"action": "force-publish"})
+    assert g["action"] == "hold"
+    assert any("structural" in r for r in g["reasons"])
+
+
+def test_gate_remove_and_publish_overrides_hold():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    directive={"action": "remove-and-publish", "drop": ["china"], "by": "graham"})
+    assert g["action"] == "remediate-publish" and g["drop"] == ["china"]
+
+
+def test_gate_directive_cannot_publish_without_complete_content():
+    g = review.gate("2026-06-03", verdicts={}, status=None, already_live=False,
+                    directive={"action": "force-publish"})
+    assert g["action"] == "retry"
+
+
+def test_gate_directive_ignored_when_already_live():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=True,
+                    directive={"action": "force-publish"})
+    assert g["action"] == "already-live"
+
+
+def test_gate_normal_approve_unaffected_by_no_directive():
+    v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
+    g = review.gate("2026-06-03", verdicts=v, status=COMPLETE, already_live=False, valid=True)
+    assert g["action"] == "publish"
