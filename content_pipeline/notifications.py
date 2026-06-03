@@ -41,12 +41,13 @@ TELEGRAM_API = "https://api.telegram.org"
 
 
 # --- channel targets --------------------------------------------------------
-def _channel_targets() -> list[tuple[str, str, str]]:
-    """``[(label, bot_token, chat_id)]`` for every configured channel.
+def _channel_targets(which: str = "both") -> list[tuple[str, str, str]]:
+    """``[(label, bot_token, chat_id)]`` for the requested channel(s).
 
     Each agent has its own bot; both default to the shared operator chat unless a
     per-agent chat id overrides it. A channel missing a token or a chat id is
-    dropped, so an unconfigured deployment is a quiet no-op."""
+    dropped, so an unconfigured deployment is a quiet no-op. ``which`` selects
+    ``"openclaw"``, ``"hermes"`` or ``"both"`` (the default)."""
     shared = content_cfg.telegram_chat_id
     candidates = [
         ("openclaw", content_cfg.telegram_openclaw_bot_token,
@@ -54,7 +55,10 @@ def _channel_targets() -> list[tuple[str, str, str]]:
         ("hermes", content_cfg.telegram_hermes_bot_token,
          content_cfg.telegram_hermes_chat_id or shared),
     ]
-    return [(label, token, chat) for (label, token, chat) in candidates if token and chat]
+    targets = [(label, token, chat) for (label, token, chat) in candidates if token and chat]
+    if which and which != "both":
+        targets = [t for t in targets if t[0] == which]
+    return targets
 
 
 # --- low-level send ---------------------------------------------------------
@@ -76,13 +80,14 @@ def _post(token: str, chat_id: str, text: str, timeout: float) -> tuple[bool, st
         return False, str(exc)
 
 
-def send_message(text: str, *,
+def send_message(text: str, *, which: str = "both",
                  targets: Optional[Iterable[tuple[str, str, str]]] = None,
                  timeout: float = 10.0) -> list[dict]:
-    """Fan ``text`` out to every configured channel (each via its own bot).
-    Returns a per-target result list (empty if Telegram isn't configured — a
-    quiet, intentional skip)."""
-    targets = list(targets) if targets is not None else _channel_targets()
+    """Fan ``text`` out to the requested channel(s) (each via its own bot).
+    ``which`` is ``"openclaw"``, ``"hermes"`` or ``"both"`` (ignored if explicit
+    ``targets`` are passed). Returns a per-target result list (empty if Telegram
+    isn't configured — a quiet, intentional skip)."""
+    targets = list(targets) if targets is not None else _channel_targets(which)
     if not targets:
         logger.info("[notify] telegram not configured; skipping: %s", text[:80])
         return []

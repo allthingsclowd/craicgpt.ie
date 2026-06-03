@@ -53,3 +53,19 @@ def test_remediate_parses_multiple_drops():
 def test_directive_parses_clear():
     a = build_parser().parse_args(["directive", "--date", "2026-06-03", "--clear"])
     assert a.command == "directive" and a.clear is True
+
+
+# --- message subcommand -----------------------------------------------------
+def test_message_parses_default_both():
+    a = build_parser().parse_args(["message", "--text", "hello"])
+    assert a.command == "message" and a.text == "hello" and a.which == "both"
+
+
+def test_message_to_selects_bot():
+    a = build_parser().parse_args(["message", "--text", "x", "--to", "openclaw"])
+    assert a.which == "openclaw"
+
+
+def test_message_requires_text():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["message", "--to", "both"])
