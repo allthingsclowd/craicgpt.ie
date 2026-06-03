@@ -36,8 +36,6 @@
         <h1 class="masthead-title">THE CRAIC GAZETTE</h1>
         <p class="masthead-subtitle">All the craic that's fit to hallucinate</p>
       </div>
-      <img src="static_assets/images/GeekwiththePeak.png" alt="The Geek with the Peak"
-           class="masthead-logo masthead-logo--right">
     </div>
 
     <div class="masthead-dateline">
@@ -85,10 +83,12 @@
     <div class="hood-content" id="hood-content" hidden>
       <p class="hood-intro">
         This edition was produced by an <strong>Editor-in-Chief deep agent</strong>
-        (LangChain <code>deepagents</code> + LangGraph, all open source). It planned the
-        edition, delegated to a fun-news researcher, an AI-landscape researcher and an
-        editor, validated every source link, then left a draft for human approval. Below
-        is what it actually did.
+        (LangChain <code>deepagents</code> + LangGraph, all open source). It plans the
+        edition with <code>write_todos</code>, delegates to a fun-news researcher and an
+        AI-landscape researcher, and validates every source link — then the newsroom
+        writes the articles deterministically (plain chat&rarr;JSON), illustrates them in
+        rotating art styles, and leaves a draft for human approval. Below is the recorded
+        play-by-play — the open-source alternative to a hosted trace dashboard.
       </p>
       <div class="hood-stats" id="hood-stats"></div>
       <div class="hood-trace" id="hood-trace">
@@ -100,11 +100,17 @@
   <!-- ── FOOTER ───────────────────────────────────────────────────────────── -->
   <footer class="site-footer">
     <div class="footer-inner">
+      <p class="footer-social">
+        <a href="https://www.linkedin.com/in/grahamjland" target="_blank" rel="noopener">LinkedIn</a>
+        <a href="https://allthingscloud.eu" target="_blank" rel="noopener">Blog · allthingscloud.eu</a>
+        <a href="https://github.com/allthingsclowd" target="_blank" rel="noopener">GitHub</a>
+        <a href="about.html">About the Editor</a>
+      </p>
       <p class="footer-copy">&copy; <span id="footer-year"></span> CraicGPT.ie —
         <em>No hallucinations were harmed in the making of this newspaper.</em></p>
       <p class="footer-tech">
         Written by open-source <a href="https://qwenlm.github.io" target="_blank" rel="noopener">Qwen3.6</a>
-        + <a href="https://blackforestlabs.ai" target="_blank" rel="noopener">FLUX</a>,
+        + <a href="https://huggingface.co/HiDream-ai" target="_blank" rel="noopener">HiDream-O1</a>,
         orchestrated by <a href="https://github.com/langchain-ai/deepagents" target="_blank" rel="noopener">LangChain deep agents</a>
         + <a href="https://langchain-ai.github.io/langgraph/" target="_blank" rel="noopener">LangGraph</a>.
         Source on <a href="https://github.com/allthingsclowd/craicgpt.ie" target="_blank" rel="noopener">GitHub</a>.

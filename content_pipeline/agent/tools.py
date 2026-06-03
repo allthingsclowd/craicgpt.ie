@@ -73,9 +73,10 @@ def web_search(query: str) -> str:
 
 @tool
 def fetch_page(url: str) -> str:
-    """Fetch a web page and return its readable text (truncated to ~6000 chars).
+    """Fetch a web page and return its readable text (truncated to ~4500 chars).
 
-    Use this to read a candidate source before writing about it or citing it.
+    Use this to read a candidate source before writing about it or citing it —
+    far enough into the body to capture the article's conclusion, not just its lede.
     """
     import re
 
@@ -90,7 +91,7 @@ def fetch_page(url: str) -> str:
                       flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
-        return text[:2500]  # enough for the gist; keeps the context window in check
+        return text[:4500]  # far enough in to reach the conclusion; still context-safe
     except Exception as exc:  # noqa: BLE001
         logger.warning("[tool:fetch_page] failed for %s: %s", url, exc)
         return f"fetch_page error: {exc}"

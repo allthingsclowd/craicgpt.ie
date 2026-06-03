@@ -137,7 +137,10 @@ a:hover {
 
 .masthead-main {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  /* CraicGPT logo (left) + title (fills the rest). The personal "Geek with the
+     Peak" logo was retired from the banner so the title gets the room; it now
+     bylines the Editor's Brief and the About page instead. */
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 1rem;
   padding: 1.25rem 1.5rem;
@@ -175,7 +178,6 @@ a:hover {
 }
 
 .masthead-logo--left  { max-height: 200px; }
-.masthead-logo--right { max-height: 120px; }
 
 .masthead-dateline {
   background: var(--white);
@@ -204,7 +206,6 @@ a:hover {
   }
 
   .masthead-logo--left  { max-height: 120px; }
-  .masthead-logo--right { max-height: 80px;  }
 
   .masthead-top-strip {
     flex-direction: column;
@@ -972,6 +973,28 @@ a:hover {
 }
 
 .footer-tech a:hover {
+  text-decoration: underline;
+}
+
+.footer-social {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem 1.25rem;
+  margin-bottom: 0.7rem;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.footer-social a {
+  color: var(--flash);
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.footer-social a:hover {
   text-decoration: underline;
 }
 

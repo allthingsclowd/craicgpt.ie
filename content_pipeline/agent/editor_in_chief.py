@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
+from pathlib import Path
 from typing import Any, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -32,6 +34,7 @@ from content_pipeline.agent.subagents import EDITOR_IN_CHIEF_PROMPT, SUBAGENTS
 from content_pipeline.agent.trace import TraceRecorder, extract_trace
 from content_pipeline.compile import build_paper
 from content_pipeline.content_config import content_cfg
+from content_pipeline.generate.image_styles import assign_styles, build_image_prompt
 from content_pipeline.generate.personas import (
     ROSTER,
     SATIRE_DISCLAIMER,
@@ -39,13 +42,32 @@ from content_pipeline.generate.personas import (
     persona_byline,
     voice_brief,
 )
-from content_pipeline.generate.writer import loads_lenient, write_ai_section, write_fun_story
+from content_pipeline.generate.writer import (
+    loads_lenient,
+    write_about,
+    write_ai_section,
+    write_editors_brief,
+    write_fun_story,
+)
 from content_pipeline.research.curation import Story, curate_candidates
 from content_pipeline.providers.litellm import get_litellm_llm
 
 logger = logging.getLogger(__name__)
 
 EDITION_FILE = "/draft/edition.json"
+
+# The editor's CV — the version-controlled source the daily About page is rewritten
+# from (in Father Ted's voice). Lives at content_pipeline/data/editor_cv.md.
+_CV_PATH = Path(__file__).resolve().parent.parent / "data" / "editor_cv.md"
+
+
+def _read_editor_cv() -> str:
+    """Read the committed CV markdown; empty string if missing (degrade gracefully)."""
+    try:
+        return _CV_PATH.read_text(encoding="utf-8")
+    except OSError as exc:  # noqa: BLE001
+        logger.warning("[run_edition] could not read editor CV at %s (%s)", _CV_PATH, exc)
+        return ""
 
 
 def build_brain(model_name: Optional[str] = None) -> BaseChatModel:
@@ -105,7 +127,9 @@ EDITION_RESEARCH_BRIEF = (
     "fun-news-researcher and the ai-landscape-researcher to gather candidates and "
     "WRITE them as JSON arrays to research/fun_candidates.json (items: "
     '{{"title","summary","source_url","continent"}}) and research/ai_candidates.json '
-    '(items: {{"title","summary","source_url"}}). Validate the links. Once BOTH '
+    '(items: {{"title","summary","source_url","why_it_matters","key_points","conclusion"}}, '
+    "where key_points is a list of 2-4 concrete facts and conclusion is the story's "
+    "outcome/takeaway read from the article body via fetch_page). Validate the links. Once BOTH "
     "research files exist, STOP — the edition is written automatically from your "
     "research. You do NOT write the articles or any draft yourself."
 )
@@ -214,31 +238,18 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
         item["satire_disclaimer"] = SATIRE_DISCLAIMER
 
 
-def _image_prompt(item: dict) -> str:
-    """A photorealistic editorial-photo prompt derived from a story.
-
-    Heavy no-text framing — FLUX otherwise scrawls garbled faux-text/brand names
-    when the subject contains proper nouns.
-    """
-    return (
-        "Candid photorealistic editorial news photograph, documentary style, high "
-        "detail, natural lighting, depicting the scene of: "
-        f"{item.get('title', '')}. {(item.get('body', '') or '')[:140]}\n"
-        "IMPORTANT: absolutely NO text, NO letters, NO words, NO numbers, NO "
-        "signage, NO logos, NO brand names, NO screens showing text, NO watermarks, "
-        "NO captions anywhere in the frame. A clean photograph with zero typography."
-    )
-
-
-def _generate_images(ai: dict, fun: list, *, generate=None, image_model: Optional[str] = None) -> Optional[str]:
+def _generate_images(
+    ai: dict, fun: list, date_iso: str, *, generate=None, image_model: Optional[str] = None
+) -> Optional[str]:
     """Generate images in the harness: the 3 AI leads + every fun story.
 
-    The main article and the two subarticles get a relevant **photorealistic**
-    image; so does each fun story. Generation is done here (not by the agent,
-    which invents stock URLs), overwriting any image_url the editor set and
-    stamping ``image_alt`` + ``_image_model``. ``generate`` is injectable for
-    tests: ``prompt -> (local_path, model)``; default calls FLUX via
-    :func:`generate.images.save_image`. A failed image clears image_url rather
+    Each image is rendered in a DIFFERENT art style — a day-stable rotation (see
+    :mod:`content_pipeline.generate.image_styles`) — so one edition showcases the
+    model's range while every image stays relevant to its story. Generation is done
+    here (not by the agent, which invents stock URLs), overwriting any image_url the
+    editor set and stamping ``image_alt``, ``_image_model`` and ``_image_style``.
+    ``generate`` is injectable for tests: ``prompt -> (local_path, model)``; default
+    calls :func:`generate.images.save_image`. A failed image clears image_url rather
     than crashing the edition. Returns the image model actually used.
     """
     def _default(prompt: str):
@@ -255,12 +266,14 @@ def _generate_images(ai: dict, fun: list, *, generate=None, image_model: Optiona
     targets += [s for s in ai.get("subarticles", []) if isinstance(s, dict)]
     targets += [f for f in fun if isinstance(f, dict)]
 
-    for item in targets:
+    styles = assign_styles(len(targets), seed=date_iso)
+    for item, style in zip(targets, styles):
         try:
-            path, model = gen(_image_prompt(item))
+            path, model = gen(build_image_prompt(item, style))
             item["image_url"] = path
             item["image_alt"] = item.get("title", "")
             item["_image_model"] = model or image_model
+            item["_image_style"] = style["name"]
             used_model = model or used_model
         except Exception as exc:  # noqa: BLE001 — a bad image must not sink the edition
             logger.warning("[run_edition] image generation failed: %s", exc)
@@ -274,11 +287,14 @@ def _stamp_attribution(
     *,
     text_model: Optional[str],
     image_model: Optional[str],
+    extras: Optional[list] = None,
 ) -> None:
     """Stamp `_text_model` (and `_image_model` for illustrated fun items).
 
     Uses ``setdefault`` so any model-supplied attribution is preserved; otherwise
     records the configured routes that actually ran (honest "generated by" note).
+    ``extras`` covers the text-only synthesis pieces (the editor's brief, the about
+    page) so they carry a "generated by" note too.
     """
     text_model = text_model or content_cfg.brain_model
     image_model = image_model or content_cfg.image_model
@@ -292,6 +308,41 @@ def _stamp_attribution(
             item.setdefault("_text_model", text_model)
             if item.get("image_url"):
                 item.setdefault("_image_model", image_model)
+    for item in extras or []:
+        if isinstance(item, dict) and item:
+            item.setdefault("_text_model", text_model)
+
+
+def _write_brief(ai: dict, fun: list, generate) -> dict:
+    """The whole-edition Editor's Brief, guarded so a failure never sinks the edition."""
+    try:
+        return write_editors_brief(ai, fun, generate=generate)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[run_edition] editor's brief failed (%s); omitting", exc)
+        return {}
+
+
+def _write_about(generate) -> dict:
+    """The daily Father-Ted About page, guarded; empty if the CV is missing or it fails."""
+    cv = _read_editor_cv()
+    if not cv:
+        return {}
+    try:
+        return write_about(cv, generate=generate)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[run_edition] about page failed (%s); omitting", exc)
+        return {}
+
+
+def _trace_images(trace: TraceRecorder, ai: dict, fun: list, image_model: Optional[str]) -> None:
+    """Record one generate_image event per illustrated item, showing the style rotation."""
+    if image_model:
+        trace.model_route("image", image_model)
+    items = [ai.get("headliner")] + list(ai.get("subarticles", [])) + list(fun)
+    for item in items:
+        if isinstance(item, dict) and item.get("image_url") and item.get("_image_style"):
+            trace.tool_call("generate_image", f"style={item['_image_style']}",
+                            result=item.get("image_alt", ""))
 
 
 def run_edition(
@@ -345,6 +396,7 @@ def run_edition(
         logger.warning("[run_edition] research run errored (%s); using files written so far", exc)
         result = {"messages": [], "files": {}}
     files = result.get("files", {})
+    trace.model_route("research-brain", content_cfg.brain_model)
 
     raw = _extract_file(files, EDITION_FILE)
     if raw:
@@ -360,12 +412,21 @@ def run_edition(
             raise RuntimeError(
                 f"no edition draft and no research candidates (files: {list(files)})"
             )
+        trace.vfs("read", f"/research/ai_candidates.json ({len(ai_c)} candidates)")
+        trace.vfs("read", f"/research/fun_candidates.json ({len(fun_c)} candidates)")
         logger.info("[run_edition] writing from %d AI + %d fun candidates", len(ai_c), len(fun_c))
+        trace.model_route("write", content_cfg.write_model)
+        _t0 = time.perf_counter()
         ai = write_ai_section(
             ai_c,
             num_subarticles=content_cfg.num_ai_subarticles,
             num_shorts=content_cfg.num_ai_shorts,
             generate=write_generate,
+        )
+        trace.structured_output(
+            "write_ai_section",
+            f"1 headliner + {len(ai.get('subarticles', []))} subs + "
+            f"{len(ai.get('shorts', []))} shorts in {int((time.perf_counter() - _t0) * 1000)} ms",
         )
         fun = _build_fun(fun_c, date_iso, generate=write_generate)
 
@@ -379,17 +440,32 @@ def run_edition(
     # image in the harness (the editor invents stock URLs rather than using the
     # FLUX tool output), then stamp model attribution.
     _finalize_fun(fun, date_iso)
-    image_model = _generate_images(ai, fun, generate=image_generate, image_model=image_model)
-    _stamp_attribution(ai, fun, text_model=text_model, image_model=image_model)
+    image_model = _generate_images(ai, fun, date_iso, generate=image_generate, image_model=image_model)
+    _trace_images(trace, ai, fun, image_model)
 
-    # Build the trace from the agent's actual run, prepended with any
-    # harness-recorded events (e.g. fallbacks).
-    agent_trace = trace.as_list() + extract_trace(result.get("messages", []))
+    # Editor-in-Chief synthesis (best-effort — a failure here must not sink the
+    # edition): a whole-edition brief in Graham's voice, and the daily Father-Ted
+    # About page rewritten from the committed CV.
+    editors_brief = _write_brief(ai, fun, write_generate)
+    if editors_brief.get("body"):
+        trace.structured_output("editors_brief", "whole-edition synthesis in the editor's voice")
+    about = _write_about(write_generate)
+    if about.get("body"):
+        trace.structured_output("about", "Father-Ted bio rewritten from the CV")
+    _stamp_attribution(ai, fun, text_model=text_model, image_model=image_model,
+                       extras=[editors_brief, about])
+
+    # Tell the story in order: the agent's research play-by-play first (from its
+    # actual messages), then the newsroom's deterministic synthesis recorded on
+    # ``trace`` (model routes, structured-output writes, image styles, brief, about).
+    agent_trace = extract_trace(result.get("messages", [])) + trace.as_list()
 
     return build_paper(
         date_iso,
         generated_at,
         ai=ai,
         fun=fun,
+        editors_brief=editors_brief,
+        about=about,
         context={"agent_trace": agent_trace, "files": list(files)},
     )

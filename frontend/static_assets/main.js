@@ -54,6 +54,7 @@ async function loadMostRecentEdition() {
     if (data) {
       currentPaperData = data;
       renderPaper(data);
+      renderAbout(data);
       updateDateDisplay(candidate);
       return;
     }
@@ -68,6 +69,7 @@ async function loadEditionForDate(dateStr) {
   if (data) {
     currentPaperData = data;
     renderPaper(data);
+    renderAbout(data);
     updateDateDisplay(date);
   } else {
     alert(`No edition found for ${dateStr}. The Craic Gazette was probably on holidays.`);
@@ -94,21 +96,79 @@ function resolveRef(data, ref) {
 function renderPaper(data) {
   const grid = el('edition');
   if (!grid) return;
+
+  // Build the three front-page regions: a full-width Editor's Brief, the AI
+  // analysis columns (1+2), and the fun desk (column 3). Cards are placed by their
+  // resolved TYPE — not woven together — so each desk stays in its column. The
+  // schema's layout[] is still honoured for ordering within a desk.
+  grid.innerHTML = '';
+  const briefRegion = node('section', 'edition-brief');
+  const aiRegion = node('section', 'edition-ai');
+  const funRegion = node('aside', 'edition-fun');
+  grid.append(briefRegion, aiRegion, funRegion);
+
+  const brief = briefCard(data.editors_brief);
+  if (brief) briefRegion.append(brief);
+
   const layout = Array.isArray(data.layout) && data.layout.length
     ? data.layout
     : defaultLayout(data);
-
-  grid.innerHTML = '';
   for (const ref of layout) {
     const resolved = resolveRef(data, ref);
     if (!resolved || !resolved.item) continue;
-    grid.appendChild(resolved.type === 'fun'
-      ? funCard(resolved.item)
-      : aiCard(resolved.item, resolved.kind));
+    if (resolved.type === 'fun') funRegion.append(funCard(resolved.item));
+    else aiRegion.append(aiCard(resolved.item, resolved.kind));
+  }
+  // Safety net: if layout omitted the fun pieces, fall back to the fun array.
+  if (!funRegion.childElementCount) {
+    (data.fun || []).forEach(item => item && funRegion.append(funCard(item)));
   }
 
   renderAttribution(data);
   renderHood(data);
+}
+
+/** The full-width Editor's Brief band: portrait byline + Graham's whole-edition synthesis. */
+function briefCard(brief) {
+  if (!brief || !brief.body) return null;
+  const art = node('article', 'card editors-brief');
+  art.append(kicker("THE EDITOR'S BRIEF", 'red'));
+  const head = node('div', 'brief-head');
+  const img = document.createElement('img');
+  img.className = 'brief-portrait';
+  img.src = 'static_assets/images/GeekwiththePeak.png';
+  img.alt = 'Graham — Editor-in-Chief';
+  img.loading = 'lazy';
+  head.append(img, node('div', 'brief-byline', 'Graham · Editor-in-Chief'));
+  art.append(head);
+  if (brief.title) art.append(headline(brief.title, false));
+  art.append(body(brief.body));
+  art.append(meta(brief, false));
+  return art;
+}
+
+/** The About page (about.html): the editor's portrait + the daily Father-Ted bio. */
+function renderAbout(data) {
+  const root = el('about');
+  if (!root) return;                       // not on the About page — no-op
+  const about = (data && data.about) || {};
+  root.innerHTML = '';
+  const art = node('article', 'card about-card');
+  art.append(kicker('MEET THE EDITOR-IN-CHIEF', 'red'));
+  const img = document.createElement('img');
+  img.className = 'about-portrait';
+  img.src = 'static_assets/images/GeekwiththePeak.png';
+  img.alt = 'Graham — Editor-in-Chief';
+  img.loading = 'lazy';
+  art.append(img);
+  art.append(headline(about.title || 'About the Editor', false));
+  if (about.body) {
+    art.append(body(about.body));
+    art.append(meta(about, false));
+  } else {
+    art.append(body('The editor is still writing his memoirs — check back after the next edition.'));
+  }
+  root.append(art);
 }
 
 function defaultLayout(data) {
@@ -201,46 +261,70 @@ function renderAttribution(data) {
 }
 
 // ── Under the Hood: deep-agent visualiser ──────────────────────────────────
-const TRACE_ICON = { plan: '🗒️', subagent: '🤝', tool: '🔧', fallback: '↩️', note: '•' };
+const TRACE_ICON = {
+  plan: '🗒️', subagent: '🤝', tool: '🔧', vfs: '🗂️',
+  structured: '📦', model: '🧠', fallback: '↩️', note: '•',
+};
+// One line per LangChain primitive — the "what am I looking at?" teaching note.
+const TRACE_BLURB = {
+  plan: 'Deep agents plan first — write_todos lays out the steps before acting.',
+  subagent: 'The task tool spins up a focused sub-agent with its own context window.',
+  tool: 'Tool-calling: the model invokes a Python @tool (search, fetch, validate).',
+  vfs: "The deep agent's virtual filesystem persists research between steps.",
+  structured: 'Structured output — a plain chat→JSON call the newsroom parses deterministically.',
+  model: 'LiteLLM routes each model name to the right fleet box — no engine URLs in code.',
+  fallback: 'A resilient fallback from the local model to a frontier safety net.',
+  note: 'A milestone the harness recorded.',
+};
+
+function traceDetail(ev) {
+  const d = ev.detail || {};
+  if (ev.kind === 'plan') return `<ul class="trace-todos">${(d.todos || []).map(t => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`;
+  if (ev.kind === 'subagent') return `<div class="trace-detail">${escapeHtml(d.task || '')}</div>`;
+  if (ev.kind === 'fallback') return `<div class="trace-detail">${escapeHtml(d.local || '')} → ${escapeHtml(d.to || '')} (${escapeHtml(d.reason || '')})</div>`;
+  if (ev.kind === 'model') return `<div class="trace-detail"><code>${escapeHtml(d.model || '')}</code></div>`;
+  if (ev.kind === 'vfs') return `<div class="trace-detail"><code>${escapeHtml(d.path || '')}</code></div>`;
+  let html = d.info ? `<div class="trace-detail">${escapeHtml(d.info)}</div>` : '';
+  if (d.result) html += `<div class="trace-result">↳ ${escapeHtml(d.result)}</div>`;  // a glimpse of the tool's output
+  return html;
+}
 
 function renderHood(data) {
   const trace = data.context?.agent_trace || [];
   const traceEl = el('hood-trace');
   if (traceEl) {
-    if (!trace.length) {
-      traceEl.innerHTML = '<p class="hood-placeholder">No agent trace recorded for this edition.</p>';
-    } else {
-      traceEl.innerHTML = trace.map(ev => {
-        const icon = TRACE_ICON[ev.kind] || '•';
-        let detail = '';
-        if (ev.kind === 'plan') detail = (ev.detail?.todos || []).map(t => `<li>${escapeHtml(t)}</li>`).join('');
-        else if (ev.kind === 'subagent') detail = `<div class="trace-detail">${escapeHtml(ev.detail?.task || '')}</div>`;
-        else if (ev.kind === 'fallback') detail = `<div class="trace-detail">${escapeHtml(ev.detail?.local || '')} → ${escapeHtml(ev.detail?.to || '')} (${escapeHtml(ev.detail?.reason || '')})</div>`;
-        else detail = `<div class="trace-detail">${escapeHtml(ev.detail?.info || '')}</div>`;
-        return `<div class="trace-row trace-row--${ev.kind}">
-          <span class="trace-icon">${icon}</span>
-          <div class="trace-main"><span class="trace-name">${escapeHtml(ev.name || ev.kind)}</span>
-          ${ev.kind === 'plan' ? `<ul class="trace-todos">${detail}</ul>` : detail}</div>
-        </div>`;
-      }).join('');
-    }
+    traceEl.innerHTML = trace.length
+      ? trace.map(ev => `<div class="trace-row trace-row--${ev.kind}">
+          <span class="trace-icon">${TRACE_ICON[ev.kind] || '•'}</span>
+          <div class="trace-main">
+            <span class="trace-name">${escapeHtml(ev.name || ev.kind)}</span>
+            <span class="trace-blurb">${escapeHtml(TRACE_BLURB[ev.kind] || '')}</span>
+            ${traceDetail(ev)}
+          </div>
+        </div>`).join('')
+      : '<p class="hood-placeholder">No agent trace recorded for this edition.</p>';
   }
 
   const counts = trace.reduce((acc, e) => { acc[e.kind] = (acc[e.kind] || 0) + 1; return acc; }, {});
   const statEl = el('hood-stats');
   if (statEl) {
-    statEl.innerHTML = `
-      <span class="hood-stat">🗒️ ${counts.plan || 0} plans</span>
-      <span class="hood-stat">🤝 ${counts.subagent || 0} delegations</span>
-      <span class="hood-stat">🔧 ${counts.tool || 0} tool calls</span>
-      <span class="hood-stat">↩️ ${counts.fallback || 0} fallbacks</span>`;
+    const stat = (icon, n, label) => `<span class="hood-stat">${icon} ${n || 0} ${label}</span>`;
+    statEl.innerHTML = [
+      stat('🗒️', counts.plan, 'plans'),
+      stat('🤝', counts.subagent, 'delegations'),
+      stat('🔧', counts.tool, 'tool calls'),
+      stat('🧠', counts.model, 'model routes'),
+      stat('📦', counts.structured, 'JSON writes'),
+      stat('🗂️', counts.vfs, 'file ops'),
+      stat('↩️', counts.fallback, 'fallbacks'),
+    ].join('');
   }
 }
 
 function renderPlaceholder() {
   const grid = el('edition');
   if (grid) grid.innerHTML =
-    `<article class="card card--lead"><div class="kicker kicker--red">ER, ABOUT TODAY…</div>
+    `<article class="card card--lead" style="grid-column:1/-1"><div class="kicker kicker--red">ER, ABOUT TODAY…</div>
      <h2 class="headline headline--lead">AI EDITOR TAKES THE DAY OFF; EXISTENTIAL CRISIS ENSUES</h2>
      <div class="body"><p>No edition was found for the last fortnight. The deep agent may not
      have run yet, or it's still waiting on a human to approve today's draft.</p></div></article>`;
