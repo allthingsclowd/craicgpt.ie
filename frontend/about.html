@@ -1,0 +1,71 @@
+<!--
+  About the Editor — The Craic Gazette.
+  A daily, LLM-written profile of Graham Land (Editor-in-Chief), rewritten from
+  his CV in the voice of Father Ted. Rendered client-side from the same
+  paper_content.json the front page uses (the `about` key). Schema v3.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About the Editor — The Craic Gazette</title>
+  <meta name="description" content="About Graham Land, Editor-in-Chief of The Craic Gazette — introduced, more or less honestly, in the voice of Father Ted.">
+
+  <link rel="stylesheet" href="static_assets/style.css">
+  <link rel="stylesheet" href="static_assets/style-v3.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,700;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.ico">
+</head>
+
+<body class="v3">
+
+  <!-- ── MASTHEAD ─────────────────────────────────────────────────────────── -->
+  <header class="masthead" role="banner">
+    <div class="masthead-top-strip">
+      <span class="masthead-price">FREE (as in speech, not beer)</span>
+      <span class="masthead-tagline">Ireland's Most Artificially Intelligent Newspaper</span>
+      <span class="masthead-edition"><a href="index.html" class="back-link">← Today's edition</a></span>
+    </div>
+
+    <div class="masthead-main">
+      <img src="static_assets/images/CraicGPT_240h.png" alt="CraicGPT logo"
+           class="masthead-logo masthead-logo--left">
+      <div class="masthead-title-block">
+        <h1 class="masthead-title">ABOUT THE EDITOR</h1>
+        <p class="masthead-subtitle">Who's behind all this craic, anyway?</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── THE ABOUT PAGE (populated from data.about by main.js) ─────────────── -->
+  <main class="about-page" id="about" aria-live="polite">
+    <article class="card about-card">
+      <div class="kicker kicker--red">MEET THE EDITOR-IN-CHIEF</div>
+      <h2 class="headline">Fetching the editor's life story…</h2>
+    </article>
+  </main>
+
+  <!-- ── FOOTER ───────────────────────────────────────────────────────────── -->
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <p class="footer-social">
+        <a href="https://www.linkedin.com/in/grahamjland" target="_blank" rel="noopener">LinkedIn</a>
+        <a href="https://allthingscloud.eu" target="_blank" rel="noopener">Blog · allthingscloud.eu</a>
+        <a href="https://github.com/allthingsclowd" target="_blank" rel="noopener">GitHub</a>
+        <a href="index.html">Today's edition</a>
+      </p>
+      <p class="footer-copy">&copy; <span id="footer-year"></span> CraicGPT.ie —
+        <em>No hallucinations were harmed in the making of this newspaper.</em></p>
+      <p class="footer-tech">
+        This bio is rewritten daily by open-source <a href="https://qwenlm.github.io" target="_blank" rel="noopener">Qwen3.6</a>
+        in the voice of Father Ted — honest to the CV, generously exaggerated.
+      </p>
+    </div>
+  </footer>
+
+  <script src="static_assets/main.js"></script>
+</body>
+</html>
