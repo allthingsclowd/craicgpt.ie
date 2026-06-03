@@ -49,9 +49,9 @@ held edition can never wedge the pipeline.
 
 ```mermaid
 flowchart TD
-    subgraph Schedule["systemd timers on the engine host (.75)"]
-        T1["craicgpt-daily.timer<br/>06:00 UTC — generate"]
-        T2["craicgpt-publish.timer<br/>every 10 min, 06:05–07:55 — publish gate"]
+    subgraph Schedule["Orkes Conductor OSS on .75 — cron schedules (the single source of truth)"]
+        T1["craicgpt_daily_0600<br/>06:00 UTC → craicgpt_daily_content"]
+        T2["craicgpt_publish_gate_poll<br/>every 10 min, 06–08 UTC → craicgpt_publish_gate"]
     end
 
     subgraph Engine["Content engine (content_pipeline/) on .75"]
@@ -60,6 +60,7 @@ flowchart TD
         SUB2["ai-landscape-researcher"]
         SUB3["link-validator"]
         CUR["Deterministic harness: curate, personas, write, FLUX images, compile v3"]
+        NOTIFY["notifier → Telegram (both agents' bots)"]
         AGENT --> SUB1 & SUB2 & SUB3 --> CUR
     end
 
@@ -74,29 +75,35 @@ flowchart TD
         RR["review-request.json"]
         VOK["verdict-openclaw.json"]
         VHE["verdict-hermes.json"]
+        DIR["directive.json — human override / remediate"]
     end
 
     subgraph Agents["Approval agents — separate Proxmox VMs (no SSH to .75, no engine code)"]
-        OA["openclaw"]
-        HE["hermes"]
+        OA["openclaw — VM .199"]
+        HE["hermes — VM .50"]
     end
 
     subgraph Publish["Live"]
         LIVE["content/&lt;date&gt;/ + images; CloudFront → craicgpt.ie"]
         SOCIAL["agents post via own tools: Bluesky, Mastodon, X"]
-        TG["Telegram to Graham (HOLD / any concern)"]
     end
+
+    GRAHAM["Graham (Telegram): draft generated · published · HELD+reasons"]
 
     T1 --> AGENT
     CUR -->|OpenAI-compatible| QWEN & FLUX
     CUR --> DRAFT --> STATUS --> RR
+    NOTIFY --> GRAHAM
+    CUR -.draft generated.-> NOTIFY
     RR -.poll.-> OA & HE
-    OA -->|scoped S3 key: PutObject verdict-*.json only| VOK
-    HE -->|scoped S3 key: PutObject verdict-*.json only| VHE
+    OA -->|scoped S3 key: PutObject verdict-*.json / directive.json| VOK
+    HE -->|scoped S3 key| VHE
+    GRAHAM -.->|override / remediate: CLI on .75, OR an agent writes| DIR
     VOK & VHE -.read.-> T2
     STATUS -.read.-> T2
-    T2 -->|host validate + 2-agent APPROVE| LIVE
-    T2 -->|any HOLD / invalid draft| TG
+    DIR -.read.-> T2
+    T2 -->|host validate + 2-agent APPROVE, OR a human directive| LIVE
+    T2 -.published / HELD.-> NOTIFY
     LIVE --> SOCIAL
     LIVE -->|fetches JSON| WEB["Browser: masonry paper + Under-the-Hood visualiser"]
 ```
@@ -126,27 +133,31 @@ and the publish itself.
 
 ```mermaid
 sequenceDiagram
-    participant T1 as daily.timer (06:00)
-    participant E as Engine (agent + harness)
+    participant T1 as Conductor craicgpt_daily_0600 (06:00)
+    participant E as Engine (agent + harness) on .75
+    participant TG as Telegram (both agents' bots)
     participant S as S3 (preview, state)
     participant OA as openclaw + hermes (VMs)
-    participant T2 as publish.timer (06:05+)
+    participant T2 as Conductor craicgpt_publish_gate (06–08, every 10m)
     participant L as S3 live + CDN
 
     T1->>E: generate edition
     E->>E: research → harness writes + FLUX images → compile v3
     E->>S: draft + images, status=complete, review-request.json
+    E->>TG: 📰 draft generated — awaiting review
     Note over OA,S: agents poll on their own schedule, scoped S3 key
     S-->>OA: review-request + public draft URL
     OA->>OA: judge harmless / on-brand (LLM)
     OA->>S: verdict-openclaw.json / verdict-hermes.json
-    loop every 10 min until published or 07:55 window closes
-        T2->>S: read status + verdicts
-        alt complete + host validate OK + BOTH approve
-            T2->>L: publish live + invalidate CDN
+    loop every 10 min across the 06–08 UTC window
+        T2->>S: read status + verdicts + any human directive
+        alt complete + host-valid + BOTH approve  (or a human directive)
+            T2->>L: publish live + invalidate CDN + redeploy frontend
+            T2->>TG: ✅ published live
             OA->>L: post to Bluesky / Mastodon / X
-        else any HOLD or invalid draft
-            OA->>OA: Telegram Graham; edition skips the day
+        else any HOLD / invalid draft
+            T2->>TG: ✋ HELD + reasons
+            Note over T2,S: Graham can override (force-publish) or remediate<br/>(drop the flagged article) — see below
         else still waiting
             T2->>T2: retry next tick
         end
@@ -155,17 +166,62 @@ sequenceDiagram
 
 | Stage | Where | What |
 |------|-------|------|
-| Generate | `craicgpt-daily.timer` @ 06:00 UTC, host `.75` | deep-agent research → harness writes + FLUX images → compile v3 |
+| Generate | Conductor `craicgpt_daily_0600` @ 06:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + FLUX images → compile v3 |
 | Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6, FLUX.2 Klein |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `review-request.json` |
-| Judge | openclaw + hermes — separate Proxmox VMs | poll the request, judge harmless, write `verdict-<agent>.json` via a **scoped S3 key** (`PutObject verdict-*.json` only — can't publish, delete, or touch live) |
-| Publish gate | `craicgpt-publish.timer` every 10 min 06:05–07:55, host `.75` | idempotent: host-side `validate` + **two-agent consensus** → publish live + CloudFront invalidation; any HOLD/invalid → Telegram; else retry |
+| Notify | engine notifier on `.75` → **both agents' Telegram bots** | 📰 on draft generated, ✅ on published, ✋ on HELD (with reasons) — once per edition |
+| Judge | openclaw + hermes — separate Proxmox VMs | poll the request, judge harmless, write `verdict-<agent>.json` via a **scoped S3 key** (`PutObject verdict-*.json` / `directive.json` only — can't publish, delete, or touch live) |
+| Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + **two-agent consensus** (or a human directive) → publish live + CloudFront invalidation + frontend redeploy; any HOLD/invalid → Telegram; else retry |
+| Override | `directive.json` in `preview/<date>/` | human-in-the-loop: force-publish over a HOLD, or remediate (drop the flagged article) — see below |
 | Live | `s3://…/content/…` + CloudFront | live at craicgpt.ie; agents post to socials |
 
 > **Why a poll, not a chain?** Nothing pings anything. The generator just drops
-> files; the agents and the publish gate each wake on their own timer and read
-> S3. A missed generation, a slow agent, or a held edition simply means the next
-> poll finds nothing to do — there is no fragile hand-off to break.
+> files; the approval agents and the Conductor publish gate each wake on their
+> own schedule and read S3. A missed generation, a slow agent, or a held edition
+> simply means the next poll finds nothing to do — there is no fragile hand-off
+> to break. **Conductor** (Orkes OSS, on `.75`) is the scheduler and the single
+> place to see/manage these jobs; it replaced the earlier systemd timers so the
+> whole flow is observable and retriable from one console.
+
+---
+
+## Overriding a held edition (human-in-the-loop)
+
+The two-agent gate is deliberately conservative — **any** HOLD keeps the edition
+off the site, and the host's structural check is a second veto. That's right for
+an unattended 06:00 run, but Graham is the editor-in-chief: when he disagrees, he
+can override. The override is **decoupled exactly like everything else** — it's a
+small `directive.json` in `preview/<date>/` that the publish gate honours on its
+next poll. Two modes:
+
+| Mode | Command | Effect |
+|------|---------|--------|
+| **Override** | `cli override --date <d> --publish` | Force-publish over the agents' HOLD. **Still requires host-side structural validity** — you override the *harmless/on-brand* judgement, not a structurally broken page. |
+| **Remediate** | `cli remediate --date <d> --drop "<title>" --publish` | Act on the agents' recommendation: drop the flagged article(s) by title, **re-validate**, then publish the cleaned edition. |
+| Inspect / cancel | `cli directive --date <d> [--clear]` | Show or remove a pending directive. |
+
+Two ways to drive it, same `directive.json` contract:
+
+- **Directly on `.75`** — Graham runs `cli override` / `cli remediate` (writes the
+  directive and, with `--publish`, enacts it immediately).
+- **Via an agent (Telegram)** — Graham replies to the HOLD alert; the agent writes
+  `directive.json` (its scoped S3 key allows it) and fires a one-off Conductor
+  `craicgpt_publish_gate` run so it takes effect at once rather than next morning.
+
+A force-publish records *who* overrode and surfaces it in the ✅ published Telegram
+alert (`override by …` / `remediated: dropped N`), so an override is never silent.
+
+### The Conductor workflows
+
+| Workflow | Schedule | Worker (on `.75`) | Does |
+|----------|----------|-------------------|------|
+| `craicgpt_daily_content` | `craicgpt_daily_0600` — `0 0 6 * * ? *` | `craicgpt_generate_daily` | generate the edition + publish the draft to `preview/` |
+| `craicgpt_publish_gate` | `craicgpt_publish_gate_poll` — `0 5/10 6-8 * * ? *` | `craicgpt_publish_gate` | the idempotent gate: validate + consensus (or honour a directive) → publish live |
+
+Workflow + schedule JSON live in the `grazlab-llm-fleet` repo
+(`workflows/`, `conductor/triggers/schedules/`); the workers are thin — they shell
+out to `python -m content_pipeline.agent.cli` on `.75`, so all the orchestration
+and judgement stay in this engine, not in Conductor.
 
 ---
 
@@ -214,13 +270,18 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
 - **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS.
 - **Qwen3.6** (text) + **FLUX.2 Klein** (images) via **LiteLLM** on a DGX Spark +
   M3 Ultra homelab fleet.
-- **systemd timers** on the engine host — `craicgpt-daily` (06:00 generate) and
-  `craicgpt-publish` (06:05–07:55 idempotent publish gate), decoupled via S3 state.
-- **Two-agent approval** — openclaw + hermes (separate Proxmox VMs) judge harmless
-  and write verdicts with a least-privilege S3 key; the host gate publishes on
-  consensus.
+- **Orkes Conductor OSS** on the engine host — the scheduler + single console for
+  the daily flow: `craicgpt_daily_0600` (06:00 generate) and
+  `craicgpt_publish_gate_poll` (06–08 UTC idempotent publish gate), each decoupled
+  via S3 state. (Replaced the original systemd timers.)
+- **Two-agent approval + human override** — openclaw + hermes (separate Proxmox
+  VMs) judge harmless and write verdicts with a least-privilege S3 key; the host
+  gate publishes on consensus. Graham can override or remediate a HOLD via an S3
+  `directive.json` (CLI on `.75` or an agent on Telegram).
+- **Telegram notifications** — the engine fans draft-generated / published / HELD
+  alerts to both agents' bots, so an editorial HOLD is never silent.
 - **AWS S3 + CloudFront** — static hosting; **boto3** publish.
-- **pytest** — fully offline test suite (~100 tests).
+- **pytest** — fully offline test suite (~125 tests).
 
 ---
 
