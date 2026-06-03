@@ -144,7 +144,10 @@
 .hood-stat { font-family: var(--font-ui); font-size: .78rem; font-weight: 700; background: var(--white); color: var(--ink); border-radius: 999px; padding: .3rem .8rem; }
 
 .hood-trace { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: .4rem; }
-.trace-row { display: grid; grid-template-columns: 1.6rem 1fr; gap: .5rem; background: var(--white); border: var(--border-thin); border-left: 4px solid var(--ink-soft); padding: .5rem .7rem; border-radius: var(--radius); text-align: left; }
+/* Rows sit on a white chip inside the DARK drawer, so they MUST carry their own
+   dark text colour — otherwise .trace-name and the plan/todo bullets inherit the
+   drawer's light --newsprint text and render white-on-white (unreadable). */
+.trace-row { display: grid; grid-template-columns: 1.6rem 1fr; gap: .5rem; background: var(--white); color: var(--ink); border: var(--border-thin); border-left: 4px solid var(--ink-soft); padding: .5rem .7rem; border-radius: var(--radius); text-align: left; }
 .trace-row--plan     { border-left-color: var(--red); }
 .trace-row--subagent { border-left-color: var(--claude); }
 .trace-row--tool     { border-left-color: var(--gemini); }
