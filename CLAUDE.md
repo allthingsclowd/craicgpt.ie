@@ -36,16 +36,32 @@ python content_pipeline/main.py --skip-local
 # Show LangGraph pipeline as Mermaid diagram
 python content_pipeline/main.py --show-graph
 
+# Verbose (DEBUG) logging
+python content_pipeline/main.py --verbose
+
 # Open the frontend locally (no server needed for basic testing)
 open frontend/index.html
 ```
+
+> **No build/test tooling in this repo.** There is no `Makefile`,
+> `pyproject.toml`, or configured test framework — the global `make lint` /
+> `make test` / `make ci` targets do **not** exist here. The pipeline runs
+> directly via `python content_pipeline/main.py`. The `test_*.py` files at the
+> repo root are stale Lambda-era scripts (not pytest), kept only for reference.
 
 ---
 
 ## Architecture
 
+> **Note:** the `.github/workflows/` directory is currently **empty** — the
+> `generate-content.yml` (daily cron) and `deploy-frontend.yml` (S3 sync)
+> workflows described below are the *intended* automation but are not yet
+> committed. Today the pipeline is run manually via `python content_pipeline/main.py`
+> and the frontend is deployed with the `aws s3 sync` command in the Deployment
+> section. The cron box in the diagram is aspirational.
+
 ```
-GitHub Actions (cron 06:00 UTC, runs-on: self-hosted)
+GitHub Actions (cron 06:00 UTC, runs-on: self-hosted)   ← planned, not yet committed
    │
    ▼  content_pipeline/main.py
 LangGraph StateGraph:
@@ -87,8 +103,8 @@ Browser JS: fetches JSON, model comparator UI
 | `frontend/index.html` | Beano/tabloid newspaper layout |
 | `frontend/static_assets/style.css` | Tabloid newspaper styles |
 | `frontend/static_assets/main.js` | Model comparator + "Under the Hood" drawer |
-| `.github/workflows/generate-content.yml` | Daily cron, self-hosted runner |
-| `.github/workflows/deploy-frontend.yml` | S3 sync on push to main |
+| `.github/workflows/generate-content.yml` | Daily cron, self-hosted runner — **planned, not yet committed** |
+| `.github/workflows/deploy-frontend.yml` | S3 sync on push to main — **planned, not yet committed** |
 | `terraform/frontend/` | IaC for S3, CloudFront, ACM, Route53 |
 
 ---
@@ -143,6 +159,9 @@ Browser JS: fetches JSON, model comparator UI
 - Do NOT remove the `# TUTORIAL:` comments — they are the educational value
 - Do NOT use `lambda_code/` (deleted) — the pipeline is now in `content_pipeline/`
 - Do NOT use `terraform/backend/` (deleted) — no Lambda infrastructure anymore
+- Do NOT treat the root `test_date_range.py`, `test_enhanced_prompts.py`, or
+  `test_idempotent_processing.py` as live tests — they are stale Lambda-era
+  scripts and do not exercise `content_pipeline/`
 - Do NOT commit `.env` files
 
 ---
@@ -176,8 +195,9 @@ See `.env.example` for the full list. Key ones:
 
 ### Frontend Deployment
 
-Automatic on push to `main` (when `frontend/**` changes) via `deploy-frontend.yml`.
-Manual: `aws s3 sync frontend/ s3://craicgpt-ie-production/ --delete`
+**Current (manual):** `aws s3 sync frontend/ s3://craicgpt-ie-production/ --delete`
+**Planned:** automatic on push to `main` (when `frontend/**` changes) once
+`deploy-frontend.yml` is committed.
 
 ### Infrastructure
 
