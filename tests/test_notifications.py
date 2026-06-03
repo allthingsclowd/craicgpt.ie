@@ -104,3 +104,29 @@ def test_lifecycle_helpers_send_expected_text(monkeypatch):
     assert "preview" in captured["generated"]
     assert "published live" in captured["published"].lower()
     assert "HELD" in captured["held"] and "off-brand short" in captured["held"]
+
+
+# --- which-channel selector -------------------------------------------------
+def _cfg(monkeypatch):
+    from content_pipeline import content_config
+    monkeypatch.setattr(content_config.content_cfg, "telegram_openclaw_bot_token", "tok-oc")
+    monkeypatch.setattr(content_config.content_cfg, "telegram_hermes_bot_token", "tok-h")
+    monkeypatch.setattr(content_config.content_cfg, "telegram_chat_id", "999")
+    monkeypatch.setattr(content_config.content_cfg, "telegram_openclaw_chat_id", "")
+    monkeypatch.setattr(content_config.content_cfg, "telegram_hermes_chat_id", "")
+
+
+def test_channel_targets_which_selects_one_or_both(monkeypatch):
+    _cfg(monkeypatch)
+    assert [t[0] for t in notifications._channel_targets("both")] == ["openclaw", "hermes"]
+    assert [t[0] for t in notifications._channel_targets("openclaw")] == ["openclaw"]
+    assert [t[0] for t in notifications._channel_targets("hermes")] == ["hermes"]
+
+
+def test_send_message_which_routes_to_selected_bot(monkeypatch):
+    _cfg(monkeypatch)
+    posted = []
+    monkeypatch.setattr(notifications, "_post",
+                        lambda token, chat, text, timeout: (posted.append(token) or (True, "ok")))
+    notifications.send_message("hi", which="hermes")
+    assert posted == ["tok-h"]

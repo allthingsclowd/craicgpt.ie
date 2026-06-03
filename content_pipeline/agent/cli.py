@@ -119,6 +119,13 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Sync the static frontend to S3 (diff-only) + invalidate the CDN")
     p_df.add_argument("--dir", dest="frontend_dir", help="frontend dir (default: repo frontend/)")
 
+    p_msg = sub.add_parser("message",
+                           help="Send a Telegram message to Graham via the agent bot(s)")
+    p_msg.add_argument("--text", required=True, help="message body (HTML allowed)")
+    p_msg.add_argument("--to", dest="which", default="both",
+                       choices=["openclaw", "hermes", "both"],
+                       help="which bot(s) to send via (default: both)")
+
     return parser
 
 
@@ -531,6 +538,20 @@ def cmd_directive(args) -> int:
     return 0
 
 
+def cmd_message(args) -> int:
+    """Send an ad-hoc Telegram message to Graham via the agent bot(s). This is the
+    host-side sender the `messaging-graham` skill routes through (the .75 host holds
+    both bot tokens; agent VMs hold only their own)."""
+    from content_pipeline import notifications
+
+    results = notifications.send_message(args.text, which=args.which)
+    delivered = sum(1 for r in results if r["ok"])
+    print(json.dumps({"to": args.which, "delivered": delivered,
+                      "results": results}, ensure_ascii=False))
+    # exit non-zero only if a channel was configured but NONE delivered
+    return 0 if (delivered or not results) else 1
+
+
 def cmd_deploy_frontend(args) -> int:
     from content_pipeline.agent.frontend import sync_frontend
 
@@ -570,6 +591,8 @@ def main(argv=None) -> int:
         return cmd_remediate(args)
     if args.command == "directive":
         return cmd_directive(args)
+    if args.command == "message":
+        return cmd_message(args)
     if args.command == "deploy-frontend":
         return cmd_deploy_frontend(args)
     print(f"unknown command {args.command!r}", file=sys.stderr)
