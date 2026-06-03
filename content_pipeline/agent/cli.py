@@ -137,7 +137,27 @@ def cmd_run(args) -> int:
         print(f"draft published to preview: {key}")
         # Mark complete + drop the review-request the agents poll for.
         _announce_safe(date_iso, "complete")
+        # Tell Graham (via both agents' channels) a draft is up for review.
+        ymd = "/".join(date_iso.split("-"))
+        _notify_safe("generated", date_iso,
+                     draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json")
     return 0
+
+
+def _notify_safe(event: str, date_iso: str, **kw) -> None:
+    """Fire an edition-lifecycle Telegram alert to both agents' channels. Like
+    ``_announce_safe``, a notification must never break the pipeline."""
+    try:
+        from content_pipeline import notifications
+
+        if event == "generated":
+            notifications.notify_generated(date_iso, kw["draft_url"])
+        elif event == "published":
+            notifications.notify_published(date_iso, kw["live_url"])
+        elif event == "held":
+            notifications.notify_held(date_iso, kw.get("reasons") or [])
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("[cli] notify %s failed: %s", event, exc)
 
 
 def _announce_safe(date_iso: str, state: str) -> None:
@@ -346,6 +366,14 @@ def cmd_gate(args) -> int:
             except Exception as exc:  # noqa: BLE001
                 logging.warning("[cli] frontend sync after publish failed: %s", exc)
                 g["frontend_error"] = str(exc)
+            # Edition is live — notify both agents' channels (once per date).
+            ymd = "/".join(args.date.split("-"))
+            _notify_safe("published", args.date,
+                         live_url=f"https://craicgpt.ie/content/{ymd}/paper_content.json")
+    elif args.publish and g["action"] == "hold":
+        # An editorial HOLD (or failed host validation) is exactly the case that
+        # used to go unseen — surface it to both agents' channels (once per date).
+        _notify_safe("held", args.date, reasons=g.get("reasons"))
     print(json.dumps(g, indent=2, ensure_ascii=False))
     return {"already-live": 0, "publish": 0, "hold": 2, "retry": 3}.get(g["action"], 3)
 

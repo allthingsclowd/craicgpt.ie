@@ -121,6 +121,29 @@ class ContentConfig:
         default_factory=lambda: os.getenv("CRAICGPT_IMAGE_DIR", "/tmp/craicgpt-images")
     )
 
+    # ── Operator notifications (Telegram) ─────────────────────────────────────
+    # The .75 engine fans edition-lifecycle alerts (generated / published / held)
+    # out to BOTH agents' channels so a silent HOLD can never go unseen again.
+    # Each agent has its OWN bot (own token); both DM the same operator chat
+    # (Graham). A per-agent chat id can override the shared default. Any channel
+    # whose token+chat are unset is silently skipped (fail-soft).
+    telegram_openclaw_bot_token: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_OPENCLAW_BOT_TOKEN", "")
+    )
+    telegram_hermes_bot_token: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_HERMES_BOT_TOKEN", "")
+    )
+    # Operator's Telegram chat id (the bots' allowlisted recipient).
+    telegram_chat_id: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "")
+    )
+    telegram_openclaw_chat_id: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_OPENCLAW_CHAT_ID", "")
+    )
+    telegram_hermes_chat_id: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_HERMES_CHAT_ID", "")
+    )
+
 
 # Module-level singleton, mirroring the ``cfg`` pattern in config.py.
 content_cfg = ContentConfig()
