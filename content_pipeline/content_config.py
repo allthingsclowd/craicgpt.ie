@@ -53,9 +53,14 @@ class ContentConfig:
             "BRAIN_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
         )
     )
-    # The image model — FLUX.2 Klein. Approved fallback: z-image-turbo.
+    # The image model. HiDream-O1 (MLX on the M3 Ultra) is the approved default:
+    # it renders brand text/wordmarks far more reliably than FLUX.2 Klein (which
+    # scrawled garbled faux-text whenever a subject had proper nouns), so it's our
+    # path to images that can eventually carry tasteful typography. Until then we
+    # still prompt text-free (see generate/image_styles.py). Approved fallback:
+    # z-image-turbo. Target: a Qwen-Image route, once promoted in the fleet catalog.
     image_model: str = field(
-        default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/ollama/flux2-klein")
+        default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/mlx/hidream-o1-image-dev")
     )
     # Frontier safety net. Used ONLY when a local call fails or fails validation.
     fallback_text_model: str = field(

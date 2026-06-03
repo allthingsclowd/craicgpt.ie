@@ -88,9 +88,17 @@ AI_LANDSCAPE_RESEARCHER: SubAgent = {
         "- Every item needs a real, reachable source link (call validate_link).\n"
         "- Rank by genuine significance.\n\n"
         "Do at most ~6 searches; if search is rate-limited, work with what you have "
-        "rather than retrying endlessly. Write ~15 candidates with "
-        "{title, summary, source_url, why_it_matters} to research/ai_candidates.json. "
-        "The harness ranks and trims to 13 (1 headliner + 2 subarticles + 10 shorts)."
+        "rather than retrying endlessly. For each story you keep, call fetch_page on "
+        "its source and READ THE ACTUAL ARTICLE — never work from the headline alone.\n\n"
+        "Write ~15 candidates as JSON objects with these fields to "
+        "research/ai_candidates.json:\n"
+        "- title, summary, source_url, why_it_matters (as before)\n"
+        "- key_points: a list of 2-4 concrete facts, figures or quotes from the body\n"
+        "- conclusion: 1-2 sentences on where the story LANDS — the outcome, result, "
+        "or 'so what', NOT a restatement of the headline.\n"
+        "The harness ranks and trims to 13 (1 headliner + 2 subarticles + 10 shorts) "
+        "and the newsroom writes each short from your key_points + conclusion, so make "
+        "those genuinely informative."
     ),
     "tools": [web_search, fetch_page, validate_link],
 }

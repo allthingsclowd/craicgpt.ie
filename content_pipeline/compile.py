@@ -71,6 +71,8 @@ def build_paper(
     *,
     ai: dict[str, Any],
     fun: list[dict[str, Any]],
+    editors_brief: Optional[dict[str, Any]] = None,
+    about: Optional[dict[str, Any]] = None,
     context: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Assemble the schema-v3 paper.
@@ -80,12 +82,18 @@ def build_paper(
         generated_at: ISO8601 timestamp (passed in — no clock here).
         ai: ``{"headliner": {...}, "subarticles": [...], "shorts": [...]}``.
         fun: list of persona-written fun stories.
+        editors_brief: optional ``{"title", "body"}`` — Graham's whole-edition brief,
+            rendered full-width at the top of the front page.
+        about: optional ``{"title", "body"}`` — the daily Father-Ted "About the
+            Editor" page, fetched by ``about.html``.
         context: optional research trace / fallback log for the "Under the Hood"
             drawer.
 
     Returns:
         The paper dict, ready to serialise. ``edition.approved_by`` is None
-        (it's a draft until :func:`mark_approved`).
+        (it's a draft until :func:`mark_approved`). ``editors_brief`` and ``about``
+        default to ``{}`` so the frontend can degrade gracefully when a synthesis
+        step was skipped or failed.
     """
     subarticles = ai.get("subarticles", [])
     shorts = ai.get("shorts", [])
@@ -94,12 +102,14 @@ def build_paper(
         "generated_at": generated_at,
         "pipeline_version": PIPELINE_VERSION,
         "edition": {"approved_by": None, "approved_at": None},
+        "editors_brief": editors_brief or {},
         "ai": {
             "headliner": ai.get("headliner"),
             "subarticles": subarticles,
             "shorts": shorts,
         },
         "fun": fun,
+        "about": about or {},
         "layout": build_layout(len(subarticles), len(shorts), len(fun)),
         "context": context or {},
     }

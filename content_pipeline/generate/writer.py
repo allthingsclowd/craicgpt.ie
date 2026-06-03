@@ -65,7 +65,10 @@ def _default_generate(prompt: str) -> dict:
 
     llm = get_litellm_llm(
         content_cfg.write_model,
-        max_tokens=6000,
+        # Headroom for the AI section: ten 110-140 word shorts + headliner + subs as
+        # one JSON object. Too tight a cap truncates the tail shorts (the lenient
+        # parser then drops them, risking review.MIN_SHORTS). 8000 leaves slack.
+        max_tokens=8000,
         extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
     resp = llm.invoke(prompt)
@@ -84,7 +87,11 @@ _AI_PROMPT = (
     '{{"headliner": {{"title","standfirst","body","source_url"}}, '
     '"subarticles": [{n_sub} items of {{"title","body","source_url"}}], '
     '"shorts": [{n_short} items of {{"title","body","source_url"}}]}}\n'
-    "Lengths: headliner body <=150 words, subarticles <=90, shorts <=40. Rank by "
+    "Lengths: headliner body <=150 words, subarticles <=90 words. SHORTS ARE NOT "
+    "ONE-LINERS: write each short as 5-6 full sentences (110-140 words) that say what "
+    "happened, give the key facts or figures, and END ON THE STORY'S CONCLUSION OR "
+    "TAKEAWAY — the outcome, the 'so what' — not a restatement of the headline. Draw "
+    "the substance from each candidate's key_points and conclusion fields. Rank by "
     "genuine significance. Reuse each candidate's real source_url.\n\n"
     "Candidates JSON:\n{candidates}"
 )
@@ -111,7 +118,9 @@ def write_ai_section(
     prompt = _AI_PROMPT.format(
         n_sub=num_subarticles,
         n_short=num_shorts,
-        candidates=json.dumps(ai_candidates)[:6000],
+        # Richer candidates (key_points + conclusion) need a bigger window than the
+        # old 6000 or the tail candidates silently drop out of the prompt.
+        candidates=json.dumps(ai_candidates)[:12000],
     )
     data = gen(prompt)
     return {
@@ -140,4 +149,76 @@ def write_fun_story(
         "title": data.get("title", ""),
         "body": data.get("body", ""),
         "source_url": data.get("source_url") or candidate.get("source_url", ""),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editor-in-Chief synthesis: the daily brief + the About page
+# ─────────────────────────────────────────────────────────────────────────────
+_BRIEF_PROMPT = (
+    "You are Graham — Editor-in-Chief of CraicGPT, a daily Irish AI newspaper. "
+    "Write today's EDITOR'S BRIEF: one witty, cheeky, gently-cynical Irish summary "
+    "of the WHOLE edition in your house voice (teaching-minded, never "
+    "corporate-deck-speak). Weave the AI desk's top stories together with the fun "
+    "desk's highlights into a single 'here's the state of play today' note — connect "
+    "threads, tease what's inside, land a punchline. 150-220 words, one or two short "
+    "paragraphs.\n"
+    'Output ONLY compact JSON (no markdown): {{"title","body"}}\n\n'
+    "Today's edition (digest):\n{digest}"
+)
+
+_ABOUT_PROMPT = (
+    "Write CraicGPT's 'About the Editor' page for Graham Land in the UNMISTAKABLE "
+    "VOICE OF FATHER TED CRILLY (from the TV series 'Father Ted'): exasperated but "
+    "well-meaning, faintly scheming, forever managing some small disaster with "
+    "wounded dignity. Channel the 'Now, Dougal…' asides and the famous 'the money "
+    "was just resting in my account' energy — grand schemes that never quite come "
+    "off. Read it as Ted proudly introducing the parish to its editor.\n\n"
+    "HARD RULE: stay HONEST to the CV below. Exaggerate the REAL facts for comic "
+    "effect, but INVENT NOTHING — every job, company, achievement, qualification and "
+    "the home lab must be real. 250-350 words, 2-4 short paragraphs.\n"
+    'Output ONLY compact JSON (no markdown): {{"title","body"}}\n\n'
+    "CV:\n{cv}"
+)
+
+
+def _edition_digest(ai: dict, fun: list) -> str:
+    """A compact, token-light digest of the written edition for the brief prompt."""
+    lines: list[str] = []
+    head = ai.get("headliner") or {}
+    if isinstance(head, dict) and head:
+        lines.append(f"HEADLINER: {head.get('title', '')} — {head.get('standfirst', '')}")
+    for s in ai.get("subarticles", []) or []:
+        if isinstance(s, dict):
+            lines.append(f"AI: {s.get('title', '')}")
+    for s in ai.get("shorts", []) or []:
+        if isinstance(s, dict):
+            lines.append(f"AI brief: {s.get('title', '')}")
+    for f in fun or []:
+        if isinstance(f, dict):
+            lines.append(f"FUN ({f.get('persona', '')}): {f.get('title', '')}")
+    return "\n".join(lines)[:4000]
+
+
+def write_editors_brief(ai: dict, fun: list, *, generate: Optional[Generate] = None) -> dict:
+    """Synthesise the whole edition into Graham's Editor's Brief (one small JSON call).
+
+    Consumes only titles + the headliner standfirst (a digest), so the prompt stays
+    small regardless of how long the articles themselves are.
+    """
+    gen = generate or _default_generate
+    data = gen(_BRIEF_PROMPT.format(digest=_edition_digest(ai, fun)))
+    return {
+        "title": data.get("title") or "The Editor's Brief",
+        "body": data.get("body", ""),
+    }
+
+
+def write_about(cv_text: str, *, generate: Optional[Generate] = None) -> dict:
+    """Rewrite Graham's CV as a Father-Ted-voiced 'About the Editor' page (one JSON call)."""
+    gen = generate or _default_generate
+    data = gen(_ABOUT_PROMPT.format(cv=cv_text[:6000]))
+    return {
+        "title": data.get("title") or "About the Editor",
+        "body": data.get("body", ""),
     }
