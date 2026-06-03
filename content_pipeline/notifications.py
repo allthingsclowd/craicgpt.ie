@@ -160,8 +160,10 @@ def notify_generated(date_iso: str, draft_url: str, *, s3: Any | None = None) ->
     return notify_once("generated", date_iso, text, s3=s3)
 
 
-def notify_published(date_iso: str, live_url: str, *, s3: Any | None = None) -> dict:
-    text = (f"✅ <b>CraicGPT edition published live</b> — {date_iso}\n{live_url}")
+def notify_published(date_iso: str, live_url: str, *, note: Optional[str] = None,
+                     s3: Any | None = None) -> dict:
+    extra = f"\n<i>{note}</i>" if note else ""
+    text = (f"✅ <b>CraicGPT edition published live</b> — {date_iso}{extra}\n{live_url}")
     return notify_once("published", date_iso, text, s3=s3)
 
 
