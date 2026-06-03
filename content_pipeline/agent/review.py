@@ -293,18 +293,30 @@ def write_directive(date_iso: str, action: str, *, drop: Optional[Iterable[str]]
 
 def read_directive(date_iso: str, *, s3: Any | None = None,
                    bucket: Optional[str] = None) -> Optional[dict]:
+    """Return the pending directive, or None. A *consumed* (tombstoned) directive
+    reads as None so a cleared/enacted one can never re-fire."""
     s3 = s3 or _default_s3()
-    return _get_json(s3, bucket or content_cfg.s3_bucket, directive_key(date_iso))
+    d = _get_json(s3, bucket or content_cfg.s3_bucket, directive_key(date_iso))
+    if not d or d.get("consumed"):
+        return None
+    return d
 
 
 def clear_directive(date_iso: str, *, s3: Any | None = None,
-                    bucket: Optional[str] = None) -> None:
-    """Remove the directive (e.g. after it's been enacted, so it can't re-fire)."""
+                    bucket: Optional[str] = None, at: Optional[str] = None) -> str:
+    """Cancel a pending directive by writing a ``{consumed: true}`` tombstone.
+
+    We tombstone via ``PutObject`` rather than ``DeleteObject`` on purpose: the
+    publish IAM is scoped to put (not delete), so a delete would silently fail.
+    Returns the key; raises on a real write error (no more swallowing)."""
     s3 = s3 or _default_s3()
-    try:
-        s3.delete_object(Bucket=bucket or content_cfg.s3_bucket, Key=directive_key(date_iso))
-    except Exception:  # noqa: BLE001 — already gone is fine
-        pass
+    bucket = bucket or content_cfg.s3_bucket
+    s3.put_object(Bucket=bucket, Key=directive_key(date_iso),
+                  Body=json.dumps({"date": date_iso, "consumed": True, "at": at},
+                                  ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json", CacheControl="no-cache")
+    logger.info("[review] directive consumed (tombstoned) for %s", date_iso)
+    return directive_key(date_iso)
 
 
 def _norm_title(s: Any) -> str:
