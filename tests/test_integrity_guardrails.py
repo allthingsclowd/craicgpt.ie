@@ -58,6 +58,7 @@ def _writer(prompt):
 
 
 _IMG = lambda p: ("/tmp/i.png", "flux")  # noqa: E731 — terse offline image stub
+_NOFEED = lambda url: None  # noqa: E731 — disable the live curated-feed harvest offline
 
 
 # --- _validate_ai_candidates (the AI desk's missing curation) ----------------
@@ -91,7 +92,7 @@ def test_run_edition_holds_when_ai_below_floor():
     agent = _ResearchAgent(_fun(6), _ai(5))  # 5 AI < min 11
     with pytest.raises(EditionHeld) as exc:
         run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
-                    link_fetch=lambda url: 200, recent_keys=set(), image_generate=_IMG)
+                    link_fetch=lambda url: 200, recent_keys=set(), ai_feed_fetch=_NOFEED, image_generate=_IMG)
     assert "AI source" in str(exc.value)
 
 
@@ -99,7 +100,7 @@ def test_run_edition_holds_when_fun_below_floor():
     agent = _ResearchAgent(_fun(2), _ai(13))  # 2 fun < min 4
     with pytest.raises(EditionHeld) as exc:
         run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
-                    link_fetch=lambda url: 200, recent_keys=set(), image_generate=_IMG)
+                    link_fetch=lambda url: 200, recent_keys=set(), ai_feed_fetch=_NOFEED, image_generate=_IMG)
     assert "fun source" in str(exc.value)
 
 
@@ -110,7 +111,7 @@ def test_run_edition_holds_when_links_unreachable():
     with pytest.raises(EditionHeld) as exc:
         run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
                     link_fetch=lambda url: status.get(url, 404), recent_keys=set(),
-                    image_generate=_IMG)
+                    ai_feed_fetch=_NOFEED, image_generate=_IMG)
     assert "unreachable" in str(exc.value).lower()
 
 
@@ -119,7 +120,7 @@ def test_run_edition_holds_with_search_reason_when_degraded():
     agent = _ResearchAgent(_fun(2), _ai(3), messages=msgs)
     with pytest.raises(EditionHeld) as exc:
         run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
-                    link_fetch=lambda url: 200, recent_keys=set(), image_generate=_IMG)
+                    link_fetch=lambda url: 200, recent_keys=set(), ai_feed_fetch=_NOFEED, image_generate=_IMG)
     assert "search degraded" in str(exc.value).lower() and "429" in str(exc.value)
 
 
@@ -129,7 +130,7 @@ def test_run_edition_recency_can_cause_hold_and_names_it():
     agent = _ResearchAgent(_fun(6), _ai(12))
     with pytest.raises(EditionHeld) as exc:
         run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
-                    link_fetch=lambda url: 200, recent_keys=recent, image_generate=_IMG)
+                    link_fetch=lambda url: 200, recent_keys=recent, ai_feed_fetch=_NOFEED, image_generate=_IMG)
     assert "fresh-only" in str(exc.value).lower()
 
 
@@ -138,7 +139,7 @@ def test_run_edition_succeeds_when_enough_fresh_sources():
     recent = story_key_set("AI 0", "https://ai/0") | story_key_set("AI 1", "https://ai/1")
     agent = _ResearchAgent(_fun(8), _ai(15))
     paper = run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
-                        link_fetch=lambda url: 200, recent_keys=recent, image_generate=_IMG)
+                        link_fetch=lambda url: 200, recent_keys=recent, ai_feed_fetch=_NOFEED, image_generate=_IMG)
     assert paper["ai"]["headliner"]["title"] == "H"
     assert len(paper["ai"]["shorts"]) == 10
     assert len(paper["fun"]) == 5
@@ -156,3 +157,24 @@ def test_search_failures_extracts_distinct_reasons():
     assert any("429" in f for f in fails)
     assert any("401" in f for f in fails)
     assert len(fails) == 2  # deduped
+
+
+# --- curated-feed harvest rescues a thin agent yield -------------------------
+def test_run_edition_harvest_rescues_thin_agent_yield():
+    # The agent gathered only 3 AI candidates (would HOLD on its own), but the
+    # curated-feed harvest supplies plenty of REAL items → the edition PUBLISHES,
+    # and fabrication stays impossible (every feed URL is real + link-checked).
+    import hashlib
+
+    def _feed(url):  # each curated feed returns 4 DISTINCT recent items (real-world shape)
+        tag = hashlib.md5(url.encode()).hexdigest()[:8]
+        return ("<rss version='2.0'><channel>" + "".join(
+            f"<item><title>Feed {tag} {i}</title><link>https://feed/{tag}/{i}</link>"
+            f"<description>news</description></item>" for i in range(4)) + "</channel></rss>")
+
+    agent = _ResearchAgent(_fun(6), _ai(3))  # the agent alone (3 < 11) would HOLD
+    paper = run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                        link_fetch=lambda url: 200, recent_keys=set(),
+                        ai_feed_fetch=_feed, image_generate=_IMG)
+    assert paper["ai"]["headliner"]["title"] == "H"  # published, not held
+    assert len(paper["ai"]["shorts"]) == 10

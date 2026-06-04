@@ -49,7 +49,7 @@ from content_pipeline.generate.writer import (
     write_editors_brief,
     write_fun_story,
 )
-from content_pipeline.research import recency
+from content_pipeline.research import feeds, recency
 from content_pipeline.research.curation import (
     Story,
     _default_fetch,
@@ -461,6 +461,7 @@ def run_edition(
     image_model: Optional[str] = None,
     link_fetch=None,
     recent_keys=None,
+    ai_feed_fetch=None,
     image_generate=None,
     write_generate=None,
 ) -> dict:
@@ -485,6 +486,8 @@ def run_edition(
         recent_keys: pre-computed set of recently-published story-keys to exclude
             (tests pass a set; ``None`` fetches the last 6 live editions; pass an
             empty set to disable the recency check).
+        ai_feed_fetch: injectable ``url -> feed_xml`` for the curated AI-source
+            harvest (tests pass a stub; ``None`` fetches the live feeds).
 
     Raises:
         EditionHeld: if too few real, fresh, link-validated sources survive on a
@@ -524,6 +527,21 @@ def run_edition(
         # search HOLDs (never fills the gap with invented stories, as on 2026-06-04).
         ai_c = _read_candidates(files, "/research/ai_candidates.json")
         fun_c = _read_candidates(files, "/research/fun_candidates.json")
+        # Augment the AI desk with a deterministic harvest of Graham's curated
+        # source feeds (lab/company news, publications, Substacks, arXiv) — real,
+        # dated items — so it never starves on the agent's yield alone (2026-06-04:
+        # the agent wrote only 7 → HELD). Best-effort; merged then de-duped /
+        # link-validated / recency-filtered downstream like any candidate.
+        try:
+            harvested = feeds.harvest_ai_candidates(
+                since_hours=content_cfg.ai_feed_hours, fetch=ai_feed_fetch)
+            if harvested:
+                logger.info("[run_edition] +%d AI candidates from curated feeds", len(harvested))
+                trace.tool_call("harvest_ai_feeds", f"{len(harvested)} items",
+                                result="curated RSS/Atom sources")
+            ai_c = ai_c + harvested
+        except Exception as exc:  # noqa: BLE001 — harvest is best-effort
+            logger.warning("[run_edition] AI feed harvest failed (%s); agent candidates only", exc)
         search_fails = _search_failures(result.get("messages", []))
         if not ai_c and not fun_c:
             reasons = ["no research candidates were gathered"]
