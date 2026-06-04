@@ -237,6 +237,20 @@ def test_review_request_roundtrip():
     assert "preview" in rr["draft_url"]
 
 
+def test_review_request_carries_vid_and_stable_per_date_key():
+    # With a vid, the request tells the agents WHICH version to review (body `vid`)
+    # and points them at ONE stable per-date key — the version is matched by body-vid,
+    # not the filename, so a re-review overwrites the same file (IAM-safe, no per-
+    # version key). Guards against regressing back to a versioned key template.
+    s3 = FakeS3()
+    review.write_review_request("2026-06-04", agents=["openclaw", "hermes"],
+                                draft_url="https://craicgpt.ie/preview/2026/06/04/paper_content.json",
+                                vid="20260604T180000", s3=s3, bucket="b", at="t0")
+    rr = review.read_review_request("2026-06-04", s3=s3, bucket="b")
+    assert rr["vid"] == "20260604T180000"
+    assert rr["verdict_key_template"] == "preview/2026/06/04/verdict-<agent>.json"
+
+
 # --- gate (the idempotent publisher decision) -------------------------------
 def test_gate_retry_when_no_content():
     g = review.gate("2026-06-02", verdicts={}, status=None, already_live=False)
