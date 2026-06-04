@@ -339,17 +339,36 @@ def cmd_verdict(args) -> int:
     return 0
 
 
-def _already_live(date_iso: str) -> bool:
-    """True if content/<date>/paper_content.json already exists (idempotency)."""
+def _edition_generated_at(date_iso: str, prefix: str) -> Optional[str]:
+    """The ``generated_at`` of the edition currently at ``<prefix>/<date>``, or None."""
     from content_pipeline.agent.publish import _default_s3, s3_key
     from content_pipeline.content_config import content_cfg
 
     try:
-        _default_s3().head_object(Bucket=content_cfg.s3_bucket,
-                                  Key=s3_key(date_iso, content_cfg.content_prefix))
-        return True
-    except Exception:  # noqa: BLE001 — NoSuchKey / 404 → not live yet
+        obj = _default_s3().get_object(Bucket=content_cfg.s3_bucket,
+                                       Key=s3_key(date_iso, prefix))
+        return json.loads(obj["Body"].read()).get("generated_at")
+    except Exception:  # noqa: BLE001 — missing key / unreadable → None
+        return None
+
+
+def _already_live(date_iso: str) -> bool:
+    """True only if the LIVE edition is already the CURRENT draft (same generated_at).
+
+    Content-aware idempotency: editions are versioned, so 'live' means 'this exact
+    edition is the latest', not merely 'something exists at the key'. The gate
+    therefore republishes (revs a new version) when the draft differs from what's
+    live — including a STALE cross-date object left by an incident takedown — but
+    will NOT re-mint a version on every poll of an unchanged edition."""
+    from content_pipeline.content_config import content_cfg
+
+    live = _edition_generated_at(date_iso, content_cfg.content_prefix)
+    if not live:
         return False
+    draft = _edition_generated_at(date_iso, content_cfg.preview_prefix)
+    if not draft:
+        return True  # nothing to compare against → treat live as authoritative
+    return live == draft
 
 
 def cmd_consensus(args) -> int:

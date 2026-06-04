@@ -210,5 +210,20 @@
 .trace-todos { margin: .3rem 0 0; padding-left: 1.1rem; font-family: var(--font-body); font-size: .8rem; }
 .hood-placeholder { font-family: var(--font-body); font-style: italic; color: var(--ink-soft); text-align: center; }
 
+/* Subtle per-edition version picker in the dateline — only shown (by main.js)
+   when the day has more than one published version. Kept low-key on purpose. */
+.version-select {
+  font-family: var(--font-ui);
+  font-size: .72rem;
+  margin-left: .5rem;
+  padding: .12rem .4rem;
+  border: 1px solid var(--ink-soft);
+  border-radius: var(--radius);
+  background: var(--white);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+.version-select:hover { color: var(--ink); border-color: var(--ink); }
+
 /* The v3 body retires the comparator chrome if any leaks through. */
 body.v3 .model-bar, body.v3 .compare-panel { display: none; }

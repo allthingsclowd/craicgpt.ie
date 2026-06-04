@@ -24,9 +24,13 @@
 // preview server locally / on the LAN), so always fetch it origin-relative —
 // this avoids the CORS errors you'd hit pointing at an absolute host.
 const CONTENT_PATH = (y, m, d) => `/content/${y}/${m}/${d}/paper_content.json`;
+// Edition versioning: the manifest of the day's versions, and a specific snapshot.
+const VERSIONS_PATH = (y, m, d) => `/content/${y}/${m}/${d}/versions.json`;
+const VERSION_PATH = (y, m, d, id) => `/content/${y}/${m}/${d}/versions/${id}.json`;
 const MAX_FALLBACK_DAYS = 14;
 
 let currentPaperData = null;
+let currentDate = null;        // the edition date currently shown (drives the version picker)
 const el = id => document.getElementById(id);
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -53,9 +57,11 @@ async function loadMostRecentEdition() {
     const data = await fetchPaperContent(candidate);
     if (data) {
       currentPaperData = data;
+      currentDate = candidate;
       renderPaper(data);
       renderAbout(data);
       updateDateDisplay(candidate);
+      await renderVersions(candidate);
       return;
     }
   }
@@ -68,12 +74,58 @@ async function loadEditionForDate(dateStr) {
   const data = await fetchPaperContent(date);
   if (data) {
     currentPaperData = data;
+    currentDate = date;
     renderPaper(data);
     renderAbout(data);
     updateDateDisplay(date);
+    await renderVersions(date);
   } else {
     alert(`No edition found for ${dateStr}. The Craic Gazette was probably on holidays.`);
   }
+}
+
+// ── Edition versioning: a subtle picker for prior versions of the day ────────
+// The day's edition can be revised (re-generated) several times; each publish is
+// retained as an immutable version and the latest is shown by default. The picker
+// only appears when there's more than one version — otherwise it stays hidden.
+async function renderVersions(date) {
+  const sel = el('version-select');
+  if (!sel) return;
+  sel.hidden = true;
+  sel.innerHTML = '';
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  let versions = [];
+  try {
+    const resp = await fetch(VERSIONS_PATH(y, m, d), { cache: 'no-cache' });
+    if (resp.ok) {
+      const man = await resp.json();
+      versions = Array.isArray(man.versions) ? man.versions : [];
+    }
+  } catch { /* no manifest → single-version day; leave the picker hidden */ }
+  if (versions.length < 2) return;          // subtle: only shown when there's a real choice
+  versions.forEach((v, i) => {              // manifest is newest-first; [0] is the latest
+    const opt = node('option', '', i === 0 ? `${v.label} (latest)` : v.label);
+    opt.value = v.id;
+    sel.append(opt);
+  });
+  sel.value = versions[0].id;
+  sel.hidden = false;
+}
+
+async function loadVersion(date, id) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  try {
+    const resp = await fetch(VERSION_PATH(y, m, d, id), { cache: 'no-cache' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    currentPaperData = data;
+    renderPaper(data);
+    renderAbout(data);
+  } catch { /* keep the current view on error */ }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -347,6 +399,14 @@ function initDatePicker() {
   input.addEventListener('change', e => { if (e.target.value) loadEditionForDate(e.target.value); });
 }
 
+function initVersionSelect() {
+  const sel = el('version-select');
+  if (!sel) return;
+  sel.addEventListener('change', e => {
+    if (currentDate && e.target.value) loadVersion(currentDate, e.target.value);
+  });
+}
+
 function initHoodDrawer() {
   const toggle = el('hood-toggle');
   const content = el('hood-content');
@@ -391,6 +451,7 @@ async function init() {
   const fy = el('footer-year');
   if (fy) fy.textContent = new Date().getFullYear();
   initDatePicker();
+  initVersionSelect();
   initHoodDrawer();
   initNewsletter();
   await loadMostRecentEdition();
