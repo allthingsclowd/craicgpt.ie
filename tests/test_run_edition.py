@@ -146,16 +146,18 @@ def test_run_edition_stamps_model_attribution():
     assert paper["fun"][0]["_image_model"] == "m3/ollama/flux2-klein"
 
 
-def test_run_edition_raises_if_no_draft_written():
+def test_run_edition_holds_if_no_candidates():
+    # No draft AND no research candidates → HOLD (EditionHeld, a RuntimeError
+    # subclass), never a thin/empty paper.
+    from content_pipeline.agent.editor_in_chief import EditionHeld
+
     class _Empty:
         def invoke(self, _i, config=None):
             return {"messages": [], "files": {}}
 
-    try:
+    with pytest.raises(EditionHeld) as exc:
         run_edition("2026-06-02", generated_at="t", agent=_Empty())
-        assert False, "expected RuntimeError"
-    except RuntimeError as exc:
-        assert "draft" in str(exc).lower()
+    assert "candidates" in str(exc.value).lower()
 
 
 def test_run_edition_writes_from_research_candidates():
@@ -179,6 +181,8 @@ def test_run_edition_writes_from_research_candidates():
     paper = run_edition("2026-06-02", generated_at="t",
                         agent=_ResearchAgent(fun_c, ai_c),
                         write_generate=fake_write,
+                        link_fetch=lambda url: 200,  # all candidate links resolve (offline)
+                        recent_keys=set(),           # disable the live recency lookup
                         image_generate=lambda p: ("/tmp/i.png", "flux"))
     assert paper["ai"]["headliner"]["title"] == "Big AI Thing"
     assert len(paper["ai"]["shorts"]) == 10

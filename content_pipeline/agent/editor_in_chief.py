@@ -49,12 +49,36 @@ from content_pipeline.generate.writer import (
     write_editors_brief,
     write_fun_story,
 )
-from content_pipeline.research.curation import Story, curate_candidates
+from content_pipeline.research import recency
+from content_pipeline.research.curation import (
+    Story,
+    _default_fetch,
+    curate_candidates,
+    is_excluded_by_keywords,
+    story_key_set,
+    validate_source_link,
+)
 from content_pipeline.providers.litellm import get_litellm_llm
 
 logger = logging.getLogger(__name__)
 
 EDITION_FILE = "/draft/edition.json"
+
+
+class EditionHeld(RuntimeError):
+    """Raised when an edition can't be produced from REAL, fresh, link-validated
+    sources and must be HELD rather than published.
+
+    The 2026-06-04 incident: web search 429'd, the researcher fabricated stories
+    and URLs, and nothing validated them — a thin, fabricated edition went live.
+    The newsroom's rule now: below the per-desk integrity floor (too few reachable,
+    not-recently-published sources), HOLD the whole edition and alert. ``reasons``
+    is the human-readable cause list, surfaced to Graham over Telegram.
+    """
+
+    def __init__(self, reasons: list[str]):
+        self.reasons = list(reasons) or ["edition held"]
+        super().__init__("; ".join(self.reasons))
 
 # The editor's CV — the version-controlled source the daily About page is rewritten
 # from (in Father Ted's voice). Lives at content_pipeline/data/editor_cv.md.
@@ -165,6 +189,71 @@ def _read_candidates(files: dict, path: str) -> list:
     return []
 
 
+def _search_failures(messages: list) -> list[str]:
+    """Distinct ``SEARCH_FAILED: <reason>`` sentinels the web_search tool emitted
+    into the agent's message stream.
+
+    The 2026-06-04 hallucination gave NO signal that search had degraded. The tool
+    now returns ``SEARCH_FAILED: <why>`` (Brave 429 / 401 / network …) instead of
+    silently-empty results; surfacing those here lets a HOLD say *why* search
+    failed — which is exactly what the operator asked for.
+    """
+    out: list[str] = []
+    for m in messages or []:
+        content = getattr(m, "content", None)
+        if content is None and isinstance(m, dict):
+            content = m.get("content")
+        text = content if isinstance(content, str) else json.dumps(content, default=str)
+        for match in re.finditer(r"SEARCH_FAILED:\s*([^\n\"\\]+)", text):
+            reason = match.group(1).strip()
+            if reason and reason not in out:
+                out.append(reason)
+    return out
+
+
+def _validate_ai_candidates(
+    candidates: list, *, fetch, exclude_keys: Optional[set] = None
+) -> tuple[list, list[str]]:
+    """Deterministically clean the AI candidates the way the fun desk is cleaned:
+    drop grim/political stories, anything already published recently, duplicate
+    URLs, and any whose ``source_url`` doesn't resolve.
+
+    The AI desk previously got NO curation — fabricated URLs sailed straight into
+    ``write_ai_section``. We filter here (preserving each candidate's rich dict
+    shape — why_it_matters / key_points / conclusion — we never rewrite it) so the
+    writer only ever sees real, reachable, fresh sources. Cheapest checks first
+    (keyword, recency, dedupe) before the network link-check. Returns
+    ``(survivors, dropped_notes)``.
+    """
+    exclude_keys = exclude_keys or set()
+    survivors: list = []
+    dropped: list[str] = []
+    seen: set[str] = set()
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        title = c.get("title") or "(untitled)"
+        url = c.get("source_url", "")
+        probe = Story(title=title, summary=c.get("summary") or c.get("body", ""),
+                      source_url=url)
+        if is_excluded_by_keywords(probe):
+            dropped.append(f"{title}: grim/political")
+            continue
+        if exclude_keys and (story_key_set(title, url) & exclude_keys):
+            dropped.append(f"{title}: already covered in the last few days")
+            continue
+        key = url.strip().rstrip("/").lower()
+        if not key or key in seen:
+            dropped.append(f"{title}: empty/duplicate source_url")
+            continue
+        if not validate_source_link(url, fetch=fetch):
+            dropped.append(f"{title}: source link unreachable")
+            continue
+        seen.add(key)
+        survivors.append(c)
+    return survivors, dropped
+
+
 _ANIMAL_HINTS = (
     "animal", "wildlife", "nature", "species", "conservation", "penguin", "whale",
     "dolphin", "tiger", "lion", "panda", "turtle", "elephant", "bird", "shark",
@@ -186,8 +275,16 @@ def _cap_animal_stories(stories: list, limit: int = 1) -> list:
     return others + animals[:limit]
 
 
-def _build_fun(fun_candidates: list, date_iso: str, *, generate=None) -> list:
-    """Curate fun candidates to N, assign personas, write each in its voice."""
+def _curate_fun(fun_candidates: list, *, fetch, exclude_keys: Optional[set] = None) -> list:
+    """Build Story objects from the fun candidates and curate to N: grim/political
+    filter, recency exclusion, dedupe, LINK VALIDATION (drops unreachable sources
+    via ``fetch``), and continent diversity. Returns the picked, link-validated
+    stories.
+
+    Passing ``fetch`` is what makes :func:`curate_candidates` actually HEAD-check
+    the links — without it (the old behaviour) dead/fabricated fun URLs were never
+    caught here.
+    """
     stories = [
         Story(
             title=c.get("title", ""),
@@ -200,11 +297,17 @@ def _build_fun(fun_candidates: list, date_iso: str, *, generate=None) -> list:
         if isinstance(c, dict)
     ]
     stories = _cap_animal_stories(stories)  # at most one wildlife story
-    picked = curate_candidates(stories, content_cfg.num_fun_stories)
+    return curate_candidates(
+        stories, content_cfg.num_fun_stories, fetch=fetch, exclude_keys=exclude_keys
+    )
+
+
+def _write_fun(picked: list, date_iso: str, *, generate=None) -> list:
+    """Assign personas and write each already-curated fun story in its voice."""
     personas = assign_personas(len(picked), seed=date_iso)
     out: list[dict] = []
     for i, story in enumerate(picked):
-        persona = personas[i] if i < len(personas) else personas[-1]
+        persona = personas[i] if i < len(personas) else (personas[-1] if personas else "")
         story_dict = {"title": story.title, "summary": story.summary, "source_url": story.source_url}
         try:
             written = write_fun_story(story_dict, persona, voice_brief(persona), generate=generate)
@@ -356,6 +459,8 @@ def run_edition(
     trace: Optional[TraceRecorder] = None,
     text_model: Optional[str] = None,
     image_model: Optional[str] = None,
+    link_fetch=None,
+    recent_keys=None,
     image_generate=None,
     write_generate=None,
 ) -> dict:
@@ -375,9 +480,15 @@ def run_edition(
         agent: compiled deep agent (injected in tests); defaults to a fresh one.
         write_generate: injectable ``prompt -> dict`` for the article writer.
         image_generate: injectable ``prompt -> (path, model)`` for images.
+        link_fetch: injectable ``url -> http_status`` for source-link validation
+            (tests pass a stub; defaults to a real browser-UA HEAD/GET).
+        recent_keys: pre-computed set of recently-published story-keys to exclude
+            (tests pass a set; ``None`` fetches the last 6 live editions; pass an
+            empty set to disable the recency check).
 
     Raises:
-        RuntimeError: if there's neither a draft nor any research candidates.
+        EditionHeld: if too few real, fresh, link-validated sources survive on a
+            desk (below the integrity floor) — the edition is HELD, never published.
     """
     trace = trace or TraceRecorder()
     if agent is None:
@@ -405,20 +516,69 @@ def run_edition(
         ai = dict(edition.get("ai", {}))
         fun = list(edition.get("fun", []))
     else:
-        # Real path: write the edition deterministically from the research candidates.
+        # Real path: write the edition deterministically from the research candidates,
+        # but FIRST clean them — drop grim/political, recently-published, and
+        # unreachable-source stories on BOTH desks — and HOLD the whole edition if too
+        # few REAL, FRESH sources survive. Fabrication is thereby structurally
+        # impossible: the writer only ever sees reachable sources, and a degraded
+        # search HOLDs (never fills the gap with invented stories, as on 2026-06-04).
         ai_c = _read_candidates(files, "/research/ai_candidates.json")
         fun_c = _read_candidates(files, "/research/fun_candidates.json")
+        search_fails = _search_failures(result.get("messages", []))
         if not ai_c and not fun_c:
-            raise RuntimeError(
-                f"no edition draft and no research candidates (files: {list(files)})"
-            )
-        trace.vfs("read", f"/research/ai_candidates.json ({len(ai_c)} candidates)")
-        trace.vfs("read", f"/research/fun_candidates.json ({len(fun_c)} candidates)")
-        logger.info("[run_edition] writing from %d AI + %d fun candidates", len(ai_c), len(fun_c))
+            reasons = ["no research candidates were gathered"]
+            if search_fails:
+                reasons.append("web search degraded: " + "; ".join(search_fails))
+            raise EditionHeld(reasons)
+
+        # Recency: don't reheat the last few days' stories/headlines. Best-effort —
+        # a missing edition or a fetch error never blocks generation.
+        n_recent = 0
+        if recent_keys is None:
+            try:
+                editions = recency.fetch_recent_editions(date_iso, days=6)
+                recent_keys = recency.recent_story_keys(editions)
+                n_recent = len(editions)
+                if recent_keys:
+                    logger.info("[run_edition] excluding %d story-key(s) from the last "
+                                "%d edition(s)", len(recent_keys), n_recent)
+            except Exception as exc:  # noqa: BLE001 — recency is best-effort
+                logger.warning("[run_edition] recency lookup failed (%s); not excluding", exc)
+                recent_keys = set()
+
+        fetch = link_fetch or _default_fetch
+        ai_valid, ai_dropped = _validate_ai_candidates(ai_c, fetch=fetch, exclude_keys=recent_keys)
+        fun_picks = _curate_fun(fun_c, fetch=fetch, exclude_keys=recent_keys)
+
+        held: list[str] = []
+        if len(ai_valid) < content_cfg.min_ai_sources:
+            held.append(
+                f"only {len(ai_valid)} usable AI source(s) — need "
+                f">= {content_cfg.min_ai_sources} (from {len(ai_c)} candidate(s); "
+                f"{len(ai_dropped)} dropped as grim / recent / dupe / unreachable)")
+        if len(fun_picks) < content_cfg.min_fun_sources:
+            held.append(
+                f"only {len(fun_picks)} usable fun source(s) — need "
+                f">= {content_cfg.min_fun_sources} (from {len(fun_c)} candidate(s))")
+        if held:
+            if recent_keys:
+                held.append(f"(fresh-only: stories from the last {n_recent or 'few'} "
+                            f"edition(s) were excluded)")
+            if search_fails:
+                held.append("web search degraded: " + "; ".join(search_fails))
+            logger.error("[run_edition] HOLDING %s — %s", date_iso, "; ".join(held))
+            raise EditionHeld(held)
+
+        trace.vfs("read", f"/research/ai_candidates.json "
+                          f"({len(ai_c)} candidates, {len(ai_valid)} usable)")
+        trace.vfs("read", f"/research/fun_candidates.json "
+                          f"({len(fun_c)} candidates, {len(fun_picks)} picked)")
+        logger.info("[run_edition] writing from %d AI + %d fun usable candidates",
+                    len(ai_valid), len(fun_picks))
         trace.model_route("write", content_cfg.write_model)
         _t0 = time.perf_counter()
         ai = write_ai_section(
-            ai_c,
+            ai_valid,
             num_subarticles=content_cfg.num_ai_subarticles,
             num_shorts=content_cfg.num_ai_shorts,
             generate=write_generate,
@@ -428,7 +588,7 @@ def run_edition(
             f"1 headliner + {len(ai.get('subarticles', []))} subs + "
             f"{len(ai.get('shorts', []))} shorts in {int((time.perf_counter() - _t0) * 1000)} ms",
         )
-        fun = _build_fun(fun_c, date_iso, generate=write_generate)
+        fun = _write_fun(fun_picks, date_iso, generate=write_generate)
 
     # Deterministic safety net: enforce the resolved counts (13 AI / 5 fun).
     ai["subarticles"] = (ai.get("subarticles") or [])[: content_cfg.num_ai_subarticles]

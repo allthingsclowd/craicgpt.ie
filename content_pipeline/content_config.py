@@ -21,6 +21,15 @@ import os
 from dataclasses import dataclass, field
 
 
+# A real browser User-Agent. Searching / fetching / validating links from a bot
+# UA ("CraicGPT/1.0") gets blocked or 429'd from the datacenter IP; present as a
+# normal browser instead. (The 2026-06-04 hallucination traced back to 429s.)
+WEB_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
 @dataclass
 class ContentConfig:
     """Model routes and endpoints for the daily content engine."""
@@ -61,6 +70,24 @@ class ContentConfig:
     # z-image-turbo. Target: a Qwen-Image route, once promoted in the fleet catalog.
     image_model: str = field(
         default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/mlx/hidream-o1-image-dev")
+    )
+    # ── Web search: Brave Search API (replaces ddgs scraping, which got 429'd from
+    # the datacenter IP and made the agent hallucinate). Key from 1Password
+    # AgentCredentials → /etc/craicgpt.env on the host. Never commit it.
+    brave_search_api_key: str = field(
+        default_factory=lambda: os.getenv("BRAVE_SEARCH_API_KEY", "")
+    )
+    # ── Integrity floors: minimum REAL, link-validated candidates per desk before
+    # we'll write an edition. Below these the run HOLDS rather than fabricate/thin.
+    # AI default 11 = the structural floor in review.py (headliner 1 + MIN_SUBARTICLES
+    # 2 + MIN_SHORTS 8): below it the page literally can't be valid, so we HOLD at
+    # research time with a clear reason instead of limping to a gate HOLD. Fun
+    # default 4 = review.MIN_FUN.
+    min_ai_sources: int = field(
+        default_factory=lambda: int(os.getenv("MIN_AI_SOURCES", "11"))
+    )
+    min_fun_sources: int = field(
+        default_factory=lambda: int(os.getenv("MIN_FUN_SOURCES", "4"))
     )
     # Frontier safety net. Used ONLY when a local call fails or fails validation.
     fallback_text_model: str = field(

@@ -1,0 +1,158 @@
+"""Integrity guardrails: fabrication and thin editions must be structurally
+impossible. The 2026-06-04 incident published 12/18 fabricated source URLs.
+
+These cover the deterministic defenses in editor_in_chief.run_edition:
+  * _validate_ai_candidates drops grim/political, duplicate, unreachable, and
+    recently-published candidates (the AI desk previously had NO curation);
+  * run_edition HOLDs (EditionHeld) when too few real, fresh sources survive on
+    either desk, naming the cause (incl. 'web search degraded' / 'fresh-only');
+  * _search_failures surfaces the web_search SEARCH_FAILED sentinel so the HOLD
+    can say WHY search failed.
+All offline (link fetch + recency injected; writer/image stubbed).
+"""
+
+import json
+
+import pytest
+
+from content_pipeline.agent.editor_in_chief import (
+    EditionHeld,
+    _search_failures,
+    _validate_ai_candidates,
+    run_edition,
+)
+from content_pipeline.research.curation import story_key_set
+
+
+class _ResearchAgent:
+    def __init__(self, fun_candidates, ai_candidates, messages=None):
+        self._files = {
+            "/research/fun_candidates.json": {"content": json.dumps(fun_candidates)},
+            "/research/ai_candidates.json": {"content": json.dumps(ai_candidates)},
+        }
+        self._messages = messages or []
+
+    def invoke(self, _inputs, config=None):
+        return {"messages": self._messages, "files": self._files}
+
+
+def _ai(n):
+    return [{"title": f"AI {i}", "summary": "s", "source_url": f"https://ai/{i}"}
+            for i in range(n)]
+
+
+def _fun(n):
+    conts = ["Europe", "Asia", "Africa", "Americas", "Oceania"]
+    return [{"title": f"Fun {i}", "summary": "lovely", "source_url": f"https://f/{i}",
+             "continent": conts[i % 5]} for i in range(n)]
+
+
+def _writer(prompt):
+    if "AI editor" in prompt:  # the AI-section call
+        return {
+            "headliner": {"title": "H", "standfirst": "s", "body": "b", "source_url": "https://ai/0"},
+            "subarticles": [{"title": f"sub{i}", "body": "b", "source_url": "https://ai/1"} for i in range(2)],
+            "shorts": [{"title": f"sh{i}", "body": "b", "source_url": "https://ai/2"} for i in range(10)],
+        }
+    return {"title": "Fun!", "body": "...", "source_url": ""}
+
+
+_IMG = lambda p: ("/tmp/i.png", "flux")  # noqa: E731 — terse offline image stub
+
+
+# --- _validate_ai_candidates (the AI desk's missing curation) ----------------
+def test_validate_ai_candidates_drops_grim_dupe_unreachable_recent():
+    cands = [
+        {"title": "Real one", "summary": "s", "source_url": "https://ok/1"},
+        {"title": "War crimes tribunal opens", "summary": "grim", "source_url": "https://ok/2"},
+        {"title": "Dupe of one", "summary": "s", "source_url": "https://ok/1"},
+        {"title": "Dead link", "summary": "s", "source_url": "https://gone/3"},
+        {"title": "Old news", "summary": "s", "source_url": "https://ok/4"},
+        {"title": "Fresh two", "summary": "s", "source_url": "https://ok/5"},
+    ]
+    status = {"https://ok/1": 200, "https://gone/3": 404, "https://ok/5": 200}
+    recent = story_key_set("Old news", "https://ok/4")
+    survivors, dropped = _validate_ai_candidates(
+        cands, fetch=lambda u: status[u], exclude_keys=recent)
+    assert [c["title"] for c in survivors] == ["Real one", "Fresh two"]
+    assert len(dropped) == 4  # grim, dupe, unreachable, recent
+
+
+def test_validate_ai_candidates_preserves_rich_fields():
+    cands = [{"title": "T", "summary": "s", "source_url": "https://ok/1",
+              "why_it_matters": "w", "key_points": ["a", "b"], "conclusion": "c"}]
+    survivors, _ = _validate_ai_candidates(cands, fetch=lambda u: 200)
+    assert survivors[0]["key_points"] == ["a", "b"]
+    assert survivors[0]["conclusion"] == "c"
+
+
+# --- run_edition HOLD behaviour (never publish thin / fabricated) ------------
+def test_run_edition_holds_when_ai_below_floor():
+    agent = _ResearchAgent(_fun(6), _ai(5))  # 5 AI < min 11
+    with pytest.raises(EditionHeld) as exc:
+        run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                    link_fetch=lambda url: 200, recent_keys=set(), image_generate=_IMG)
+    assert "AI source" in str(exc.value)
+
+
+def test_run_edition_holds_when_fun_below_floor():
+    agent = _ResearchAgent(_fun(2), _ai(13))  # 2 fun < min 4
+    with pytest.raises(EditionHeld) as exc:
+        run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                    link_fetch=lambda url: 200, recent_keys=set(), image_generate=_IMG)
+    assert "fun source" in str(exc.value)
+
+
+def test_run_edition_holds_when_links_unreachable():
+    # 13 AI candidates but only 4 resolve (the rest are fabricated / dead) → HOLD.
+    status = {f"https://ai/{i}": (200 if i < 4 else 404) for i in range(13)}
+    agent = _ResearchAgent(_fun(6), _ai(13))
+    with pytest.raises(EditionHeld) as exc:
+        run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                    link_fetch=lambda url: status.get(url, 404), recent_keys=set(),
+                    image_generate=_IMG)
+    assert "unreachable" in str(exc.value).lower()
+
+
+def test_run_edition_holds_with_search_reason_when_degraded():
+    msgs = [{"role": "tool", "content": "SEARCH_FAILED: 429 rate-limited (slow down / over quota)"}]
+    agent = _ResearchAgent(_fun(2), _ai(3), messages=msgs)
+    with pytest.raises(EditionHeld) as exc:
+        run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                    link_fetch=lambda url: 200, recent_keys=set(), image_generate=_IMG)
+    assert "search degraded" in str(exc.value).lower() and "429" in str(exc.value)
+
+
+def test_run_edition_recency_can_cause_hold_and_names_it():
+    # 12 AI candidates, but the recency set excludes 2 → 10 < min 11 → HOLD.
+    recent = story_key_set("AI 0", "https://ai/0") | story_key_set("AI 1", "https://ai/1")
+    agent = _ResearchAgent(_fun(6), _ai(12))
+    with pytest.raises(EditionHeld) as exc:
+        run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                    link_fetch=lambda url: 200, recent_keys=recent, image_generate=_IMG)
+    assert "fresh-only" in str(exc.value).lower()
+
+
+def test_run_edition_succeeds_when_enough_fresh_sources():
+    # 15 AI (2 excluded as recent → 13 ≥ 11) + 8 fun → writes a full edition.
+    recent = story_key_set("AI 0", "https://ai/0") | story_key_set("AI 1", "https://ai/1")
+    agent = _ResearchAgent(_fun(8), _ai(15))
+    paper = run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                        link_fetch=lambda url: 200, recent_keys=recent, image_generate=_IMG)
+    assert paper["ai"]["headliner"]["title"] == "H"
+    assert len(paper["ai"]["shorts"]) == 10
+    assert len(paper["fun"]) == 5
+
+
+# --- _search_failures (so a HOLD can say WHY) --------------------------------
+def test_search_failures_extracts_distinct_reasons():
+    msgs = [
+        {"role": "tool", "content": "blah\nSEARCH_FAILED: 429 rate-limited (slow down)\nmore"},
+        {"role": "assistant", "content": "thinking"},
+        {"role": "tool", "content": "SEARCH_FAILED: 401 unauthorized (bad key)"},
+        {"role": "tool", "content": "SEARCH_FAILED: 429 rate-limited (slow down)"},  # dup
+    ]
+    fails = _search_failures(msgs)
+    assert any("429" in f for f in fails)
+    assert any("401" in f for f in fails)
+    assert len(fails) == 2  # deduped
