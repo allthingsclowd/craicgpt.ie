@@ -69,3 +69,25 @@ def test_message_to_selects_bot():
 def test_message_requires_text():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["message", "--to", "both"])
+
+
+# --- content-aware already-live (versioning idempotency) --------------------
+def test_already_live_is_content_aware(monkeypatch):
+    """The gate republishes when the draft differs from what's live (incl. a stale
+    cross-date object), but is a no-op when the live edition IS the current draft."""
+    from content_pipeline.agent import cli
+
+    gens = {}
+    monkeypatch.setattr(cli, "_edition_generated_at", lambda date, prefix: gens.get(prefix))
+
+    # Stale cross-content live (incident takedown) vs a newer draft → NOT live → republish.
+    gens.update(content="2026-06-03T21:46:00Z", preview="2026-06-04T11:50:00Z")
+    assert cli._already_live("2026-06-04") is False
+
+    # The current edition is already the latest → already-live → skip (no dup version).
+    gens.update(content="2026-06-04T11:50:00Z", preview="2026-06-04T11:50:00Z")
+    assert cli._already_live("2026-06-04") is True
+
+    # Nothing live yet → not live.
+    gens.update(content=None, preview="2026-06-04T11:50:00Z")
+    assert cli._already_live("2026-06-04") is False

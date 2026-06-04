@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, Optional
 
@@ -45,6 +46,67 @@ def _is_local_path(url: str) -> bool:
         return False
     path = url[len("file://"):] if url.startswith("file://") else url
     return os.path.exists(path)
+
+
+# ── Edition versioning ───────────────────────────────────────────────────────
+# Every live publish writes the latest at content/<date>/paper_content.json AND an
+# immutable snapshot at content/<date>/versions/<id>.json, then prepends it to
+# content/<date>/versions.json (the manifest the site reads to offer prior
+# versions). Idempotent on generated_at: re-publishing the SAME edition (the gate
+# polls repeatedly) does NOT mint a duplicate version.
+def _version_id(generated_at: str) -> str:
+    """A URL/key-safe id from an ISO8601 timestamp (2026-06-04T11:50:22… → 20260604T115022)."""
+    return re.sub(r"[^0-9A-Za-z]", "", (generated_at or "").split(".")[0]) or "v"
+
+
+def _hhmm(generated_at: str) -> str:
+    """'HH:MM' (UTC) from an ISO8601 timestamp; '' if unparseable."""
+    m = re.search(r"T(\d{2}):(\d{2})", generated_at or "")
+    return f"{m.group(1)}:{m.group(2)}" if m else ""
+
+
+def _read_versions_manifest(s3: Any, bucket: str, date_iso: str) -> dict:
+    """The day's versions.json, or a fresh empty manifest."""
+    key = s3_key(date_iso, content_cfg.content_prefix, "versions.json")
+    try:
+        data = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+        if isinstance(data, dict) and isinstance(data.get("versions"), list):
+            return data
+    except Exception:  # noqa: BLE001 — no manifest yet / unreadable → start fresh
+        pass
+    return {"date": date_iso, "versions": []}
+
+
+def _write_edition_version(s3: Any, bucket: str, date_iso: str, paper: dict) -> Optional[str]:
+    """Write an immutable snapshot of ``paper`` and prepend it to versions.json.
+
+    Returns the snapshot key, or None if this edition (by generated_at) was already
+    versioned — so a repeated publish of the same edition is a no-op."""
+    gen = str(paper.get("generated_at") or "")
+    vid = _version_id(gen)
+    manifest = _read_versions_manifest(s3, bucket, date_iso)
+    versions = manifest["versions"]
+    if any(v.get("id") == vid for v in versions):
+        return None  # this exact edition is already a version — don't duplicate
+
+    snap_key = s3_key(date_iso, content_cfg.content_prefix, f"versions/{vid}.json")
+    s3.put_object(Bucket=bucket, Key=snap_key,
+                  Body=json.dumps(paper, ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json",
+                  CacheControl="public, max-age=31536000, immutable")
+
+    seq = len(versions) + 1
+    headliner = ((paper.get("ai") or {}).get("headliner") or {}).get("title", "")
+    label = f"v{seq}" + (f" · {_hhmm(gen)}" if _hhmm(gen) else "")
+    versions.insert(0, {"id": vid, "generated_at": gen, "seq": seq,
+                        "label": label, "headliner": headliner})
+    man_key = s3_key(date_iso, content_cfg.content_prefix, "versions.json")
+    s3.put_object(Bucket=bucket, Key=man_key,
+                  Body=json.dumps({"date": date_iso, "versions": versions},
+                                  ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json", CacheControl="no-cache")
+    logger.info("[publish] version %s (%s) → %s", label, vid, snap_key)
+    return snap_key
 
 
 def publish_paper(
@@ -101,26 +163,41 @@ def publish_paper(
                   CacheControl="public, max-age=300")
     logger.info("[publish] edition → s3://%s/%s (live=%s)", bucket, key, live)
 
-    # 3) Invalidate CloudFront for the live path so readers see it immediately.
+    # 2b) Versioning (live only): write an immutable snapshot + update versions.json
+    #     so the site can offer prior versions of the day's edition. Idempotent on
+    #     generated_at, and never allowed to fail the publish itself.
+    manifest_key: Optional[str] = None
+    if live:
+        try:
+            if _write_edition_version(s3, bucket, date_iso, paper):
+                manifest_key = s3_key(date_iso, content_cfg.content_prefix, "versions.json")
+        except Exception as exc:  # noqa: BLE001 — versioning must never sink a publish
+            logger.warning("[publish] versioning failed: %s", exc)
+
+    # 3) Invalidate CloudFront for the live paths so readers see it immediately.
     cf_id = cloudfront_id or content_cfg.cloudfront_distribution_id
     if live and cf_id:
-        _invalidate_cloudfront(cf_id, key)
+        _invalidate_cloudfront(cf_id, [key] + ([manifest_key] if manifest_key else []))
 
     return key
 
 
-def _invalidate_cloudfront(distribution_id: str, key: str) -> None:
+def _invalidate_cloudfront(distribution_id: str, keys) -> None:
+    keys = [keys] if isinstance(keys, str) else [k for k in keys if k]
+    if not keys:
+        return
     try:
         import boto3
 
         cf = boto3.client("cloudfront", region_name=content_cfg.aws_region)
+        items = [f"/{k}" for k in keys]
         cf.create_invalidation(
             DistributionId=distribution_id,
             InvalidationBatch={
-                "Paths": {"Quantity": 1, "Items": [f"/{key}"]},
+                "Paths": {"Quantity": len(items), "Items": items},
                 "CallerReference": str(int(time.time())),
             },
         )
-        logger.info("[publish] CloudFront invalidation for /%s", key)
+        logger.info("[publish] CloudFront invalidation for %s", ", ".join(items))
     except Exception as exc:  # noqa: BLE001 — invalidation failure shouldn't fail publish
         logger.warning("[publish] CloudFront invalidation failed: %s", exc)
