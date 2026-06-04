@@ -22,6 +22,14 @@ def test_run_accepts_publish_draft():
     assert args.publish_draft is True
 
 
+def test_run_accepts_no_recency_override():
+    # Operator override to force a fresh same-day version when the news pool is thin.
+    args = build_parser().parse_args(["run", "--date", "2026-06-02", "--no-recency"])
+    assert args.no_recency is True
+    # default off — the daily run keeps the recency de-dup
+    assert build_parser().parse_args(["run"]).no_recency is False
+
+
 def test_approve_requires_date():
     with pytest.raises(SystemExit):
         build_parser().parse_args(["approve"])  # --date required

@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--publish-draft", action="store_true",
                        help="Also upload the draft (+ images) to the S3 preview/ prefix "
                             "for review (this is what the daily Conductor run does)")
+    p_run.add_argument("--no-recency", action="store_true",
+                       help="Operator override: regenerate IGNORING the recency de-dup "
+                            "(do NOT exclude the last few editions' stories). Use to force "
+                            "a fresh same-day version when the day's news pool is too thin "
+                            "for the recency filter to leave enough sources.")
 
     p_app = sub.add_parser("approve", help="Approve (or reject) a held draft edition")
     p_app.add_argument("--date", required=True)
@@ -159,8 +164,15 @@ def cmd_run(args) -> int:
     # run_edition raises EditionHeld — we publish NOTHING and alert loudly. Better a
     # held day than the 2026-06-04 fabricated one. status=failed keeps the gate from
     # ever publishing it (gate only publishes 'complete').
+    # Operator override: `--no-recency` passes an empty exclude-set so run_edition
+    # skips the last-few-editions de-dup (otherwise None → it excludes them). Lets a
+    # forced same-day re-version publish when the day's fresh-source pool is depleted.
+    recent_keys = set() if getattr(args, "no_recency", False) else None
+    if recent_keys is not None:
+        logging.warning("[cli] --no-recency: recency de-dup DISABLED for this run "
+                        "(stories may overlap recent editions)")
     try:
-        paper = run_edition(date_iso, generated_at=gen)
+        paper = run_edition(date_iso, generated_at=gen, recent_keys=recent_keys)
     except EditionHeld as held:
         reasons = held.reasons or ["edition held"]
         logging.error("[cli] edition %s HELD — nothing published: %s",
