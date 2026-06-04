@@ -71,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ver.add_argument("--agent", required=True, help="e.g. openclaw / hermes")
     p_ver.add_argument("--decision", required=True, choices=["approve", "hold"])
     p_ver.add_argument("--reason", action="append", default=[], help="repeatable")
+    p_ver.add_argument("--vid", help="edition version id (per-version verdict; optional)")
 
     p_con = sub.add_parser("consensus", help="Read both verdicts; publish live on two-agent APPROVE")
     p_con.add_argument("--date", required=True)
@@ -138,9 +139,15 @@ def _frontend_dir() -> str:
 def cmd_run(args) -> int:
     # Imported here so `build_parser` (and its test) don't pull the agent stack.
     from content_pipeline.agent.editor_in_chief import EditionHeld, run_edition
+    from content_pipeline.agent.publish import _version_id
 
     date_iso = args.date or _today()
-    logging.info("[cli] running edition for %s", date_iso)
+    # One generated_at for this run → its version id (vid), threaded through the whole
+    # apply path (review-request, verdicts, notify markers) so multiple applies in one
+    # day are each reviewed + announced + published as distinct versions.
+    gen = _now_iso()
+    vid = _version_id(gen)
+    logging.info("[cli] running edition for %s (vid=%s)", date_iso, vid)
 
     # Decoupling marker: tell the (independent) publisher a run is in flight, so a
     # poll that races generation sees `generating` and simply retries later.
@@ -153,14 +160,14 @@ def cmd_run(args) -> int:
     # held day than the 2026-06-04 fabricated one. status=failed keeps the gate from
     # ever publishing it (gate only publishes 'complete').
     try:
-        paper = run_edition(date_iso, generated_at=_now_iso())
+        paper = run_edition(date_iso, generated_at=gen)
     except EditionHeld as held:
         reasons = held.reasons or ["edition held"]
         logging.error("[cli] edition %s HELD — nothing published: %s",
                       date_iso, "; ".join(reasons))
         if getattr(args, "publish_draft", False):
             _announce_safe(date_iso, "failed")
-            _notify_safe("held", date_iso, reasons=reasons)
+            _notify_safe("held", date_iso, reasons=reasons, vid=vid)
         print("edition HELD — not published:\n  " + "\n  ".join(reasons))
         return 2
 
@@ -182,10 +189,10 @@ def cmd_run(args) -> int:
         key = publish_paper(preview, date_iso, live=False)
         print(f"draft published to preview: {key}")
         # Mark complete + drop the review-request the agents poll for.
-        _announce_safe(date_iso, "complete")
+        _announce_safe(date_iso, "complete", vid=vid)
         # Tell Graham (via both agents' channels) a draft is up for review.
         ymd = "/".join(date_iso.split("-"))
-        _notify_safe("generated", date_iso,
+        _notify_safe("generated", date_iso, vid=vid,
                      draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json")
     return 0
 
@@ -197,21 +204,22 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
         from content_pipeline import notifications
 
         if event == "generated":
-            notifications.notify_generated(date_iso, kw["draft_url"])
+            notifications.notify_generated(date_iso, kw["draft_url"], vid=kw.get("vid"))
         elif event == "published":
             notifications.notify_published(
                 date_iso, kw["live_url"], note=kw.get("note"),
                 approvers=kw.get("approvers"), link_count=kw.get("link_count"),
-                version=kw.get("version"))
+                version=kw.get("version"), vid=kw.get("vid"))
         elif event == "held":
-            notifications.notify_held(date_iso, kw.get("reasons") or [])
+            notifications.notify_held(date_iso, kw.get("reasons") or [], vid=kw.get("vid"))
     except Exception as exc:  # noqa: BLE001
         logging.warning("[cli] notify %s failed: %s", event, exc)
 
 
-def _announce_safe(date_iso: str, state: str) -> None:
+def _announce_safe(date_iso: str, state: str, *, vid: Optional[str] = None) -> None:
     """Write the status flag (+ review-request on complete). Never let a status
-    write break generation — the publisher just retries if the flag is missing."""
+    write break generation — the publisher just retries if the flag is missing.
+    ``vid`` keys the review-request to this edition-version so the agents review it."""
     from content_pipeline.agent import review
 
     try:
@@ -220,9 +228,9 @@ def _announce_safe(date_iso: str, state: str) -> None:
             review.write_review_request(
                 date_iso, agents=review.DEFAULT_AGENTS,
                 draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json",
-                at=_now_iso())
+                vid=vid, at=_now_iso())
             review.write_status(date_iso, "complete", at=_now_iso(),
-                                extra={"draft_key": f"preview/{ymd}/paper_content.json"})
+                                extra={"draft_key": f"preview/{ymd}/paper_content.json", "vid": vid})
         else:
             review.write_status(date_iso, state, at=_now_iso())
     except Exception as exc:  # noqa: BLE001
@@ -337,7 +345,7 @@ def cmd_verdict(args) -> int:
     from content_pipeline.agent import review
 
     key = review.write_verdict(args.date, args.agent, args.decision,
-                               args.reason or [], at=_now_iso())
+                               args.reason or [], vid=getattr(args, "vid", None), at=_now_iso())
     print(f"verdict written: {args.agent}={args.decision.upper()} → {key}")
     return 0
 
@@ -442,7 +450,7 @@ def _latest_version_label(date_iso: str) -> Optional[str]:
 
 
 def _after_publish(date_iso: str, *, note: Optional[str] = None,
-                   approvers: Optional[list] = None) -> dict:
+                   approvers: Optional[list] = None, vid: Optional[str] = None) -> dict:
     """Post-publish side effects shared by every publish path: keep the deployed
     frontend in lockstep with the repo (so the site never renders a stale shell
     against fresh content) and fire the 'published' Telegram alert — now carrying
@@ -457,7 +465,7 @@ def _after_publish(date_iso: str, *, note: Optional[str] = None,
         logging.warning("[cli] frontend sync after publish failed: %s", exc)
         out["frontend_error"] = str(exc)
     ymd = "/".join(date_iso.split("-"))
-    _notify_safe("published", date_iso,
+    _notify_safe("published", date_iso, vid=vid,
                  live_url=f"https://craicgpt.ie/content/{ymd}/paper_content.json", note=note,
                  approvers=approvers, link_count=_source_link_count(date_iso),
                  version=_latest_version_label(date_iso))
@@ -471,9 +479,17 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
     override / remediate / hold, firing the matching Telegram alert. Returns the
     decision dict (with ``published`` / ``dropped`` annotations)."""
     from content_pipeline.agent import review
+    from content_pipeline.agent.publish import _version_id
+    from content_pipeline.content_config import content_cfg
+
+    # The version under consideration = the current preview draft's generated_at.
+    # Read THIS version's verdicts (so the gate consenses on what it will actually
+    # publish, not a stale earlier version) and key the alerts to it.
+    draft_gen = _edition_generated_at(date_iso, content_cfg.preview_prefix)
+    vid = _version_id(draft_gen) if draft_gen else None
 
     status = review.read_status(date_iso)
-    verdicts = review.read_verdicts(date_iso)
+    verdicts = review.read_verdicts(date_iso, vid=vid)
     directive = review.read_directive(date_iso)
 
     # Host-side deterministic re-check before any publish (only worth fetching the
@@ -500,13 +516,13 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
         g["published"] = rc == 0
         if rc == 0:
             approvers = [a for a, v in (g.get("voted") or {}).items() if v == "APPROVE"]
-            g.update(_after_publish(date_iso, note=note, approvers=approvers))
+            g.update(_after_publish(date_iso, note=note, approvers=approvers, vid=vid))
     elif g["action"] == "remediate-publish":
         g.update(_remediate_and_publish(date_iso, g.get("drop") or [], by=by))
     elif g["action"] == "hold":
         # An editorial HOLD (or failed host validation) is exactly the case that
-        # used to go unseen — surface it to both agents' channels (once per date).
-        _notify_safe("held", date_iso, reasons=g.get("reasons"))
+        # used to go unseen — surface it to both agents' channels (once per version).
+        _notify_safe("held", date_iso, reasons=g.get("reasons"), vid=vid)
     return g
 
 
