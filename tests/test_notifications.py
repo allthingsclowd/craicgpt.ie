@@ -106,6 +106,28 @@ def test_lifecycle_helpers_send_expected_text(monkeypatch):
     assert "HELD" in captured["held"] and "off-brand short" in captured["held"]
 
 
+def test_notify_published_carries_validation_receipts(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(notifications, "notify_once",
+                        lambda event, date_iso, text, **kw: captured.update(text=text) or {"sent": True})
+    notifications.notify_published("2026-06-04", "https://craicgpt.ie/content/x.json",
+                                   approvers=["openclaw", "hermes"], link_count=18,
+                                   version="v2 · 17:30")
+    t = captured["text"]
+    assert "approved by openclaw ✓ + hermes ✓" in t   # who validated it
+    assert "18 source links verified" in t            # the link-check receipt
+    assert "v2 · 17:30" in t                           # which version
+    assert "published live" in t.lower()
+
+
+def test_notify_published_without_receipts_stays_bare(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(notifications, "notify_once",
+                        lambda event, date_iso, text, **kw: captured.update(text=text) or {"sent": True})
+    notifications.notify_published("2026-06-04", "https://x")  # no receipts supplied
+    assert "🔎" not in captured["text"]                 # no receipt line when nothing to show
+
+
 # --- which-channel selector -------------------------------------------------
 def _cfg(monkeypatch):
     from content_pipeline import content_config

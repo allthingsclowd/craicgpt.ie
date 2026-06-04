@@ -166,9 +166,23 @@ def notify_generated(date_iso: str, draft_url: str, *, s3: Any | None = None) ->
 
 
 def notify_published(date_iso: str, live_url: str, *, note: Optional[str] = None,
+                     approvers: Optional[Iterable[str]] = None,
+                     link_count: Optional[int] = None, version: Optional[str] = None,
                      s3: Any | None = None) -> dict:
+    """Announce a live publish WITH its validation receipts inline — who approved,
+    how many source links were verified, and which version — so a publish is never
+    a bare "it's live" with no visible validation (the 2026-06-04 worry)."""
+    bits = []
+    approvers = list(approvers or [])
+    if approvers:
+        bits.append("approved by " + " + ".join(f"{a} ✓" for a in approvers))
+    if link_count is not None:
+        bits.append(f"{link_count} source links verified")
+    if version:
+        bits.append(str(version))
+    receipt = ("\n🔎 " + " · ".join(bits)) if bits else ""
     extra = f"\n<i>{note}</i>" if note else ""
-    text = (f"✅ <b>CraicGPT edition published live</b> — {date_iso}{extra}\n{live_url}")
+    text = (f"✅ <b>CraicGPT edition published live</b> — {date_iso}{receipt}{extra}\n{live_url}")
     return notify_once("published", date_iso, text, s3=s3)
 
 

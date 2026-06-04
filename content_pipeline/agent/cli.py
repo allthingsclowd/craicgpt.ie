@@ -199,7 +199,10 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
         if event == "generated":
             notifications.notify_generated(date_iso, kw["draft_url"])
         elif event == "published":
-            notifications.notify_published(date_iso, kw["live_url"], note=kw.get("note"))
+            notifications.notify_published(
+                date_iso, kw["live_url"], note=kw.get("note"),
+                approvers=kw.get("approvers"), link_count=kw.get("link_count"),
+                version=kw.get("version"))
         elif event == "held":
             notifications.notify_held(date_iso, kw.get("reasons") or [])
     except Exception as exc:  # noqa: BLE001
@@ -410,11 +413,41 @@ def cmd_announce(args) -> int:
     return 0
 
 
-def _after_publish(date_iso: str, *, note: Optional[str] = None) -> dict:
+def _source_link_count(date_iso: str) -> Optional[int]:
+    """How many source links the (now-published) edition carries — all of which the
+    gate's mandatory link-check verified before publishing. Best-effort receipt."""
+    try:
+        paper = _load_draft(date_iso)
+        ai = paper.get("ai") or {}
+        items = [ai.get("headliner"), *(ai.get("subarticles") or []),
+                 *(ai.get("shorts") or []), *(paper.get("fun") or [])]
+        return sum(1 for it in items if (it or {}).get("source_url"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _latest_version_label(date_iso: str) -> Optional[str]:
+    """The newest version label from the live manifest (e.g. 'v2 · 17:30')."""
+    from content_pipeline.agent.publish import _default_s3, s3_key
+    from content_pipeline.content_config import content_cfg
+
+    try:
+        obj = _default_s3().get_object(
+            Bucket=content_cfg.s3_bucket,
+            Key=s3_key(date_iso, content_cfg.content_prefix, "versions.json"))
+        versions = json.loads(obj["Body"].read()).get("versions") or []
+        return versions[0].get("label") if versions else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _after_publish(date_iso: str, *, note: Optional[str] = None,
+                   approvers: Optional[list] = None) -> dict:
     """Post-publish side effects shared by every publish path: keep the deployed
     frontend in lockstep with the repo (so the site never renders a stale shell
-    against fresh content) and fire the 'published' Telegram alert. Frontend sync
-    failure must not fail the content publish."""
+    against fresh content) and fire the 'published' Telegram alert — now carrying
+    the validation receipts (who approved, links verified, which version). Frontend
+    sync failure must not fail the content publish."""
     out: dict = {}
     try:
         from content_pipeline.agent.frontend import sync_frontend
@@ -425,7 +458,9 @@ def _after_publish(date_iso: str, *, note: Optional[str] = None) -> dict:
         out["frontend_error"] = str(exc)
     ymd = "/".join(date_iso.split("-"))
     _notify_safe("published", date_iso,
-                 live_url=f"https://craicgpt.ie/content/{ymd}/paper_content.json", note=note)
+                 live_url=f"https://craicgpt.ie/content/{ymd}/paper_content.json", note=note,
+                 approvers=approvers, link_count=_source_link_count(date_iso),
+                 version=_latest_version_label(date_iso))
     return out
 
 
@@ -464,7 +499,8 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
         rc = _publish_live(date_iso, _draft_path(date_iso))
         g["published"] = rc == 0
         if rc == 0:
-            g.update(_after_publish(date_iso, note=note))
+            approvers = [a for a, v in (g.get("voted") or {}).items() if v == "APPROVE"]
+            g.update(_after_publish(date_iso, note=note, approvers=approvers))
     elif g["action"] == "remediate-publish":
         g.update(_remediate_and_publish(date_iso, g.get("drop") or [], by=by))
     elif g["action"] == "hold":
