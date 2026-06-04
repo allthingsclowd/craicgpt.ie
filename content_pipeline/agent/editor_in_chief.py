@@ -316,8 +316,76 @@ def _write_fun(picked: list, date_iso: str, *, generate=None) -> list:
             written = {"title": story.title, "body": story.summary, "source_url": story.source_url}
         written["persona"] = persona
         written["kind"] = "article"
+        written["source_url"] = story.source_url  # fidelity: the validated picked URL, not the writer's guess
         out.append(written)
     return out
+
+
+# ── Source-link fidelity (AI desk) ────────────────────────────────────────────
+# The deterministic writer (an LLM) sometimes invents or mangles a story's
+# source_url even when told to reuse the candidate's — and a single hallucinated
+# URL then trips the publish gate's link-check and HOLDs the whole edition (the
+# 2026-06-04 17:00 run: 4/18 written AI URLs were unreachable, all writer-invented
+# OpenAI slugs). Candidates were already link-validated upstream, so we snap every
+# written article back onto one: keep it if it already cites a validated URL, else
+# map it to the best title-matched candidate — so the writer can NEVER introduce an
+# unreachable/invented link.
+_TITLE_STOP = {"the", "a", "an", "to", "of", "in", "on", "and", "for", "with", "is",
+               "at", "as", "by", "its", "new", "how", "why", "what", "from", "are"}
+
+
+def _title_tokens(title: str) -> set:
+    return {w for w in re.sub(r"[^\w\s]", " ", (title or "").lower()).split()
+            if len(w) > 2 and w not in _TITLE_STOP}
+
+
+def _norm_url(u: str) -> str:
+    return (u or "").strip().rstrip("/").lower()
+
+
+def _snap_ai_sources(ai: dict, candidates: list) -> dict:
+    """Force every written AI article's source_url onto a VALIDATED candidate URL.
+
+    Faithful items (already citing a validated candidate) are kept; a hallucinated
+    or mangled URL is mapped to the best title-matched candidate; an ungrounded
+    sub/short (no shared title token with any candidate) is dropped. The headliner
+    is never dropped — it falls back to the top candidate. Guarantees a written
+    article cannot carry an unreachable link into the publish gate.
+    """
+    valid: dict = {}
+    cand: list = []
+    for c in candidates:
+        if not isinstance(c, dict):
+            continue
+        u = (c.get("source_url") or "").strip()
+        if u:
+            valid[_norm_url(u)] = u
+            cand.append((_title_tokens(c.get("title", "")), u))
+
+    def resolve(item, *, headliner=False):
+        if not isinstance(item, dict):
+            return None
+        if _norm_url(item.get("source_url", "")) in valid:
+            item["source_url"] = valid[_norm_url(item["source_url"])]  # canonicalise to the candidate's
+            return item
+        toks = _title_tokens(item.get("title", ""))
+        best_u, best = None, 0
+        for ctoks, cu in cand:
+            n = len(toks & ctoks)
+            if n > best:
+                best_u, best = cu, n
+        if best >= 1:
+            item["source_url"] = best_u
+            return item
+        if headliner:  # never drop the headliner — fall back to the top candidate
+            item["source_url"] = cand[0][1] if cand else item.get("source_url", "")
+            return item
+        return None  # ungrounded sub/short → drop
+
+    ai["headliner"] = resolve(ai.get("headliner") or {}, headliner=True) or (ai.get("headliner") or {})
+    ai["subarticles"] = [x for x in (resolve(s) for s in ai.get("subarticles", [])) if x]
+    ai["shorts"] = [x for x in (resolve(s) for s in ai.get("shorts", [])) if x]
+    return ai
 
 
 def _finalize_fun(fun: list, date_iso: str) -> None:
@@ -606,6 +674,9 @@ def run_edition(
             f"1 headliner + {len(ai.get('subarticles', []))} subs + "
             f"{len(ai.get('shorts', []))} shorts in {int((time.perf_counter() - _t0) * 1000)} ms",
         )
+        # Source-link fidelity: snap every written AI URL onto a validated candidate
+        # so the writer can't slip an unreachable/invented link through to the gate.
+        ai = _snap_ai_sources(ai, ai_valid)
         fun = _write_fun(fun_picks, date_iso, generate=write_generate)
 
     # Deterministic safety net: enforce the resolved counts (13 AI / 5 fun).

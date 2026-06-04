@@ -178,3 +178,41 @@ def test_run_edition_harvest_rescues_thin_agent_yield():
                         ai_feed_fetch=_feed, image_generate=_IMG)
     assert paper["ai"]["headliner"]["title"] == "H"  # published, not held
     assert len(paper["ai"]["shorts"]) == 10
+
+
+# --- source-link fidelity: the writer can't slip an unreachable URL to the gate -
+def test_snap_ai_sources_forces_validated_urls():
+    from content_pipeline.agent.editor_in_chief import _snap_ai_sources
+    cands = [
+        {"title": "OpenAI ships GPT memory upgrade", "source_url": "https://real/openai-memory"},
+        {"title": "DeepSeek raises seven billion in funding round", "source_url": "https://real/deepseek"},
+        {"title": "Mistral opens a Paris research lab", "source_url": "https://real/mistral"},
+    ]
+    ai = {
+        "headliner": {"title": "OpenAI Memory Upgrade Lands", "body": "b",
+                      "source_url": "https://hallucinated/openai-dreaming"},           # invented → snap
+        "subarticles": [{"title": "DeepSeek's Funding Round", "body": "b",
+                         "source_url": "https://made-up/deepseek-x"}],                 # mangled → snap
+        "shorts": [
+            {"title": "Mistral Paris Lab Opens", "body": "b", "source_url": "https://real/mistral"},  # faithful → keep
+            {"title": "Totally unrelated quantum widget", "body": "b",
+             "source_url": "https://invented/xyz"},                                    # ungrounded → drop
+        ],
+    }
+    out = _snap_ai_sources(ai, cands)
+    assert out["headliner"]["source_url"] == "https://real/openai-memory"   # snapped by title match
+    assert out["subarticles"][0]["source_url"] == "https://real/deepseek"   # snapped by title match
+    assert [s["source_url"] for s in out["shorts"]] == ["https://real/mistral"]  # faithful kept, ungrounded dropped
+
+
+def test_write_fun_forces_validated_source_url():
+    # Even if the writer emits a hallucinated URL, the published fun story carries
+    # the validated picked candidate's URL — never the writer's guess.
+    from content_pipeline.agent.editor_in_chief import _write_fun
+    from content_pipeline.research.curation import Story
+
+    picked = [Story(title="Otters reunited", summary="lovely", source_url="https://validated/otters")]
+    written = _write_fun(picked, "2026-06-04",
+                         generate=lambda p: {"title": "Otters!", "body": "x",
+                                             "source_url": "https://hallucinated/nope"})
+    assert written[0]["source_url"] == "https://validated/otters"
