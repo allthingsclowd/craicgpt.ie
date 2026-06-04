@@ -55,25 +55,44 @@ def loads_lenient(raw: str) -> dict:
     raise ValueError(f"could not parse JSON from model output: {text[:120]!r}")
 
 
-def _default_generate(prompt: str) -> dict:
+def _default_generate(prompt: str, *, attempts: int = 3) -> dict:
     """Plain chat completion on the write model, parsed leniently to a dict.
 
     Thinking mode is disabled — Qwen3.6 otherwise emits a long ``<think>`` preamble
     that consumes the output budget before any JSON appears.
+
+    The local model occasionally returns JSON the lenient parser can't recover (an
+    unterminated string, a stray control char, a truncated tail). Rather than HOLD
+    the whole edition on a single bad sample, **re-sample up to ``attempts`` times**
+    — the write temperature is > 0, so each retry is a genuinely different
+    completion (and we nudge it up on retries to vary even if the configured
+    temperature is 0). This is the same fail-soft spirit as the rest of the desk.
     """
     from content_pipeline.providers.litellm import get_litellm_llm
 
-    llm = get_litellm_llm(
-        content_cfg.write_model,
-        # Headroom for the AI section: ten 110-140 word shorts + headliner + subs as
-        # one JSON object. Too tight a cap truncates the tail shorts (the lenient
-        # parser then drops them, risking review.MIN_SHORTS). 8000 leaves slack.
-        max_tokens=8000,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-    resp = llm.invoke(prompt)
-    text = resp.content if isinstance(resp.content, str) else str(resp.content)
-    return loads_lenient(text)
+    last_err: Optional[Exception] = None
+    for n in range(attempts):
+        # First try at the configured temperature; retries nudge it up so the
+        # re-sample differs even if the default were 0 (deterministic).
+        temp = None if n == 0 else max(content_cfg.temperature, 0.4) + 0.1 * n
+        llm = get_litellm_llm(
+            content_cfg.write_model,
+            temperature=temp,
+            # Headroom for the AI section: ten 110-140 word shorts + headliner + subs
+            # as one JSON object. Too tight a cap truncates the tail shorts (the
+            # lenient parser then drops them, risking review.MIN_SHORTS). 8000 slack.
+            max_tokens=8000,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        resp = llm.invoke(prompt)
+        text = resp.content if isinstance(resp.content, str) else str(resp.content)
+        try:
+            return loads_lenient(text)
+        except ValueError as exc:
+            last_err = exc
+            logger.warning("[writer] model JSON unparseable (attempt %d/%d, temp=%s); "
+                           "re-sampling: %s", n + 1, attempts, temp, exc)
+    raise last_err  # type: ignore[misc]  # attempts >= 1, so last_err is set
 
 
 # ─────────────────────────────────────────────────────────────────────────────

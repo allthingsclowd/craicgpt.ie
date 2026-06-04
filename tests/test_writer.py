@@ -56,3 +56,49 @@ def test_write_fun_story_keeps_source_url_and_persona_voice():
     assert "tremendous" in captured["prompt"].lower()
     # Source URL falls back to the candidate's when the model omits it.
     assert out["source_url"] == "https://x/whale"
+
+
+# --- _default_generate re-samples on unparseable JSON (the run-1 flake) ---------
+class _Resp:
+    def __init__(self, content):
+        self.content = content
+
+
+def test_default_generate_resamples_on_unparseable_json(monkeypatch):
+    # The local model sometimes returns JSON the lenient parser can't recover; rather
+    # than HOLD the edition, _default_generate re-samples. First sample is broken,
+    # second is valid → it returns the parsed dict, having retried exactly once.
+    from content_pipeline.generate import writer
+    from content_pipeline.providers import litellm as litellm_mod
+
+    calls = {"n": 0}
+
+    class _LLM:
+        def invoke(self, prompt):
+            calls["n"] += 1
+            return _Resp('{"headliner": broken' if calls["n"] == 1
+                         else '{"headliner": {"title": "H"}}')
+
+    monkeypatch.setattr(litellm_mod, "get_litellm_llm", lambda *a, **k: _LLM())
+    out = writer._default_generate("prompt")
+    assert out == {"headliner": {"title": "H"}}
+    assert calls["n"] == 2  # one bad sample, then a successful re-sample
+
+
+def test_default_generate_raises_after_exhausting_attempts(monkeypatch):
+    import pytest
+
+    from content_pipeline.generate import writer
+    from content_pipeline.providers import litellm as litellm_mod
+
+    calls = {"n": 0}
+
+    class _LLM:
+        def invoke(self, prompt):
+            calls["n"] += 1
+            return _Resp("not json at all {")
+
+    monkeypatch.setattr(litellm_mod, "get_litellm_llm", lambda *a, **k: _LLM())
+    with pytest.raises(ValueError):
+        writer._default_generate("prompt", attempts=2)
+    assert calls["n"] == 2  # tried the configured number of times, then gave up
