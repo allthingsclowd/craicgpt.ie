@@ -202,16 +202,22 @@ def write_review_request(date_iso: str, *, agents: Iterable[str], draft_url: str
                          bucket: Optional[str] = None, at: Optional[str] = None) -> str:
     """Drop the marker the agents poll for: 'a draft is ready for your review'.
 
-    Carries the edition-version ``vid`` so the agents review THIS version and key
-    their verdict per-version (``verdict-<agent>-<vid>.json``); a new vid means a
-    fresh review, which is what enables multiple applies per day."""
+    Carries the edition-version ``vid`` so the agents review THIS version and embed
+    it in their verdict body. The gate matches a verdict to the version by that body
+    ``vid`` (``read_verdicts``), NOT by the file name — so each agent keeps ONE
+    stable ``verdict-<agent>.json`` and simply re-reviews (overwriting it) when a new
+    ``vid`` appears. A new vid therefore means a fresh review, which is what enables
+    multiple applies per day, while keeping the agents' scoped put-only IAM pointed at
+    a single stable key (no per-version key to widen the policy for)."""
     s3 = s3 or _default_s3()
     bucket = bucket or content_cfg.s3_bucket
     body = {"date": date_iso, "draft_url": draft_url, "agents": list(agents),
             "requested_at": at, "vid": vid}
     if vid:
         ymd = date_iso.replace("-", "/")
-        body["verdict_key_template"] = f"preview/{ymd}/verdict-<agent>-{vid}.json"
+        # One stable key per (date, agent); the version lives in the body `vid` above
+        # and is matched there by the gate. A re-review overwrites this same file.
+        body["verdict_key_template"] = f"preview/{ymd}/verdict-<agent>.json"
     s3.put_object(Bucket=bucket, Key=review_request_key(date_iso),
                   Body=json.dumps(body, ensure_ascii=False, indent=2).encode("utf-8"),
                   ContentType="application/json", CacheControl="no-cache")
