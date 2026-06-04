@@ -89,6 +89,12 @@ class ContentConfig:
     min_fun_sources: int = field(
         default_factory=lambda: int(os.getenv("MIN_FUN_SOURCES", "4"))
     )
+    # How far back the curated AI-source feed harvest looks (hours). 48h covers
+    # weekends/quiet days so the AI desk reliably clears its floor from real, dated
+    # items (see research/feeds.py + research/ai_sources.py).
+    ai_feed_hours: int = field(
+        default_factory=lambda: int(os.getenv("AI_FEED_HOURS", "48"))
+    )
     # Frontier safety net. Used ONLY when a local call fails or fails validation.
     fallback_text_model: str = field(
         default_factory=lambda: os.getenv(

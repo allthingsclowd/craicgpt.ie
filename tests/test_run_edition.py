@@ -156,7 +156,8 @@ def test_run_edition_holds_if_no_candidates():
             return {"messages": [], "files": {}}
 
     with pytest.raises(EditionHeld) as exc:
-        run_edition("2026-06-02", generated_at="t", agent=_Empty())
+        run_edition("2026-06-02", generated_at="t", agent=_Empty(),
+                    ai_feed_fetch=lambda url: None)  # disable harvest → truly no candidates
     assert "candidates" in str(exc.value).lower()
 
 
@@ -183,6 +184,7 @@ def test_run_edition_writes_from_research_candidates():
                         write_generate=fake_write,
                         link_fetch=lambda url: 200,  # all candidate links resolve (offline)
                         recent_keys=set(),           # disable the live recency lookup
+                        ai_feed_fetch=lambda url: None,  # disable the live feed harvest
                         image_generate=lambda p: ("/tmp/i.png", "flux"))
     assert paper["ai"]["headliner"]["title"] == "Big AI Thing"
     assert len(paper["ai"]["shorts"]) == 10
