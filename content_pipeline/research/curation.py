@@ -115,6 +115,23 @@ def dedupe_stories(stories: list[Story]) -> list[Story]:
     return result
 
 
+def story_key_set(title: str, source_url: str) -> set[str]:
+    """The dedupe/recency keys for a story: its normalised URL and normalised title.
+
+    Mirrors the keying :func:`dedupe_stories` uses internally, exposed so the
+    recency check (see :mod:`content_pipeline.research.recency`) can build the set
+    of already-published keys and curation can drop any candidate that collides.
+    """
+    keys: set[str] = set()
+    url = (source_url or "").strip().rstrip("/").lower()
+    if url:
+        keys.add(f"url:{url}")
+    title_norm = _normalise_title(title or "")
+    if title_norm:
+        keys.add(f"title:{title_norm}")
+    return keys
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Diversity selection
 # ─────────────────────────────────────────────────────────────────────────────
@@ -155,14 +172,16 @@ def _default_fetch(url: str) -> int:
     """Return the HTTP status for ``url`` (HEAD, GET fallback). Stdlib only."""
     import urllib.request
 
-    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "CraicGPT/1.0"})
+    from content_pipeline.content_config import WEB_USER_AGENT
+
+    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": WEB_USER_AGENT})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return resp.status
     except urllib.error.HTTPError as exc:
         # Some servers reject HEAD; retry once with GET before giving up.
         if exc.code in (403, 405):
-            get = urllib.request.Request(url, headers={"User-Agent": "CraicGPT/1.0"})
+            get = urllib.request.Request(url, headers={"User-Agent": WEB_USER_AGENT})
             with urllib.request.urlopen(get, timeout=10) as resp:
                 return resp.status
         return exc.code
@@ -191,17 +210,20 @@ def curate_candidates(
     *,
     exclude: bool = True,
     fetch: Optional[Callable[[str], int]] = None,
+    exclude_keys: Optional[set[str]] = None,
 ) -> list[Story]:
     """Reduce raw candidate stories to the final ``n`` picks, deterministically.
 
     Order of operations (each step is its own tested function):
         1. drop grim/political stories (:func:`is_excluded_by_keywords`) — unless
            ``exclude`` is False;
-        2. collapse duplicate URLs / near-identical titles
+        2. drop stories already published recently, if ``exclude_keys`` is given —
+           any story whose URL/title key (:func:`story_key_set`) is in the set;
+        3. collapse duplicate URLs / near-identical titles
            (:func:`dedupe_stories`);
-        3. if ``fetch`` is given, drop stories whose source link doesn't resolve
+        4. if ``fetch`` is given, drop stories whose source link doesn't resolve
            (:func:`validate_source_link`);
-        4. pick the final ``n`` spread across continents
+        5. pick the final ``n`` spread across continents
            (:func:`select_diverse`).
 
     Args:
@@ -210,8 +232,12 @@ def curate_candidates(
         exclude: apply the grim/political keyword filter (default True).
         fetch: optional injectable HTTP-status fetcher for link validation; when
             None, links are NOT checked here (do it as a separate live step).
+        exclude_keys: optional set of story-keys (from :func:`story_key_set`) to
+            drop — used to avoid republishing the last few days' stories.
     """
     pool = [s for s in stories if not (exclude and is_excluded_by_keywords(s))]
+    if exclude_keys:
+        pool = [s for s in pool if not (story_key_set(s.title, s.source_url) & exclude_keys)]
     pool = dedupe_stories(pool)
     if fetch is not None:
         pool = [s for s in pool if validate_source_link(s.source_url, fetch=fetch)]

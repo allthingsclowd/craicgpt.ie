@@ -47,3 +47,17 @@ def test_pipeline_keeps_exclusion_optional():
     # With exclude disabled, the grim filter is skipped.
     assert len(curate_candidates(candidates, n=5, exclude=False)) == 1
     assert len(curate_candidates(candidates, n=5, exclude=True)) == 0
+
+
+def test_pipeline_excludes_recently_published():
+    from content_pipeline.research.curation import story_key_set
+
+    candidates = [
+        _s("Brand new wonder", "https://a/new", continent="Europe", score=0.9),
+        _s("Yesterday's lead", "https://a/old", continent="Asia", score=0.95),
+    ]
+    recent = story_key_set("Yesterday's lead", "https://a/old")
+    picked = curate_candidates(candidates, n=5, exclude_keys=recent)
+    titles = [s.title for s in picked]
+    assert "Brand new wonder" in titles
+    assert "Yesterday's lead" not in titles  # already published recently → dropped

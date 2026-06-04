@@ -137,7 +137,7 @@ def _frontend_dir() -> str:
 
 def cmd_run(args) -> int:
     # Imported here so `build_parser` (and its test) don't pull the agent stack.
-    from content_pipeline.agent.editor_in_chief import run_edition
+    from content_pipeline.agent.editor_in_chief import EditionHeld, run_edition
 
     date_iso = args.date or _today()
     logging.info("[cli] running edition for %s", date_iso)
@@ -147,7 +147,22 @@ def cmd_run(args) -> int:
     if getattr(args, "publish_draft", False):
         _announce_safe(date_iso, "generating")
 
-    paper = run_edition(date_iso, generated_at=_now_iso())
+    # Integrity HOLD: if too few real, fresh, link-validated sources survived
+    # (search degraded, everything was stale, or the agent gathered nothing),
+    # run_edition raises EditionHeld — we publish NOTHING and alert loudly. Better a
+    # held day than the 2026-06-04 fabricated one. status=failed keeps the gate from
+    # ever publishing it (gate only publishes 'complete').
+    try:
+        paper = run_edition(date_iso, generated_at=_now_iso())
+    except EditionHeld as held:
+        reasons = held.reasons or ["edition held"]
+        logging.error("[cli] edition %s HELD — nothing published: %s",
+                      date_iso, "; ".join(reasons))
+        if getattr(args, "publish_draft", False):
+            _announce_safe(date_iso, "failed")
+            _notify_safe("held", date_iso, reasons=reasons)
+        print("edition HELD — not published:\n  " + "\n  ".join(reasons))
+        return 2
 
     # The local copy keeps LOCAL image paths so a later `approve` can re-publish
     # the images to the live content/ prefix.
@@ -440,11 +455,29 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
     return g
 
 
-def _host_validate(date_iso: str) -> tuple:
+def _validate_with_links(paper: dict) -> tuple:
+    """Host-side 'safe to publish?' check: structural validation AND a live
+    link-check of EVERY source_url. Any unreachable link ⇒ invalid.
+
+    This is the single gate the publisher trusts — link-checking is MANDATORY here,
+    never opt-in, because the 2026-06-04 fabricated-URL edition slipped through a
+    publish path that skipped it. Returns ``(valid, reasons)``."""
     from content_pipeline.agent import review
 
-    vres = review.validate_paper(_load_edition(date_iso, None, prefix="preview"))
-    return vres["valid"], vres["reasons"]
+    vres = review.validate_paper(paper)
+    valid = bool(vres["valid"])
+    reasons = list(vres["reasons"])
+    link = _check_links(paper)
+    if not link["all_ok"]:
+        valid = False
+        shown = ", ".join(link["failed"][:5]) + ("…" if len(link["failed"]) > 5 else "")
+        reasons.append(f"{len(link['failed'])} of {link['checked']} source link(s) "
+                       f"unreachable: {shown}")
+    return valid, reasons
+
+
+def _host_validate(date_iso: str) -> tuple:
+    return _validate_with_links(_load_edition(date_iso, None, prefix="preview"))
 
 
 def _remediate_and_publish(date_iso: str, drop: list, *, by: str) -> dict:
@@ -458,12 +491,12 @@ def _remediate_and_publish(date_iso: str, drop: list, *, by: str) -> dict:
     paper = _load_draft(date_iso)
     cleaned, dropped = review.remove_items(paper, drop)
     out["dropped"] = dropped
-    vres = review.validate_paper(cleaned)
-    if not vres["valid"]:
+    valid, vreasons = _validate_with_links(cleaned)
+    if not valid:
         out["action"] = "hold"
         out["published"] = False
-        reasons = ["remediation left the edition structurally invalid: " + r
-                   for r in vres["reasons"]]
+        reasons = ["remediation left the edition unsafe to publish: " + r
+                   for r in vreasons]
         out["reasons"] = reasons
         _notify_safe("held", date_iso, reasons=reasons)
         return out

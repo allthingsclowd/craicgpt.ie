@@ -45,30 +45,49 @@ def web_search(query: str) -> str:
     """Search the web for recent stories or pages about a topic.
 
     Use this to discover candidate news stories or AI-landscape developments.
-    Returns a block of text results (titles, snippets, and URLs).
-    """
-    # The legacy DuckDuckGoSearchRun hits html.duckduckgo.com, which is
-    # frequently rate-limited/blocked. Use ddgs and try reliable backends in
-    # order (the bare "duckduckgo" backend is deliberately last); return the
-    # first that yields results.
-    from ddgs import DDGS
+    Returns a block of text results (titles, snippets, URLs). If the search backend
+    is unavailable it returns a line starting "SEARCH_FAILED:" — when you see that,
+    do NOT invent stories or URLs: report that search failed and stop. The newsroom
+    holds the edition rather than publish fabricated content.
 
-    last_err = None
-    for backend in ("brave", "bing", "auto"):
-        try:
-            results = list(DDGS().text(query, max_results=6, backend=backend))
-        except Exception as exc:  # noqa: BLE001 — try the next backend
-            last_err = exc
-            continue
-        if results:
-            blocks = [
-                f"{r.get('title', '')}\n{r.get('body', '')}\n{r.get('href', '')}"
-                for r in results
-            ]
-            # Cap the blob — long dumps accumulate and blow the context window.
-            return "\n\n".join(blocks)[:1800]
-    logger.warning("[tool:web_search] no backend returned results (last err: %s)", last_err)
-    return "no results found"
+    Uses the official Brave Search API (keyed, built for automation) — NOT scraping,
+    which got 429-rate-limited from the datacenter IP and triggered hallucination.
+    """
+    import time
+
+    import httpx
+
+    from content_pipeline.content_config import WEB_USER_AGENT, content_cfg
+
+    key = content_cfg.brave_search_api_key
+    if not key:
+        logger.error("[tool:web_search] no BRAVE_SEARCH_API_KEY configured")
+        return "SEARCH_FAILED: no Brave API key configured (set BRAVE_SEARCH_API_KEY)"
+    time.sleep(1.1)  # Brave free tier = 1 query/sec; pace the agent's sequential searches
+    try:
+        resp = httpx.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            params={"q": query, "count": 8},
+            headers={"X-Subscription-Token": key, "Accept": "application/json",
+                     "User-Agent": WEB_USER_AGENT},
+            timeout=20,
+        )
+    except Exception as exc:  # noqa: BLE001 — a network failure is a real signal, not "nothing found"
+        logger.error("[tool:web_search] Brave request failed: %s", exc)
+        return f"SEARCH_FAILED: network error ({type(exc).__name__})"
+    if resp.status_code != 200:
+        reason = {429: "429 rate-limited (slow down / over quota)",
+                  401: "401 unauthorized (bad BRAVE_SEARCH_API_KEY)",
+                  403: "403 forbidden (key/plan)"}.get(
+            resp.status_code, f"HTTP {resp.status_code}")
+        logger.error("[tool:web_search] Brave %s", reason)
+        return f"SEARCH_FAILED: {reason}"
+    results = ((resp.json() or {}).get("web") or {}).get("results") or []
+    if not results:
+        return "no results found"
+    blocks = [f"{r.get('title', '')}\n{r.get('description', '')}\n{r.get('url', '')}"
+              for r in results]
+    return "\n\n".join(blocks)[:2200]
 
 
 @tool
@@ -82,9 +101,11 @@ def fetch_page(url: str) -> str:
 
     import httpx
 
+    from content_pipeline.content_config import WEB_USER_AGENT
+
     try:
         resp = httpx.get(url, timeout=15, follow_redirects=True,
-                         headers={"User-Agent": "CraicGPT/1.0"})
+                         headers={"User-Agent": WEB_USER_AGENT})
         resp.raise_for_status()
         # Crude tag strip — enough for the model to read the gist.
         text = re.sub(r"<script.*?</script>|<style.*?</style>", " ", resp.text,
