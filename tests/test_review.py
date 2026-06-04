@@ -182,6 +182,35 @@ def test_write_then_read_verdict_roundtrip():
     assert review.compute_consensus(verdicts)["decision"] == "HOLD"
 
 
+def test_verdicts_are_version_keyed_per_apply():
+    # Two same-day versions; read_verdicts(vid=...) returns ONLY that version's
+    # verdicts, so the gate consenses on the version it's about to publish.
+    s3 = FakeS3()
+    review.write_verdict("2026-06-04", "openclaw", "APPROVE", ["v1 ok"], vid="V1", s3=s3, bucket="b")
+    review.write_verdict("2026-06-04", "hermes", "APPROVE", ["v1 ok"], vid="V1", s3=s3, bucket="b")
+    review.write_verdict("2026-06-04", "openclaw", "HOLD", ["v2 off-brand"], vid="V2", s3=s3, bucket="b")
+    review.write_verdict("2026-06-04", "hermes", "APPROVE", ["v2 ok"], vid="V2", s3=s3, bucket="b")
+
+    v1 = review.read_verdicts("2026-06-04", vid="V1", s3=s3, bucket="b")
+    v2 = review.read_verdicts("2026-06-04", vid="V2", s3=s3, bucket="b")
+    assert review.compute_consensus(v1)["decision"] == "APPROVE"   # v1: both approved
+    assert review.compute_consensus(v2)["decision"] == "HOLD"      # v2: openclaw held
+    assert ("b", "preview/2026/06/04/verdict-openclaw-V1.json") in s3.store
+    assert ("b", "preview/2026/06/04/verdict-openclaw-V2.json") in s3.store
+
+
+def test_read_verdicts_falls_back_to_legacy_per_date():
+    # Backward-compat: until the agents write version-keyed verdicts, a gate asking
+    # for a vid must still see the legacy per-date verdicts (no vid), so the day's
+    # first edition keeps gating + publishing.
+    s3 = FakeS3()
+    review.write_verdict("2026-06-04", "openclaw", "APPROVE", ["ok"], s3=s3, bucket="b")  # no vid
+    review.write_verdict("2026-06-04", "hermes", "APPROVE", ["ok"], s3=s3, bucket="b")    # no vid
+    got = review.read_verdicts("2026-06-04", vid="SOMEVID", s3=s3, bucket="b")
+    assert set(got) == {"openclaw", "hermes"}                       # legacy verdicts surfaced
+    assert review.compute_consensus(got)["decision"] == "APPROVE"
+
+
 def test_read_verdicts_empty_when_none_written():
     assert review.read_verdicts("2026-06-02", s3=FakeS3(), bucket="b") == {}
 

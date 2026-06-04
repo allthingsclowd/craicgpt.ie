@@ -102,8 +102,11 @@ def validate_paper(paper: dict[str, Any]) -> dict[str, Any]:
 
 
 # --- verdict exchange -------------------------------------------------------
-def verdict_key(date_iso: str, agent: str) -> str:
-    return s3_key(date_iso, content_cfg.preview_prefix, f"verdict-{agent}.json")
+def verdict_key(date_iso: str, agent: str, vid: Optional[str] = None) -> str:
+    # Version-keyed when vid is given so each same-day edition version gets its own
+    # two-agent verdicts (multiple applies/day); per-date otherwise.
+    name = f"verdict-{agent}-{vid}.json" if vid else f"verdict-{agent}.json"
+    return s3_key(date_iso, content_cfg.preview_prefix, name)
 
 
 def _default_s3():
@@ -113,14 +116,15 @@ def _default_s3():
 
 
 def write_verdict(date_iso: str, agent: str, verdict: str, reasons: Iterable[str],
-                  *, s3: Any | None = None, bucket: Optional[str] = None,
-                  at: Optional[str] = None) -> str:
-    """Write ``verdict-<agent>.json`` to the preview prefix; return its key."""
+                  *, vid: Optional[str] = None, s3: Any | None = None,
+                  bucket: Optional[str] = None, at: Optional[str] = None) -> str:
+    """Write ``verdict-<agent>[-<vid>].json`` to the preview prefix; return its key."""
     s3 = s3 or _default_s3()
     bucket = bucket or content_cfg.s3_bucket
-    key = verdict_key(date_iso, agent)
+    key = verdict_key(date_iso, agent, vid)
     body = json.dumps(
-        {"agent": agent, "verdict": verdict.upper(), "reasons": list(reasons), "at": at},
+        {"agent": agent, "verdict": verdict.upper(), "reasons": list(reasons),
+         "at": at, "vid": vid},
         ensure_ascii=False, indent=2,
     ).encode("utf-8")
     s3.put_object(Bucket=bucket, Key=key, Body=body,
@@ -129,22 +133,29 @@ def write_verdict(date_iso: str, agent: str, verdict: str, reasons: Iterable[str
     return key
 
 
-def read_verdicts(date_iso: str, *, s3: Any | None = None,
+def read_verdicts(date_iso: str, *, vid: Optional[str] = None, s3: Any | None = None,
                   bucket: Optional[str] = None) -> dict[str, dict]:
-    """Read all ``verdict-*.json`` for the date → ``{agent: verdict_dict}``."""
+    """Read the verdicts for the date → ``{agent: verdict_dict}``.
+
+    When ``vid`` is given, returns THAT edition-version's verdicts (matched on the
+    ``vid`` field) — so the gate consenses on the version it's about to publish, not
+    a stale earlier one. **Backward-compat:** until the agents write version-keyed
+    verdicts, it falls back to legacy per-date verdicts (no ``vid``) when no
+    version-keyed ones exist yet, so the day's FIRST edition still gates + publishes.
+    ``vid=None`` returns all verdicts (legacy)."""
     s3 = s3 or _default_s3()
     bucket = bucket or content_cfg.s3_bucket
     prefix = verdict_key(date_iso, "").rsplit("verdict-", 1)[0] + "verdict-"
     listing = s3.list_objects_v2(Bucket=bucket, Prefix=prefix)
-    out: dict[str, dict] = {}
+    allv: list[dict] = []
     for obj in listing.get("Contents", []):
         key = obj["Key"]
-        if not key.endswith(".json"):
-            continue
-        raw = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
-        data = json.loads(raw)
-        out[data.get("agent") or key] = data
-    return out
+        if key.endswith(".json"):
+            allv.append(json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read()))
+    if vid is not None:
+        # this version's verdicts, else fall back to legacy per-date (no-vid) verdicts
+        allv = [d for d in allv if d.get("vid") == vid] or [d for d in allv if not d.get("vid")]
+    return {d.get("agent") or str(i): d for i, d in enumerate(allv)}
 
 
 def status_key(date_iso: str) -> str:
@@ -187,17 +198,24 @@ def read_status(date_iso: str, *, s3: Any | None = None,
 
 
 def write_review_request(date_iso: str, *, agents: Iterable[str], draft_url: str,
-                         s3: Any | None = None, bucket: Optional[str] = None,
-                         at: Optional[str] = None) -> str:
-    """Drop the marker the agents poll for: 'a draft is ready for your review'."""
+                         vid: Optional[str] = None, s3: Any | None = None,
+                         bucket: Optional[str] = None, at: Optional[str] = None) -> str:
+    """Drop the marker the agents poll for: 'a draft is ready for your review'.
+
+    Carries the edition-version ``vid`` so the agents review THIS version and key
+    their verdict per-version (``verdict-<agent>-<vid>.json``); a new vid means a
+    fresh review, which is what enables multiple applies per day."""
     s3 = s3 or _default_s3()
     bucket = bucket or content_cfg.s3_bucket
+    body = {"date": date_iso, "draft_url": draft_url, "agents": list(agents),
+            "requested_at": at, "vid": vid}
+    if vid:
+        ymd = date_iso.replace("-", "/")
+        body["verdict_key_template"] = f"preview/{ymd}/verdict-<agent>-{vid}.json"
     s3.put_object(Bucket=bucket, Key=review_request_key(date_iso),
-                  Body=json.dumps({"date": date_iso, "draft_url": draft_url,
-                                   "agents": list(agents), "requested_at": at},
-                                  ensure_ascii=False, indent=2).encode("utf-8"),
+                  Body=json.dumps(body, ensure_ascii=False, indent=2).encode("utf-8"),
                   ContentType="application/json", CacheControl="no-cache")
-    logger.info("[review] review-request for %s → agents %s", date_iso, list(agents))
+    logger.info("[review] review-request for %s (vid=%s) → agents %s", date_iso, vid, list(agents))
     return review_request_key(date_iso)
 
 

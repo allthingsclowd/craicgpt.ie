@@ -102,8 +102,11 @@ def send_message(text: str, *, which: str = "both",
 
 
 # --- idempotency marker -----------------------------------------------------
-def notified_key(date_iso: str, event: str) -> str:
-    return s3_key(date_iso, content_cfg.preview_prefix, f"notified-{event}.json")
+def notified_key(date_iso: str, event: str, vid: Optional[str] = None) -> str:
+    # Version-keyed when vid is given so EACH same-day edition version notifies once
+    # (the versioning workflow allows multiple applies/day); per-date otherwise.
+    name = f"notified-{event}-{vid}.json" if vid else f"notified-{event}.json"
+    return s3_key(date_iso, content_cfg.preview_prefix, name)
 
 
 def _default_s3():
@@ -129,13 +132,16 @@ def _set_flag(s3: Any, bucket: str, key: str, event: str, date_iso: str) -> None
 
 
 def notify_once(event: str, date_iso: str, text: str, *,
+                vid: Optional[str] = None,
                 s3: Any | None = None, bucket: Optional[str] = None,
                 targets: Optional[Iterable[tuple[str, str, str]]] = None) -> dict:
-    """Send ``text`` at most once per ``(date_iso, event)``.
+    """Send ``text`` at most once per ``(date_iso, event, vid)``.
 
     The marker is only written once a send actually lands somewhere, so a
-    transient outage doesn't permanently suppress the alert. If S3 is
-    unreachable we still send (a duplicate beats a silent miss)."""
+    transient outage doesn't permanently suppress the alert. If S3 is unreachable
+    we still send (a duplicate beats a silent miss). ``vid`` (a version id) keys
+    the marker per edition-version, so a same-day re-apply notifies again rather
+    than being deduped against an earlier version."""
     bucket = bucket or content_cfg.s3_bucket
     client = s3
     if client is None:
@@ -144,7 +150,7 @@ def notify_once(event: str, date_iso: str, text: str, *,
         except Exception:  # noqa: BLE001 — no creds/boto3 → send without dedupe
             client = None
 
-    key = notified_key(date_iso, event)
+    key = notified_key(date_iso, event, vid)
     if client is not None and _flag_exists(client, bucket, key):
         return {"sent": False, "reason": "already-notified", "event": event}
 
@@ -159,16 +165,17 @@ def notify_once(event: str, date_iso: str, text: str, *,
 
 
 # --- lifecycle helpers (called from cli.py) ---------------------------------
-def notify_generated(date_iso: str, draft_url: str, *, s3: Any | None = None) -> dict:
+def notify_generated(date_iso: str, draft_url: str, *, vid: Optional[str] = None,
+                     s3: Any | None = None) -> dict:
     text = (f"📰 <b>CraicGPT draft generated</b> — {date_iso}\n"
             f"Awaiting openclaw + hermes review.\n{draft_url}")
-    return notify_once("generated", date_iso, text, s3=s3)
+    return notify_once("generated", date_iso, text, vid=vid, s3=s3)
 
 
 def notify_published(date_iso: str, live_url: str, *, note: Optional[str] = None,
                      approvers: Optional[Iterable[str]] = None,
                      link_count: Optional[int] = None, version: Optional[str] = None,
-                     s3: Any | None = None) -> dict:
+                     vid: Optional[str] = None, s3: Any | None = None) -> dict:
     """Announce a live publish WITH its validation receipts inline — who approved,
     how many source links were verified, and which version — so a publish is never
     a bare "it's live" with no visible validation (the 2026-06-04 worry)."""
@@ -183,11 +190,12 @@ def notify_published(date_iso: str, live_url: str, *, note: Optional[str] = None
     receipt = ("\n🔎 " + " · ".join(bits)) if bits else ""
     extra = f"\n<i>{note}</i>" if note else ""
     text = (f"✅ <b>CraicGPT edition published live</b> — {date_iso}{receipt}{extra}\n{live_url}")
-    return notify_once("published", date_iso, text, s3=s3)
+    return notify_once("published", date_iso, text, vid=vid, s3=s3)
 
 
-def notify_held(date_iso: str, reasons: Iterable[str], *, s3: Any | None = None) -> dict:
+def notify_held(date_iso: str, reasons: Iterable[str], *, vid: Optional[str] = None,
+                s3: Any | None = None) -> dict:
     body = "\n".join(f"• {r}" for r in (list(reasons) or ["(no reason given)"]))
     text = (f"✋ <b>CraicGPT edition HELD</b> — {date_iso}\n"
             f"Not published — the approval gate held it. Reasons:\n{body}")
-    return notify_once("held", date_iso, text, s3=s3)
+    return notify_once("held", date_iso, text, vid=vid, s3=s3)

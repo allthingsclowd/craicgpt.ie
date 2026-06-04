@@ -87,6 +87,21 @@ def test_notify_once_does_not_mark_when_send_fails(monkeypatch):
     assert (("b", notifications.notified_key("2026-06-03", "generated")) not in s3.store)
 
 
+def test_notify_once_version_keyed_no_cross_version_dedup(monkeypatch):
+    # Same (date, event) but different versions BOTH send (multiple applies/day);
+    # the SAME version is still deduped. This is what makes same-day re-applies
+    # actually notify instead of going silent.
+    sends = []
+    monkeypatch.setattr(notifications, "send_message",
+                        lambda text, **kw: sends.append(text) or [{"ok": True}])
+    s3 = FakeS3()
+    a = notifications.notify_once("published", "2026-06-04", "v1", vid="V1", s3=s3, bucket="b")
+    b = notifications.notify_once("published", "2026-06-04", "v2", vid="V2", s3=s3, bucket="b")
+    assert a["sent"] and b["sent"] and len(sends) == 2      # different versions → both fire
+    again = notifications.notify_once("published", "2026-06-04", "v2", vid="V2", s3=s3, bucket="b")
+    assert again["sent"] is False and len(sends) == 2       # same version → deduped
+
+
 # --- lifecycle helpers build the right copy ---------------------------------
 def test_lifecycle_helpers_send_expected_text(monkeypatch):
     captured = {}
