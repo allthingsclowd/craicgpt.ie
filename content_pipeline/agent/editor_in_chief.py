@@ -40,7 +40,6 @@ from content_pipeline.generate.personas import (
     SATIRE_DISCLAIMER,
     assign_personas,
     persona_byline,
-    voice_brief,
 )
 from content_pipeline.generate.writer import (
     loads_lenient,
@@ -302,21 +301,28 @@ def _curate_fun(fun_candidates: list, *, fetch, exclude_keys: Optional[set] = No
     )
 
 
-def _write_fun(picked: list, date_iso: str, *, generate=None) -> list:
-    """Assign personas and write each already-curated fun story in its voice."""
-    personas = assign_personas(len(picked), seed=date_iso)
+def _write_fun(picked: list, date_iso: str, credit_by_url: dict, *, generate=None) -> list:
+    """Rewrite each already-curated fun item in Graham's voice, CREDITING the creator.
+
+    ``credit_by_url`` maps a normalised source_url to the creator's NAME — curation
+    returns bare ``Story`` objects (title/summary/url only), so we re-attach the
+    creator here from the harvested candidates. The creator's name is fed to the
+    writer (name-checked in the copy) and stamped on each item as ``source`` (the
+    credit/byline), alongside the creator's own validated ``source_url`` (URL
+    fidelity: never the writer's guess). We do NOT impersonate the creator.
+    """
     out: list[dict] = []
-    for i, story in enumerate(picked):
-        persona = personas[i] if i < len(personas) else (personas[-1] if personas else "")
+    for story in picked:
+        creator = credit_by_url.get(_norm_url(story.source_url), "")
         story_dict = {"title": story.title, "summary": story.summary, "source_url": story.source_url}
         try:
-            written = write_fun_story(story_dict, persona, voice_brief(persona), generate=generate)
+            written = write_fun_story(story_dict, creator, generate=generate)
         except Exception as exc:  # noqa: BLE001 — one bad rewrite shouldn't sink the edition
             logger.warning("[run_edition] fun rewrite failed (%s); using the raw story", exc)
             written = {"title": story.title, "body": story.summary, "source_url": story.source_url}
-        written["persona"] = persona
         written["kind"] = "article"
         written["source_url"] = story.source_url  # fidelity: the validated picked URL, not the writer's guess
+        written["source"] = creator               # credit: the creator's name (Graham's attribution rule)
         out.append(written)
     return out
 
@@ -389,21 +395,31 @@ def _snap_ai_sources(ai: dict, candidates: list) -> dict:
 
 
 def _finalize_fun(fun: list, date_iso: str) -> None:
-    """Stamp persona / byline / satire disclaimer on each fun story.
+    """Stamp the credit on each fun item.
 
-    The editor writes the prose in a persona voice but doesn't reliably populate
-    the structured fields. We assign a day-stable persona where the editor left
-    one blank, always set the byline, and ALWAYS set the satire disclaimer (a
-    legal requirement — every persona piece must carry it).
+    Creator-digest items (the Irish-creator harvest) carry a real ``source`` — the
+    creator's name — so they are CREDITED, not parody: we drop any persona and the
+    satire disclaimer (a disclaimer reading "not sourced from the person depicted"
+    would flatly contradict crediting a real, named creator), and let the kicker +
+    source link carry the "h/t <creator>" credit. Only a no-creator fallback item
+    (the rare dry-harvest good-news degrade) keeps the legacy parody persona +
+    byline + satire disclaimer (those ARE parody impressions and must carry it).
     """
-    assigned = assign_personas(len(fun), seed=date_iso) if fun else []
-    for i, item in enumerate(fun):
+    legacy = [it for it in fun if isinstance(it, dict) and not it.get("source")]
+    assigned = assign_personas(len(legacy), seed=date_iso) if legacy else []
+    li = 0
+    for item in fun:
         if not isinstance(item, dict):
             continue
-        # Keep the editor's choice only if it's a real roster persona; otherwise
-        # (blank, or an off-roster invention) assign one deterministically.
-        if item.get("persona") not in ROSTER and i < len(assigned):
-            item["persona"] = assigned[i]
+        if item.get("source"):  # credited Irish-creator digest — NOT parody
+            item.pop("persona", None)
+            item.pop("satire_disclaimer", None)
+            item.pop("byline", None)  # the kicker + source link carry the credit
+            continue
+        # Legacy parody good-news (only reached when the creator harvest was dry).
+        if item.get("persona") not in ROSTER and li < len(assigned):
+            item["persona"] = assigned[li]
+        li += 1
         if item.get("persona"):
             item["byline"] = persona_byline(item["persona"])
         item["satire_disclaimer"] = SATIRE_DISCLAIMER
@@ -594,7 +610,31 @@ def run_edition(
         # impossible: the writer only ever sees reachable sources, and a degraded
         # search HOLDs (never fills the gap with invented stories, as on 2026-06-04).
         ai_c = _read_candidates(files, "/research/ai_candidates.json")
-        fun_c = _read_candidates(files, "/research/fun_candidates.json")
+        # The fun desk is an IRISH-CREATOR digest (Graham's June 2026 call): harvest
+        # the curated creators' freshest YouTube uploads deterministically and make
+        # THAT the primary fun pool, REPLACING the agent's good-news trawl (which
+        # under-gathered and once fabricated — the 2026-06-04 HOLD). Each candidate
+        # carries the creator's own video source_url and the creator's NAME as the
+        # credit. ``fun_credit`` maps source_url -> creator name so the credit
+        # survives curation (which keeps only title/summary/url) onto the written
+        # piece. Best-effort; if the harvest is dry we fall back to any agent fun
+        # candidates so the desk degrades rather than starves.
+        fun_credit: dict[str, str] = {}
+        try:
+            fun_c = feeds.harvest_fun_candidates(
+                since_hours=content_cfg.ai_feed_hours, fetch=ai_feed_fetch)
+            if fun_c:
+                logger.info("[run_edition] %d fun candidates from Irish-creator feeds", len(fun_c))
+                trace.tool_call("harvest_fun_feeds", f"{len(fun_c)} items",
+                                result="curated Irish-creator uploads")
+        except Exception as exc:  # noqa: BLE001 — harvest is best-effort
+            logger.warning("[run_edition] fun feed harvest failed (%s); agent candidates only", exc)
+            fun_c = []
+        if not fun_c:  # degrade to the agent's fun candidates rather than starve
+            fun_c = _read_candidates(files, "/research/fun_candidates.json")
+        for c in fun_c:
+            if isinstance(c, dict) and c.get("source_url"):
+                fun_credit[_norm_url(c["source_url"])] = c.get("_creator") or c.get("source") or ""
         # Augment the AI desk with a deterministic harvest of Graham's curated
         # source feeds (lab/company news, publications, Substacks, arXiv) — real,
         # dated items — so it never starves on the agent's yield alone (2026-06-04:
@@ -677,7 +717,7 @@ def run_edition(
         # Source-link fidelity: snap every written AI URL onto a validated candidate
         # so the writer can't slip an unreachable/invented link through to the gate.
         ai = _snap_ai_sources(ai, ai_valid)
-        fun = _write_fun(fun_picks, date_iso, generate=write_generate)
+        fun = _write_fun(fun_picks, date_iso, fun_credit, generate=write_generate)
 
     # Deterministic safety net: enforce the resolved counts (13 AI / 5 fun).
     ai["subarticles"] = (ai.get("subarticles") or [])[: content_cfg.num_ai_subarticles]
