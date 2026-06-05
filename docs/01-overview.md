@@ -35,7 +35,7 @@ site is both a working newspaper and a live deep-agents tutorial.
 │                 plans → delegates to subagents → writes candidate JSON       │
 │                   • fun-news-researcher       → research/fun_candidates.json │
 │                   • ai-landscape-researcher   → research/ai_candidates.json  │
-│                 tools: web_search (Brave) · fetch_page · validate_link       │
+│                 tools: web_search (Serper) · fetch_page · validate_link      │
 │   2. CURATE     deterministic: merge curated feeds, drop grim/recent/dupe/   │
 │                 unreachable, HOLD if a desk is below its integrity floor     │
 │   3. WRITE      deterministic: generate/writer.py → prose (LiteLLM Qwen3.6)  │
@@ -132,7 +132,7 @@ craicgpt.ie/
 - Access to a **LiteLLM proxy** that fronts at least one chat model and one image model
   (the grazlab default is `https://llm.grazlab.thescriptingpaddy.com/v1`; point
   `LITELLM_BASE_URL` at your own if you have one). A frontier API key for the fallback.
-- A **Brave Search API key** (`BRAVE_SEARCH_API_KEY`) for `web_search`.
+- A **Serper.dev API key** (`SERPER_API_KEY`) for `web_search` (Google SERP; replaced Brave).
 - AWS credentials with S3 put + CloudFront-invalidation permission (only for publishing).
 
 ### Setup
@@ -143,12 +143,12 @@ cd craicgpt.ie
 pip install -r content_pipeline/requirements.txt
 
 cp .env.example .env        # never commit this
-# edit .env: LITELLM_BASE_URL, BRAVE_SEARCH_API_KEY, model routes, S3_BUCKET, …
+# edit .env: LITELLM_BASE_URL, SERPER_API_KEY, model routes, S3_BUCKET, …
 
 # run the tests (mostly offline — fetch + LLM are injected stubs)
 python -m pytest -q
 
-# generate an edition as a DRAFT (S3 preview/) — needs LiteLLM + Brave + AWS
+# generate an edition as a DRAFT (S3 preview/) — needs LiteLLM + Serper + AWS
 python -m content_pipeline.agent.cli run --publish-draft --date 2026-06-05
 
 # validate it exactly as the publish gate will (structural + live link-check)
@@ -164,7 +164,7 @@ python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 | `WRITE_MODEL` | Prose-writing route | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 | `IMAGE_MODEL` | Image route | `m3/mlx/hidream-o1-image-dev` |
 | `FALLBACK_TEXT_MODEL` | Frontier fallback (only on local failure) | `claude-sonnet-4-6` |
-| `BRAVE_SEARCH_API_KEY` | Brave Search API key for `web_search` | — |
+| `SERPER_API_KEY` | Serper.dev (Google SERP) key for `web_search` | — |
 | `S3_BUCKET` / `CLOUDFRONT_DISTRIBUTION_ID` | Publishing target | `craicgpt-ie-production` / — |
 
 Full list (integrity floors, feed window, Telegram, etc.) lives in

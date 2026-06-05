@@ -50,42 +50,39 @@ def web_search(query: str) -> str:
     do NOT invent stories or URLs: report that search failed and stop. The newsroom
     holds the edition rather than publish fabricated content.
 
-    Uses the official Brave Search API (keyed, built for automation) — NOT scraping,
-    which got 429-rate-limited from the datacenter IP and triggered hallucination.
+    Uses the Serper.dev (Google SERP) API — keyed, built for automation, generous free
+    tier. (Replaced Brave in 2026-06: Brave withdrew its free API tier in Feb 2026 and
+    429'd under the agent's per-run search volume.)
     """
-    import time
-
     import httpx
 
-    from content_pipeline.content_config import WEB_USER_AGENT, content_cfg
+    from content_pipeline.content_config import content_cfg
 
-    key = content_cfg.brave_search_api_key
+    key = content_cfg.serper_api_key
     if not key:
-        logger.error("[tool:web_search] no BRAVE_SEARCH_API_KEY configured")
-        return "SEARCH_FAILED: no Brave API key configured (set BRAVE_SEARCH_API_KEY)"
-    time.sleep(1.1)  # Brave free tier = 1 query/sec; pace the agent's sequential searches
+        logger.error("[tool:web_search] no SERPER_API_KEY configured")
+        return "SEARCH_FAILED: no Serper API key configured (set SERPER_API_KEY)"
     try:
-        resp = httpx.get(
-            "https://api.search.brave.com/res/v1/web/search",
-            params={"q": query, "count": 8},
-            headers={"X-Subscription-Token": key, "Accept": "application/json",
-                     "User-Agent": WEB_USER_AGENT},
+        resp = httpx.post(
+            "https://google.serper.dev/search",
+            json={"q": query, "num": 8},
+            headers={"X-API-KEY": key, "Content-Type": "application/json"},
             timeout=20,
         )
     except Exception as exc:  # noqa: BLE001 — a network failure is a real signal, not "nothing found"
-        logger.error("[tool:web_search] Brave request failed: %s", exc)
+        logger.error("[tool:web_search] Serper request failed: %s", exc)
         return f"SEARCH_FAILED: network error ({type(exc).__name__})"
     if resp.status_code != 200:
-        reason = {429: "429 rate-limited (slow down / over quota)",
-                  401: "401 unauthorized (bad BRAVE_SEARCH_API_KEY)",
+        reason = {429: "429 rate-limited (over quota / too fast)",
+                  401: "401 unauthorized (bad SERPER_API_KEY)",
                   403: "403 forbidden (key/plan)"}.get(
             resp.status_code, f"HTTP {resp.status_code}")
-        logger.error("[tool:web_search] Brave %s", reason)
+        logger.error("[tool:web_search] Serper %s", reason)
         return f"SEARCH_FAILED: {reason}"
-    results = ((resp.json() or {}).get("web") or {}).get("results") or []
+    results = (resp.json() or {}).get("organic") or []
     if not results:
         return "no results found"
-    blocks = [f"{r.get('title', '')}\n{r.get('description', '')}\n{r.get('url', '')}"
+    blocks = [f"{r.get('title', '')}\n{r.get('snippet', '')}\n{r.get('link', '')}"
               for r in results]
     return "\n\n".join(blocks)[:2200]
 
