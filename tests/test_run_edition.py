@@ -98,6 +98,26 @@ def test_run_edition_finalizes_personas_and_disclaimer():
         assert f["byline"].startswith("As told to")
 
 
+def test_run_edition_credited_fun_keeps_source_and_gains_voice():
+    # The behavioural flip (Goal 2b): a CREDITED fun item (carries `source`, the
+    # creator's name) is no longer stripped of its persona/disclaimer. It's now a
+    # celebrity-VOICE impression riffing on that creator's clip, so it KEEPS the
+    # credit AND gains a roster persona + byline + the satire disclaimer — both
+    # coexist (and review.validate_paper accepts the combination).
+    from content_pipeline.generate.personas import ROSTER, SATIRE_DISCLAIMER
+
+    ed = _edition()
+    for i, f in enumerate(ed["fun"]):
+        f["source"] = f"Creator {i}"   # a credited Irish-creator digest item
+        f.pop("persona", None)         # editor didn't set the voice
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed))
+    for f in paper["fun"]:
+        assert f["source"].startswith("Creator")            # creator credit KEPT (not stripped)
+        assert f["persona"] in ROSTER                        # a real voice assigned
+        assert f["byline"].startswith("As told to")          # persona byline
+        assert f["satire_disclaimer"] == SATIRE_DISCLAIMER   # parody guard for the voice
+
+
 def test_run_edition_generates_images_for_leads_and_fun():
     # The harness — not the agent — assigns images. Inject a fake generator so
     # this runs offline; it must image the 3 AI leads + every fun story and

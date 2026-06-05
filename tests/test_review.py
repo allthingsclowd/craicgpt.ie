@@ -99,6 +99,21 @@ def test_uncredited_fun_without_disclaimer_is_invalid():
     assert any("parody" in r.lower() or "disclaimer" in r.lower() for r in res["reasons"])
 
 
+def test_credited_and_voiced_fun_item_is_valid():
+    # The live desk: each fun piece CREDITS the real creator (`source`) AND is a
+    # celebrity-voice impression (persona byline + `satire_disclaimer` for the
+    # voice). Carrying BOTH together is valid — the disclaimer covers the
+    # impression, the source credits the creator (they no longer contradict).
+    p = good_paper()
+    voiced = dict(_credited_fun())
+    voiced["persona"] = "Jack Blarney"
+    voiced["byline"] = "As told to The Craic Gazette by Jack Blarney"
+    voiced["satire_disclaimer"] = "Parody: written by AI in the comic voice of a public figure."
+    p["fun"] = [voiced for _ in range(5)]
+    res = review.validate_paper(p)
+    assert res["valid"] is True, res["reasons"]
+
+
 def test_too_few_shorts_is_invalid():
     p = good_paper()
     p["ai"]["shorts"] = p["ai"]["shorts"][:3]

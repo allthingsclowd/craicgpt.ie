@@ -37,6 +37,10 @@ class Story:
     score: float = 0.0
     tags: list[str] = field(default_factory=list)
     category: Optional[str] = None
+    # The creator/source NAME (e.g. an Irish YouTuber for the fun desk). Carried
+    # so :func:`select_diverse` can spread the picks one-per-creator — without it
+    # two uploads from the same creator can both win and the desk reads thin.
+    creator: Optional[str] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -135,31 +139,41 @@ def story_key_set(title: str, source_url: str) -> set[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Diversity selection
 # ─────────────────────────────────────────────────────────────────────────────
-def select_diverse(stories: list[Story], n: int) -> list[Story]:
-    """Pick ``n`` stories, highest-score-first but spread across continents.
+def select_diverse(
+    stories: list[Story],
+    n: int,
+    *,
+    key: Optional[Callable[[Story], str]] = None,
+) -> list[Story]:
+    """Pick ``n`` stories, highest-score-first but spread across a diversity axis.
 
-    Round-robins one story per continent (each in descending score) before
-    taking a second from any continent. When continents run out, the remaining
-    slots are filled by pure score. Guarantees maximum continent spread while
-    never preferring a low-scored story over a high one within a round.
+    Round-robins one story per bucket (each in descending score) before taking a
+    second from any bucket. When buckets run out, the remaining slots are filled
+    by pure score. Guarantees maximum spread while never preferring a low-scored
+    story over a high one within a round.
+
+    ``key`` chooses the diversity axis. Defaults to **continent** (the AI desk's
+    geographic spread); the fun desk passes a per-**creator** key so a single
+    Irish creator's two uploads never both land in one edition.
     """
-    by_continent: dict[str, list[Story]] = {}
+    bucket_of = key or (lambda s: s.continent or "")
+    by_bucket: dict[str, list[Story]] = {}
     for story in sorted(stories, key=lambda s: s.score, reverse=True):
-        by_continent.setdefault(story.continent or "", []).append(story)
+        by_bucket.setdefault(bucket_of(story) or "", []).append(story)
 
-    # Continents ordered by their best story's score (so the strongest leads).
-    continents = sorted(
-        by_continent,
-        key=lambda c: by_continent[c][0].score,
+    # Buckets ordered by their best story's score (so the strongest leads).
+    buckets = sorted(
+        by_bucket,
+        key=lambda b: by_bucket[b][0].score,
         reverse=True,
     )
 
     picked: list[Story] = []
-    while len(picked) < n and any(by_continent[c] for c in continents):
-        for continent in continents:
-            if not by_continent[continent]:
+    while len(picked) < n and any(by_bucket[b] for b in buckets):
+        for bucket in buckets:
+            if not by_bucket[bucket]:
                 continue
-            picked.append(by_continent[continent].pop(0))
+            picked.append(by_bucket[bucket].pop(0))
             if len(picked) == n:
                 break
     return picked
@@ -211,6 +225,7 @@ def curate_candidates(
     exclude: bool = True,
     fetch: Optional[Callable[[str], int]] = None,
     exclude_keys: Optional[set[str]] = None,
+    diversity_key: Optional[Callable[[Story], str]] = None,
 ) -> list[Story]:
     """Reduce raw candidate stories to the final ``n`` picks, deterministically.
 
@@ -234,6 +249,8 @@ def curate_candidates(
             None, links are NOT checked here (do it as a separate live step).
         exclude_keys: optional set of story-keys (from :func:`story_key_set`) to
             drop — used to avoid republishing the last few days' stories.
+        diversity_key: optional diversity axis for :func:`select_diverse` (e.g. a
+            per-creator key for the fun desk). Defaults to continent spread.
     """
     pool = [s for s in stories if not (exclude and is_excluded_by_keywords(s))]
     if exclude_keys:
@@ -241,4 +258,4 @@ def curate_candidates(
     pool = dedupe_stories(pool)
     if fetch is not None:
         pool = [s for s in pool if validate_source_link(s.source_url, fetch=fetch)]
-    return select_diverse(pool, n)
+    return select_diverse(pool, n, key=diversity_key)

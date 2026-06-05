@@ -71,6 +71,25 @@ def test_select_diverse_falls_back_to_score_when_diversity_exhausted():
     assert [s.title for s in picked] == ["A", "B"]  # highest scores
 
 
+def test_select_diverse_by_creator_picks_distinct_creators():
+    # The fun desk keys diversity on CREATOR (not continent): five candidates but
+    # only three creators (two with two uploads each). Picking the top 3 by score
+    # alone would take both Foil Arms and Hog + a 2 Johnnies and starve the third;
+    # the per-creator key must spread to three distinct creators instead. This is
+    # the fix for the "5 articles, only 3 distinct sources" complaint.
+    stories = [
+        Story("Sketch A", "s", "https://yt/a1", score=0.95, creator="Foil Arms and Hog"),
+        Story("Sketch B", "s", "https://yt/a2", score=0.90, creator="Foil Arms and Hog"),
+        Story("Bit C",    "s", "https://yt/b1", score=0.85, creator="The 2 Johnnies"),
+        Story("Bit D",    "s", "https://yt/b2", score=0.80, creator="The 2 Johnnies"),
+        Story("Clip E",   "s", "https://yt/c1", score=0.50, creator="Graham Norton"),
+    ]
+    picked = select_diverse(stories, n=3, key=lambda s: s.creator or "")
+    creators = [s.creator for s in picked]
+    assert len(set(creators)) == 3                 # one per creator, never 2+1
+    assert "Graham Norton" in creators             # the lower-scored third creator still lands
+
+
 def test_keyword_exclusion_flags_grim_and_political():
     assert is_excluded_by_keywords(_story("Election poll shows tight race", "https://p"))
     assert is_excluded_by_keywords(_story("Dozens killed in earthquake", "https://q"))

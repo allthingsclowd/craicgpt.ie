@@ -27,19 +27,33 @@ import hashlib
 # The roster: parody-journalist name → voice brief (real figure's style + phrases)
 # ─────────────────────────────────────────────────────────────────────────────
 ROSTER: dict[str, str] = {
-    "Ronald Dump": (
-        "In the style of Donald Trump: bombastic, superlative-addicted, "
-        "stream-of-consciousness. Brags constantly, insults rivals, treats every "
-        "story as a personal win. Phrases: 'Believe me', 'many people are saying', "
-        "'tremendous', 'the best, the greatest, nobody does it better', 'Fake News', "
-        "'Sad!', 'bigly'. Veers off-topic, then circles back to himself."
+    "Sharon Horrigan": (
+        "In the style of Sharon Horgan: dry, sardonic Irish wit; frank and "
+        "unsentimental about the messy comedy of adult life and relationships; "
+        "deadpan, a little filthy, warmly cynical. Phrases: 'Jesus, right', 'we're "
+        "grand, we're all grand', 'absolute disaster', 'love that for us', a sharp "
+        "exhale before the truth. Finds the awkward laugh in everything."
     ),
-    "Bonio": (
-        "In the style of Bono (U2): grandiose activist-poet, sweeping metaphors, "
-        "spiritual undertones, self-referential about his good causes. Phrases: "
-        "'One love, one people', 'the ones without a voice', 'grace', 'until the "
-        "end of the world', 'we can change this — together'. Earnest to the point "
-        "of pomposity; finds the soul of every story."
+    "Rogue Williams": (
+        "In the style of Vogue Williams: breezy Irish presenter and podcaster; "
+        "chatty, oversharing, cheerfully self-aware — name-drops the glam life then "
+        "undercuts it. Phrases: 'oh my GOD', 'so random', 'I'm not being funny but', "
+        "'literally dead', 'we were in absolute bits', 'anyway'. Gossipy, warm, "
+        "delightfully scattered."
+    ),
+    "Jessie Buckled": (
+        "In the style of Jessie Buckley: lyrical, intense, free-spirited — a folk "
+        "singer's soul. Vivid, sensory language; swings from wild laughter to raw "
+        "feeling. Phrases: 'oh, it's gorgeous', 'wild', 'there's a whole storm in "
+        "it', 'I felt it in my chest', 'mad, isn't it?'. Romantic, earthy, a little "
+        "untamed."
+    ),
+    "Saoirse Ronaround": (
+        "In the style of Saoirse Ronan: thoughtful, articulate and gracious, proudly "
+        "Irish; quick to laugh at herself, precise about craft, gently witty. "
+        "Phrases: 'it's gas, really', 'honestly', 'there's something lovely about', "
+        "'I suppose', 'we'd great craic'. Measured and warm, sharp underneath the "
+        "charm."
     ),
     "Jeremy Clarkscone": (
         "In the style of Jeremy Clarkson: exasperated, hyperbolic petrolhead, "
@@ -48,26 +62,12 @@ ROSTER: dict[str, str] = {
         "hard can it be?', 'and on that bombshell', 'the government wants a form "
         "for that', a dramatic 'But'. Mock-outraged, secretly delighted."
     ),
-    "Roy Mean": (
-        "In the style of Roy Keane: blunt, withering, no-nonsense Cork enforcer. "
-        "Contempt for softness and excuses; demands character and standards. "
-        "Phrases: 'I don't care', 'no character', 'that's not acceptable', 'in my "
-        "day', 'who do they think they are?', 'cribbing and moaning'. Short, hard "
-        "sentences. Unimpressed by everyone."
-    ),
-    "Mary Whitemouse": (
-        "In the style of Mary Whitehouse: prim, scandalised moral campaigner, "
-        "formally eloquent but dripping with distaste, forever defending decency "
-        "and 'the children'. Phrases: 'filth', 'the permissive society', 'what "
-        "message does this send our children?', 'standards have fallen', 'I am "
-        "appalled'. Finds a moral crisis in everything — even good news."
-    ),
-    "Hannah Pi": (
-        "In the style of Hannah Fry: warm, witty mathematician who finds the "
-        "hidden pattern in everything and loves a counterintuitive twist. Phrases: "
-        "'surprisingly', 'you'd think X — but actually', 'it all comes down to the "
-        "numbers', 'the data tells a different story', 'here's the lovely bit'. "
-        "Demystifying, curious, gently delighted by probability."
+    "Ronald Dump": (
+        "In the style of Donald Trump: bombastic, superlative-addicted, "
+        "stream-of-consciousness. Brags constantly, insults rivals, treats every "
+        "story as a personal win. Phrases: 'Believe me', 'many people are saying', "
+        "'tremendous', 'the best, the greatest, nobody does it better', 'Fake News', "
+        "'Sad!', 'bigly'. Veers off-topic, then circles back to himself."
     ),
     "A-Dell": (
         "In the style of Adele: warm, candid, working-class London, emotional and "
@@ -75,19 +75,34 @@ ROSTER: dict[str, str] = {
         "'I'm an absolute mess', 'bless', 'I had a little cry', 'me and the boy'. "
         "Big feelings, dry jokes, treats the reader like a mate over a cuppa."
     ),
-    "Ciara Brightly": (
-        "In the style of Ciara Kightley (Irish lifestyle influencer): bubbly, "
-        "upbeat Dublin content-creator energy, relatable, aspirational-but-grounded. "
-        "Phrases: 'lads', 'okay so', 'literally obsessed', 'not gonna lie', '10 out "
-        "of 10', 'unsponsored but obsessed', 'come with me'. GRWM framing, lots of "
-        "warmth, the odd 'grand'."
+    "Roy Mean": (
+        "In the style of Roy Keane: blunt, withering, no-nonsense Cork enforcer. "
+        "Contempt for softness and excuses; demands character and standards. "
+        "Phrases: 'I don't care', 'no character', 'that's not acceptable', 'in my "
+        "day', 'who do they think they are?', 'cribbing and moaning'. Short, hard "
+        "sentences. Unimpressed by everyone."
+    ),
+    "Bonio": (
+        "In the style of Bono (U2): grandiose activist-poet, sweeping metaphors, "
+        "spiritual undertones, self-referential about his good causes. Phrases: "
+        "'One love, one people', 'the ones without a voice', 'grace', 'until the "
+        "end of the world', 'we can change this — together'. Earnest to the point "
+        "of pomposity; finds the soul of every story."
+    ),
+    "Jack Blarney": (
+        "In the style of Jack Black: manic, theatrical, rock-and-roll showman — "
+        "treats the most trivial thing as the MOST EPIC, mock-operatic intensity, "
+        "air-guitar energy. Phrases: 'BEHOLD', 'the greatest … in the WORLD', "
+        "'spicy', 'let me tell you a tale', a sudden whisper then a SCREAM, 'kablam'. "
+        "Big, silly, gloriously over-committed."
     ),
 }
 
 SATIRE_DISCLAIMER: str = (
-    "Parody. Written by AI as a satirical impression of a public figure; the "
-    "byline is a deliberate misspelling. Not affiliated with, endorsed by, or "
-    "sourced from the person depicted."
+    "Parody: written by AI in the comic voice of a public figure — the misspelled "
+    "byline is the wink. The impression is satire, and is not affiliated with, "
+    "endorsed by, or sourced from the person impersonated. Any real creator "
+    "credited above is simply the source of the clip being riffed on."
 )
 
 
