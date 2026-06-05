@@ -61,56 +61,72 @@ in S3** — so a slow generation or a held edition can never wedge the pipeline.
 
 ```mermaid
 flowchart TD
-    subgraph Schedule["Orkes Conductor OSS on .75 — cron schedules (the single source of truth)"]
-        T1["craicgpt_daily_0500<br/>05:00 UTC → craicgpt_daily_content"]
-        T2["craicgpt_publish_gate_poll<br/>every 10 min, 06–08 UTC → craicgpt_publish_gate"]
+    %% colour by ROLE so the deterministic-vs-LLM split is visible at a glance
+    classDef sched fill:#dbeafe,stroke:#1d4ed8,color:#0b2447;
+    classDef agent fill:#ede9fe,stroke:#6d28d9,color:#2e1065;
+    classDef code  fill:#ccfbf1,stroke:#0f766e,color:#053b37;
+    classDef judge fill:#fef3c7,stroke:#b45309,color:#5b3a02,stroke-width:3px;
+    classDef model fill:#f1f5f9,stroke:#64748b,color:#1e293b;
+    classDef store fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+    classDef live  fill:#dcfce7,stroke:#15803d,color:#052e16;
+    classDef human fill:#ffe4e6,stroke:#be123c,color:#4c0519;
+
+    CRON(["⏰ Conductor cron · 05:00 UTC<br/>craicgpt_daily_content"]):::sched
+
+    subgraph BUILD["🛠️ GENERATE + JUDGE — one pass on .75 · content_pipeline/"]
+        direction TB
+        R["① RESEARCH<br/>Editor-in-Chief deep agent → fun / AI / link-validator subagents"]:::agent
+        C["② CURATE<br/>dedupe · diversity · recency · link-check · HOLD-if-thin"]:::code
+        W["③ WRITE<br/>article prose + persona / creator credit"]:::code
+        IMG["④ IMAGES<br/>one per AI lead + fun story"]:::code
+        K["⑤ COMPILE<br/>schema-v3 paper_content.json"]:::code
+        J["⑥ JUDGE ★<br/>deepagents RubricMiddleware —<br/>harmless · on-brand · attributed"]:::judge
+        R --> C --> W --> IMG --> K --> J
     end
 
-    subgraph Engine["Content engine (content_pipeline/) on .75 — build + judge in one pass"]
-        AGENT["Editor-in-Chief deep agent (create_deep_agent)"]
-        SUB1["fun-news-researcher"]
-        SUB2["ai-landscape-researcher"]
-        SUB3["link-validator"]
-        CUR["Deterministic harness: curate, personas, write, images, compile v3"]
-        JUDGE["In-pipeline rubric judge<br/>deepagents RubricMiddleware — grades the finished edition"]
-        NOTIFY["notifier → Telegram (both agents' bots)"]
-        AGENT --> SUB1 & SUB2 & SUB3 --> CUR --> JUDGE
+    subgraph FLEET["🤖 grazlab local LLM fleet · one LiteLLM proxy, routed by name"]
+        direction TB
+        QWEN["Qwen3.6 · DGX Spark<br/>research + writing"]:::model
+        FLUXM["FLUX.2 Klein · M3 Ultra<br/>images"]:::model
+        GEMMA["★ gemma-4-12b-it-nothink · M3 Ultra<br/>INDEPENDENT rubric judge"]:::model
     end
 
-    subgraph Fleet["grazlab LLM fleet (via LiteLLM proxy)"]
-        QWEN["Qwen3.6 — DGX Spark vLLM — research + writing"]
-        GEMMA["gemma-4-12b-it-nothink — M3 Ultra — independent rubric judge"]
-        FLUX["FLUX.2 Klein — M3 Ultra — images"]
+    subgraph STATE["🗄️ S3 state — the ONLY decoupling: the gate polls this"]
+        direction TB
+        DRAFT[("preview/&lt;date&gt;/<br/>draft + images")]:::store
+        VRUB[("verdict-rubric.json<br/>APPROVE / HOLD + reasons")]:::store
+        DIR[("directive.json<br/>human override / remediate")]:::store
     end
 
-    subgraph S3["S3 — coordination by state (only the publish gate is decoupled now)"]
-        DRAFT["preview/&lt;date&gt;/ draft + images"]
-        STATUS["status.json {complete}"]
-        VRUB["verdict-rubric.json (APPROVE / HOLD + reasons)"]
-        DIR["directive.json — human override / remediate"]
-    end
+    GATE{"🚦 PUBLISH GATE · Conductor 06–08 UTC<br/>structural-valid + browser-UA link-check<br/>+ rubric APPROVE (or a human directive)"}:::sched
 
-    subgraph Publish["Live"]
-        LIVE["content/&lt;date&gt;/ + images; CloudFront → craicgpt.ie"]
-    end
+    LIVE(["🌐 content/&lt;date&gt;/ → CloudFront<br/>craicgpt.ie · versioned"]):::live
+    WEB["🖥️ Browser · masonry paper +<br/>'Under the Hood' agent-trace replay"]:::live
+    GRAHAM["📲 Graham · Telegram<br/>generated · published · HELD"]:::human
 
-    GRAHAM["Graham (Telegram): draft generated · published · HELD+reasons"]
-
-    T1 --> AGENT
-    CUR -->|OpenAI-compatible| QWEN & FLUX
-    JUDGE -->|grades against the publish rubric| GEMMA
-    JUDGE --> DRAFT --> STATUS
-    JUDGE --> VRUB
-    NOTIFY --> GRAHAM
-    JUDGE -.draft generated + verdict.-> NOTIFY
-    GRAHAM -.->|override / remediate: CLI on .75| DIR
-    VRUB -.read.-> T2
-    STATUS -.read.-> T2
-    DIR -.read.-> T2
-    T2 -->|host validate + link-check + rubric APPROVE, OR a human directive| LIVE
-    T2 -.published / HELD.-> NOTIFY
-    LIVE -->|fetches JSON| WEB["Browser: masonry paper + Under-the-Hood visualiser"]
+    %% data flow
+    CRON --> R
+    R -. uses .-> QWEN
+    W -. uses .-> QWEN
+    IMG -. uses .-> FLUXM
+    J -. uses .-> GEMMA
+    J --> DRAFT & VRUB
+    J -. "📰 generated + verdict" .-> GRAHAM
+    DRAFT --> GATE
+    VRUB --> GATE
+    DIR --> GATE
+    GRAHAM -. "override / remediate · CLI on .75" .-> DIR
+    GATE ==>|"APPROVE → promote"| LIVE
+    GATE -. "✅ published / ✋ HELD" .-> GRAHAM
+    LIVE -->|fetches paper_content.json| WEB
 ```
+
+> **Colour key** — 🟣 violet = **LLM / agent** work · 🟢 teal = **deterministic
+> harness** (plain code) · 🟡 gold ★ = the **independent rubric judge** · 🔵 blue =
+> **Conductor** schedules · 🔷 indigo = **S3 state** · 🟢 green = **live**. Read it as one
+> spine: the agent only *researches* (①), code does every mechanical step (②–⑤), then
+> **gemma** judges (⑥) before anything reaches S3 — and the publish gate is the single
+> place the flow is decoupled.
 
 ### Why this shape (the hard-won lesson)
 
@@ -132,38 +148,46 @@ the fleet. It's the `deciding-deterministic-vs-llm` principle in practice.
 
 Graham is asleep or commuting at 06:00, so an **in-pipeline rubric judge is the
 safety gate that replaces the human**. The judge — a LangChain `deepagents`
-`RubricMiddleware` grader on an **independent model** (`gemma-4-12b-it`, *not* the
-writer) — owns the *harmless / on-brand / attributed* judgement at generation time;
+`RubricMiddleware` grader on an **independent model** (`gemma-4-12b-it-nothink`, *not*
+the writer) — owns the *harmless / on-brand / attributed* judgement at generation time;
 the host's publish gate owns the deterministic *technically valid + links resolve*
 check and the publish itself.
 
 ```mermaid
 sequenceDiagram
-    participant T1 as Conductor craicgpt_daily_0500 (05:00)
-    participant E as Engine (agent + harness + rubric judge) on .75
-    participant G as gemma-4-12b-it (rubric judge, via LiteLLM)
-    participant TG as Telegram (both agents' bots)
-    participant S as S3 (preview, state)
-    participant T2 as Conductor craicgpt_publish_gate (06–08, every 10m)
-    participant L as S3 live + CDN
+    autonumber
+    participant T1 as ⏰ Conductor 05:00
+    participant E as 🛠️ Engine · .75<br/>(agent + harness)
+    participant G as ★ gemma-4-12b-it-nothink<br/>rubric judge
+    participant S as 🗄️ S3 preview state
+    participant T2 as 🚦 Conductor gate<br/>06–08 · every 10m
+    participant L as 🌐 Live + CloudFront
+    participant TG as 📲 Telegram
 
+    rect rgb(237, 233, 254)
+    Note over T1,G: ① BUILD + JUDGE — one pass, no human in the loop
     T1->>E: generate edition
-    E->>E: research → harness writes + images → compile v3
-    E->>G: grade the finished edition against the publish rubric
-    G-->>E: RubricEvaluation → APPROVE / HOLD + per-criterion reasons
-    E->>S: draft + images, status=complete, verdict-rubric.json
-    E->>TG: 📰 draft generated (+ rubric verdict)
-    loop every 10 min across the 06–08 UTC window
-        T2->>S: read status + verdict-rubric + any human directive
-        alt complete + host-valid + links resolve + rubric APPROVE  (or a human directive)
-            T2->>L: publish live + invalidate CDN + redeploy frontend
+    E->>E: research → write + images → compile v3
+    E->>G: grade finished edition vs the rubric
+    G-->>E: APPROVE / HOLD + per-criterion reasons
+    E->>S: draft + images + verdict-rubric.json (status=complete)
+    E->>TG: 📰 draft generated (+ verdict)
+    end
+
+    rect rgb(219, 234, 254)
+    Note over S,L: ② PUBLISH GATE — decoupled, idempotent poll
+    loop every 10 min · 06–08 UTC
+        T2->>S: read status + verdict-rubric + directive
+        alt complete + valid + links OK + rubric APPROVE
+            T2->>L: publish live + invalidate CDN + sync frontend
             T2->>TG: ✅ published live
         else rubric HOLD / invalid draft
             T2->>TG: ✋ HELD + reasons
-            Note over T2,S: Graham can override (force-publish) or remediate<br/>(drop the flagged article) — see below
+            Note over T2,S: Graham can override / remediate (CLI on .75)
         else still waiting
             T2->>T2: retry next tick
         end
+    end
     end
 ```
 
