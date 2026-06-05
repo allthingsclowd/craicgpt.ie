@@ -35,7 +35,7 @@ one LiteLLM proxy, with a frontier model as fallback).
 Conductor @05:00 UTC ─▶ run_edition
    deep agent (research only) ─▶ research/{ai,fun}_candidates.json
    harness: curate → HOLD-or-write → snap URLs → images → compile (schema v3)
-   rubric judge (in-pipeline: deepagents RubricMiddleware on gemma-4-12b-it)
+   rubric judge (in-pipeline: deepagents RubricMiddleware on qwen3.6-35b — interim)
                           │
                           ▼  draft + verdict-rubric.json → S3 preview/
                           ▼  gate @06–08 UTC: rubric APPROVE + structural + link-check
