@@ -50,7 +50,7 @@ def web_search(query: str) -> str:
 
     Returns titles/snippets/URLs. On backend failure returns a line starting
     'SEARCH_FAILED:' — when you see that, do NOT invent stories or URLs; report it and stop.
-    Uses the official Brave Search API (keyed, built for automation) — not scraping.
+    Uses the Serper.dev (Google SERP) API (keyed, built for automation) — not scraping.
     """
 
 @tool
@@ -73,7 +73,7 @@ Two design decisions worth calling out:
 
 - **`web_search` fails loudly, never silently.** v2's scraper got `429`-rate-limited from
   the datacenter IP and the agent *hallucinated* stories to fill the gap. Now `web_search`
-  uses the keyed Brave API and returns an explicit `SEARCH_FAILED:` sentinel; the prompts
+  uses the keyed Serper.dev API and returns an explicit `SEARCH_FAILED:` sentinel; the prompts
   say "report it and stop", and the harness HOLDs the edition. (It also sends a real
   browser `User-Agent` so legitimate hosts don't 403 it.)
 - **Images return a *path*, not base64.** Keeping image bytes out of the agent's context

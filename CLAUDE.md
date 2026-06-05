@@ -78,7 +78,7 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │        • fun-news-researcher      → research/fun_candidates.json
    │        • ai-landscape-researcher  → research/ai_candidates.json
    │        • link-validator
-   │      tools: web_search (Brave API), fetch_page, validate_link
+   │      tools: web_search (Serper API), fetch_page, validate_link
    │
    ├─ 2. HARVEST + CURATE (deterministic) — merge curated RSS/Atom feeds
    │      (research/ai_sources.py, research/fun_sources.py), then drop grim/
@@ -124,7 +124,7 @@ so each stage is independently retriable and the gate is idempotent.
 |------|---------|
 | `content_pipeline/agent/editor_in_chief.py` | `build_editor_in_chief` (deep agent) + `run_edition` (the harness: research→curate→write→images→compile) |
 | `content_pipeline/agent/subagents.py` | deepagents `SubAgent` specs (fun-news / ai-landscape researchers, link-validator) + the Editor-in-Chief prompt |
-| `content_pipeline/agent/tools.py` | `@tool`s: `web_search` (Brave), `fetch_page`, `validate_link`, `generate_cover_image`, `assign_journalist_voices` |
+| `content_pipeline/agent/tools.py` | `@tool`s: `web_search` (Serper.dev), `fetch_page`, `validate_link`, `generate_cover_image`, `assign_journalist_voices` |
 | `content_pipeline/agent/hitl.py` | OSS human-in-the-loop approval graph — LangGraph `interrupt()` + checkpointer |
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
@@ -222,7 +222,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `WRITE_MODEL` (prose) | No | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 | `IMAGE_MODEL` | No | `m3/mlx/hidream-o1-image-dev` |
 | `FALLBACK_TEXT_MODEL` (frontier) | No | `claude-sonnet-4-6` |
-| `BRAVE_SEARCH_API_KEY` | Yes (web_search) | — |
+| `SERPER_API_KEY` | Yes (web_search) | — |
 | `MIN_AI_SOURCES` / `MIN_FUN_SOURCES` | No | `11` / `4` |
 | `AI_FEED_HOURS` | No | `48` |
 | `S3_BUCKET` | Yes (publish) | `craicgpt-ie-production` |

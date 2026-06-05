@@ -71,11 +71,13 @@ class ContentConfig:
     image_model: str = field(
         default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/mlx/hidream-o1-image-dev")
     )
-    # ── Web search: Brave Search API (replaces ddgs scraping, which got 429'd from
-    # the datacenter IP and made the agent hallucinate). Key from 1Password
-    # AgentCredentials → /etc/craicgpt.env on the host. Never commit it.
-    brave_search_api_key: str = field(
-        default_factory=lambda: os.getenv("BRAVE_SEARCH_API_KEY", "")
+    # ── Web search: Serper.dev (Google SERP) API. Replaced Brave (2026-06): Brave
+    # killed its free API tier in Feb 2026 (→ metered + a small monthly credit), so the
+    # agent's ~80 searches/run blew the quota and 429'd. Serper is cheaper ($0.30–1 /1k)
+    # with a 2,500/mo free tier. Key from 1Password AgentCredentials (item "serper.dev",
+    # field "API Key") → SERPER_API_KEY in /etc/craicgpt.env on the host. Never commit it.
+    serper_api_key: str = field(
+        default_factory=lambda: os.getenv("SERPER_API_KEY", "")
     )
     # ── Integrity floors: minimum REAL, link-validated candidates per desk before
     # we'll write an edition. Below these the run HOLDS rather than fabricate/thin.

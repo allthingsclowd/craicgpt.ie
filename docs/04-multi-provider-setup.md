@@ -122,7 +122,7 @@ WRITE_MODEL=m3/mlx/qwen3.6-35b-a3b-unsloth-8bit
 IMAGE_MODEL=m3/mlx/hidream-o1-image-dev
 FALLBACK_TEXT_MODEL=claude-sonnet-4-6
 
-BRAVE_SEARCH_API_KEY=brv-...        # web_search (doc 05)
+SERPER_API_KEY=...                  # web_search via Serper.dev (doc 05)
 
 S3_BUCKET=craicgpt-ie-production
 CLOUDFRONT_DISTRIBUTION_ID=E1...

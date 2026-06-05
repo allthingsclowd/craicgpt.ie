@@ -14,13 +14,13 @@ Graham's list that exposes a working public feed (verified at build time).
 
 Known gaps (no usable public feed → handled elsewhere / future enhancement):
 - **X / Twitter** feeds — no reliable free API; the agentic researcher still
-  surfaces notable posts via Brave search.
+  surfaces notable posts via the agent's web search.
 - **YouTube** channels — need channel-id resolution + a transcript fetch; the
   recent-video feed is a future enhancement (``?channel_id=`` Atom feeds).
 - Several company pages don't publish a stable public RSS feed (Anthropic, xAI,
   Mistral, Meta AI, Stability, Cohere, Midjourney, Perplexity, Runway, Inflection,
   Scale) — their news still arrives via the publications below (TechCrunch /
-  VentureBeat / The Verge / Ars / Wired) and the agentic researcher's Brave search.
+  VentureBeat / The Verge / Ars / Wired) and the agentic researcher's web search (Serper).
 """
 
 from __future__ import annotations

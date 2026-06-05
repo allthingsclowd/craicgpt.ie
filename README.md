@@ -294,6 +294,9 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
   and the **`RubricMiddleware`** edition judge.
 - **Qwen3.6** (research + writing, *and* — interim — the rubric judge) + **FLUX.2 Klein**
   (images) via **LiteLLM** on a DGX Spark + M3 Ultra homelab fleet.
+- **Web search** — **Serper.dev** (Google SERP) powers the agent's `web_search` tool
+  (2,500/mo free tier). Replaced **Brave Search** in 2026-06: Brave withdrew its free API
+  tier (Feb 2026), so the agent's ~80 searches/run 429'd on the new metered quota.
 - **Orkes Conductor OSS** on the engine host — the scheduler + single console for
   the daily flow: `craicgpt_daily_0500` (05:00 generate + judge) and
   `craicgpt_publish_gate_poll` (06–08 UTC idempotent publish gate), decoupled via

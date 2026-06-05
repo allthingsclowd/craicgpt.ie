@@ -193,7 +193,7 @@ def _search_failures(messages: list) -> list[str]:
     into the agent's message stream.
 
     The 2026-06-04 hallucination gave NO signal that search had degraded. The tool
-    now returns ``SEARCH_FAILED: <why>`` (Brave 429 / 401 / network …) instead of
+    now returns ``SEARCH_FAILED: <why>`` (Serper 429 / 401 / network …) instead of
     silently-empty results; surfacing those here lets a HOLD say *why* search
     failed — which is exactly what the operator asked for.
     """
