@@ -138,9 +138,15 @@ def test_missing_headliner_is_invalid():
 
 
 # --- compute_consensus ------------------------------------------------------
+# compute_consensus is GENERIC over any required agent set. The live DEFAULT is now
+# a single rubric judge (see test_consensus_defaults_to_single_rubric below); these
+# multi-agent cases pass `required` explicitly to exercise the N-agent mechanism.
+TWO = ("openclaw", "hermes")
+
+
 def test_both_approve_is_approve():
     v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "approve"}}
-    c = review.compute_consensus(v)
+    c = review.compute_consensus(v, required=TWO)
     assert c["decision"] == "APPROVE"
 
 
@@ -171,7 +177,16 @@ def test_consensus_approves_across_mixed_schemas():
     # The exact shapes openclaw + hermes wrote in the live test.
     v = {"openclaw": {"agent": "openclaw", "decision": "approve"},
          "hermes": {"agent": "hermes", "verdict": "APPROVE"}}
-    assert review.compute_consensus(v)["decision"] == "APPROVE"
+    assert review.compute_consensus(v, required=TWO)["decision"] == "APPROVE"
+
+
+def test_consensus_defaults_to_single_rubric_verdict():
+    # The new default required set is the single in-pipeline rubric judge.
+    assert review.DEFAULT_AGENTS == ("rubric",)
+    assert review.compute_consensus({"rubric": {"verdict": "APPROVE"}})["decision"] == "APPROVE"
+    assert review.compute_consensus({"rubric": {"verdict": "HOLD", "reasons": ["off-brand"]}})["decision"] == "HOLD"
+    # A 2-agent set without the rubric verdict no longer approves by default.
+    assert review.compute_consensus({"openclaw": {"verdict": "APPROVE"}})["decision"] == "WAIT"
 
 
 def test_consensus_does_not_approve_on_unparseable_verdict():
@@ -228,7 +243,7 @@ def test_write_then_read_verdict_roundtrip():
     assert verdicts["openclaw"]["verdict"] == "APPROVE"
     assert verdicts["hermes"]["verdict"] == "HOLD"
     # consensus over what was written
-    assert review.compute_consensus(verdicts)["decision"] == "HOLD"
+    assert review.compute_consensus(verdicts, required=TWO)["decision"] == "HOLD"
 
 
 def test_verdicts_are_version_keyed_per_apply():
@@ -242,8 +257,8 @@ def test_verdicts_are_version_keyed_per_apply():
 
     v1 = review.read_verdicts("2026-06-04", vid="V1", s3=s3, bucket="b")
     v2 = review.read_verdicts("2026-06-04", vid="V2", s3=s3, bucket="b")
-    assert review.compute_consensus(v1)["decision"] == "APPROVE"   # v1: both approved
-    assert review.compute_consensus(v2)["decision"] == "HOLD"      # v2: openclaw held
+    assert review.compute_consensus(v1, required=TWO)["decision"] == "APPROVE"   # v1: both approved
+    assert review.compute_consensus(v2, required=TWO)["decision"] == "HOLD"      # v2: openclaw held
     assert ("b", "preview/2026/06/04/verdict-openclaw-V1.json") in s3.store
     assert ("b", "preview/2026/06/04/verdict-openclaw-V2.json") in s3.store
 
@@ -257,7 +272,7 @@ def test_read_verdicts_falls_back_to_legacy_per_date():
     review.write_verdict("2026-06-04", "hermes", "APPROVE", ["ok"], s3=s3, bucket="b")    # no vid
     got = review.read_verdicts("2026-06-04", vid="SOMEVID", s3=s3, bucket="b")
     assert set(got) == {"openclaw", "hermes"}                       # legacy verdicts surfaced
-    assert review.compute_consensus(got)["decision"] == "APPROVE"
+    assert review.compute_consensus(got, required=TWO)["decision"] == "APPROVE"
 
 
 def test_read_verdicts_empty_when_none_written():
@@ -319,8 +334,22 @@ def test_gate_retry_when_complete_but_awaiting_verdict():
 
 def test_gate_publish_when_complete_and_both_approve():
     v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
-    g = review.gate("2026-06-02", verdicts=v, status={"state": "complete"}, already_live=False)
+    g = review.gate("2026-06-02", verdicts=v, status={"state": "complete"},
+                    already_live=False, required=TWO)
     assert g["action"] == "publish"
+
+
+def test_gate_publishes_on_single_rubric_approve():
+    # The live default: one in-pipeline rubric APPROVE + complete + host-valid → publish.
+    g = review.gate("2026-06-02", verdicts={"rubric": {"verdict": "APPROVE"}},
+                    status={"state": "complete"}, already_live=False, valid=True)
+    assert g["action"] == "publish"
+
+
+def test_gate_holds_on_rubric_hold():
+    g = review.gate("2026-06-02", verdicts={"rubric": {"verdict": "HOLD", "reasons": ["a dodgy joke"]}},
+                    status={"state": "complete"}, already_live=False)
+    assert g["action"] == "hold" and "a dodgy joke" in " ".join(g["reasons"])
 
 
 def test_gate_hold_when_an_agent_holds():
@@ -337,7 +366,8 @@ def test_gate_already_live_short_circuits():
 def test_gate_holds_when_agents_approve_but_host_validation_fails():
     v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
     g = review.gate("2026-06-02", verdicts=v, status={"state": "complete"},
-                    already_live=False, valid=False, invalid_reasons=["fun 2 missing image"])
+                    already_live=False, valid=False, invalid_reasons=["fun 2 missing image"],
+                    required=TWO)
     assert g["action"] == "hold"
     assert any("fun 2 missing image" in r for r in g["reasons"])
 
@@ -421,7 +451,8 @@ def test_gate_directive_ignored_when_already_live():
 
 def test_gate_normal_approve_unaffected_by_no_directive():
     v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
-    g = review.gate("2026-06-03", verdicts=v, status=COMPLETE, already_live=False, valid=True)
+    g = review.gate("2026-06-03", verdicts=v, status=COMPLETE, already_live=False,
+                    valid=True, required=TWO)
     assert g["action"] == "publish"
 
 

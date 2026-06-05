@@ -318,7 +318,7 @@ function renderAttribution(data) {
 // ── Under the Hood: deep-agent visualiser ──────────────────────────────────
 const TRACE_ICON = {
   plan: '🗒️', subagent: '🤝', tool: '🔧', vfs: '🗂️',
-  structured: '📦', model: '🧠', fallback: '↩️', note: '•',
+  structured: '📦', model: '🧠', fallback: '↩️', rubric: '⚖️', note: '•',
 };
 // One line per LangChain primitive — the "what am I looking at?" teaching note.
 const TRACE_BLURB = {
@@ -329,6 +329,7 @@ const TRACE_BLURB = {
   structured: 'Structured output — a plain chat→JSON call the newsroom parses deterministically.',
   model: 'LiteLLM routes each model name to the right fleet box — no engine URLs in code.',
   fallback: 'A resilient fallback from the local model to a frontier safety net.',
+  rubric: 'deepagents Rubrics: a separate judge model grades the finished edition against a checklist before it can publish.',
   note: 'A milestone the harness recorded.',
 };
 
@@ -372,6 +373,7 @@ function renderHood(data) {
       stat('📦', counts.structured, 'JSON writes'),
       stat('🗂️', counts.vfs, 'file ops'),
       stat('↩️', counts.fallback, 'fallbacks'),
+      stat('⚖️', counts.rubric, 'rubric review'),
     ].join('');
   }
 }

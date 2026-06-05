@@ -216,3 +216,34 @@ def test_run_edition_writes_from_research_candidates():
         assert f["byline"].startswith("As told to")
         assert f["satire_disclaimer"]
         assert f["source_url"].startswith("https://f/")
+
+
+def test_run_edition_grades_with_rubric_when_grade_provided():
+    # Goal 3: when a `grade` judge is supplied, run_edition grades the FINISHED
+    # edition, attaches the verdict at paper["edition"]["rubric"], and records a
+    # `rubric` trace event for the "Under the Hood" drawer. A stub judge keeps it
+    # offline (the real judge is an LLM call; tests omit `grade` to skip it).
+    seen = {}
+
+    def fake_grade(paper):
+        seen["got_fun"] = len(paper.get("fun", []))   # graded the COMPILED paper
+        return {"verdict": "APPROVE", "reasons": [], "result": "satisfied",
+                "judge_model": "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit"}
+
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
+                        grade=fake_grade)
+    assert seen["got_fun"] == 5                         # judged after the harness trimmed to 5
+    assert paper["edition"]["rubric"]["verdict"] == "APPROVE"
+    assert paper["edition"]["rubric"]["judge_model"].endswith("qwen3.6-35b-a3b-unsloth-8bit")
+    kinds = [e["kind"] for e in paper["context"]["agent_trace"]]
+    assert "rubric" in kinds                            # the drawer will show the judge step
+
+
+def test_run_edition_records_hold_if_grader_raises():
+    # A judge crash must not sink generation — it yields a HOLD verdict the gate surfaces.
+    def boom(paper):
+        raise RuntimeError("judge unreachable")
+
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()), grade=boom)
+    assert paper["edition"]["rubric"]["verdict"] == "HOLD"
+    assert any("judge unreachable" in r for r in paper["edition"]["rubric"]["reasons"])

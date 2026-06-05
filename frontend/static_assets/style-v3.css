@@ -199,6 +199,7 @@
 .trace-row--structured { border-left-color: #c2a76b; }   /* muted gold */
 .trace-row--model      { border-left-color: var(--local); }
 .trace-row--fallback   { border-left-color: var(--ink-soft); }
+.trace-row--rubric     { border-left-color: #5fa8a0; }   /* the judge's verdict (muted teal) */
 .trace-icon { font-size: 1rem; }
 .trace-name { font-family: var(--font-ui); font-weight: 800; font-size: .8rem; }
 .trace-blurb { display: block; font-family: var(--font-ui); font-size: .68rem; font-style: italic; color: var(--ink-soft); margin: .1rem 0 .25rem; }
