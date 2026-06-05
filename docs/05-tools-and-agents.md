@@ -124,23 +124,28 @@ does it deterministically.
 
 ---
 
-## The OTHER agents: the autonomous reviewers
+## The edition judge: an in-pipeline rubric
 
-There's a second, separate use of agents in the system — the **approval reviewers**.
-After a draft lands in S3 `preview/`, two independent agent VMs read it and judge whether
-it's harmless and on-brand:
+There's a second, separate use of an agent in the system — the **edition judge**. It is no
+longer a fleet of reviewer VMs polling S3; it's a LangChain `deepagents`
+**`RubricMiddleware`** grader that runs **in-pipeline**, as the last step of `run_edition`
+(`content_pipeline/agent/rubric_review.py`, `grade_edition`):
 
-- **openclaw** (`192.168.50.199`) and **hermes** (`192.168.50.50`) each run the
-  `approving-craicgpt-editions` skill against the draft and write `verdict-<agent>.json`
-  (decision + reasons + the version id in the body).
+- A tiny reviewer deep agent is handed the compiled edition; its grader sub-agent scores the
+  transcript against an explicit `EDITION_RUBRIC` (harmless / no-defamation / every fun item
+  attributed / the AI desk is substantive). The grader runs on an **independent model** —
+  `gemma-4-12b-it`, *not* the writer — so the edition is marked by a genuine second opinion,
+  with a frontier fallback if the local judge errors. It writes `verdict-rubric.json`
+  (decision + per-criterion reasons + the version id in the body).
 - The deterministic **gate** (`cli gate`, `content_pipeline/agent/review.py`) publishes
-  live only on **two-agent APPROVE consensus** + host structural validation + a live
-  link-check. `compute_consensus` requires an *explicit* APPROVE from every required agent
-  — a missing/garbled verdict is a WAIT, never a silent pass.
+  live only on the **rubric `APPROVE`** + host structural validation + a live link-check.
+  `compute_consensus` requires an *explicit* APPROVE from every required agent (now the
+  single `rubric`) — a missing/garbled verdict is a WAIT, never a silent pass.
 
 This keeps the LLM's job to **judgment** ("is this harmless/on-brand?") and the gate's job
 to **fact** ("is it structurally valid and are all links reachable?") — the same
-deterministic-vs-LLM split, applied to publishing.
+deterministic-vs-LLM split, applied to publishing. (It replaces the earlier two-VM
+openclaw + hermes consensus: one local, independent judge instead of two networked agents.)
 
 ---
 
@@ -175,6 +180,6 @@ for chunk in agent.stream({"messages": [("human", brief)]}, stream_mode="values"
 | `@tool` definitions | `content_pipeline/agent/tools.py` |
 | Subagent specs + Editor-in-Chief prompt | `content_pipeline/agent/subagents.py` |
 | Deterministic curation (NOT tools) | `content_pipeline/research/curation.py` |
-| Two-agent review + consensus gate | `content_pipeline/agent/review.py` + `cli.py` (`gate`) |
-| Approval skill (on the reviewer VMs) | scripting-paddy-skills → `approving-craicgpt-editions` |
+| In-pipeline rubric judge + consensus gate | `content_pipeline/agent/rubric_review.py` + `review.py` + `cli.py` (`gate`) |
+| The publish rubric (criteria) | `content_pipeline/agent/rubric_review.py` (`EDITION_RUBRIC`) |
 | Trace capture / display | `content_pipeline/agent/trace.py` · `frontend/static_assets/main.js` |

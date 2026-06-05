@@ -7,21 +7,24 @@ This replaces the old two-VM (openclaw + hermes) approval consensus with a singl
 LLM judge that grades the finished edition against an explicit rubric, run via
 ``content_cfg.judge_model``.
 
-⚠️ THE JUDGE IS THE WRITER'S MODEL FOR NOW (June 2026) — not an independent one.
-The deepagents grader needs structured tool-calling, and the only M3 route that
-emits it cleanly is the writer's own ``qwen3.6-35b`` (the other MLX routes return
-tool calls as unparsed ``<tool_call>`` text; the FC route is down). So the judge is
-a separate COLD pass (temperature 0) of that *same* model against the rubric — it
-catches structural / obvious problems but is the author marking its own homework,
-not a true second opinion.
+THE JUDGE IS AN INDEPENDENT MODEL (June 2026): ``gemma-4-12b-it`` on the M3 Ultra,
+a *different* model from the writer (``qwen3.6-35b``). The deepagents grader needs
+structured tool-calling; gemma-4-12b-it emits real ``tool_calls`` (verified — see the
+probe below), so the finished edition is graded by a genuine second opinion at
+temperature 0 against the rubric, not the author marking its own homework.
 
-Switching the judge (do this once a non-writer tool-calling route exists)
-------------------------------------------------------------------------
+    History: the judge briefly ran on the writer's own ``qwen3.6`` because it was the
+    only M3 route that tool-called cleanly back then (the others returned tool calls as
+    unparsed ``<tool_call>`` text; the FC route was down). gemma-4-12b-it shipped with a
+    proper tool parser, so the judge moved to its own model.
+
+Switching the judge
+-------------------
 NO code change is needed — set the ``JUDGE_MODEL`` env var (on the host, in
-``/etc/craicgpt.env``) to the new LiteLLM route::
+``/etc/craicgpt.env``) to another LiteLLM route::
 
-    JUDGE_MODEL=claude-sonnet-4-6              # frontier — tool-calls reliably, works today
-    JUDGE_MODEL=m3/mlx/<new-route>            # a local route, once the fleet ships one that tool-calls
+    JUDGE_MODEL=claude-sonnet-4-6             # frontier second opinion
+    JUDGE_MODEL=m3/mlx/<other-route>         # any other local route that tool-calls
 
 First confirm the candidate returns a REAL ``tool_calls`` field (not ``<tool_call>``
 text) — the deepagents grader silently retries/fails otherwise::

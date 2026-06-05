@@ -120,16 +120,20 @@ app = graph.compile(checkpointer=checkpointer or InMemorySaver())   # SqliteSave
 A durable `SqliteSaver` means a paused, awaiting-approval edition survives a restart until
 someone approves it. The graph doesn't care *who* resumes it.
 
-### In production: a decoupled two-agent gate (same idea, via S3)
+### In production: an in-pipeline rubric judge + a decoupled publish gate
 
-The live system doesn't keep a process paused for hours. It **decouples through S3**: the
-draft + a `review-request.json` land in `preview/`, two independent reviewer agents
-(openclaw on .199, hermes on .50) read it, judge it harmless/on-brand, and write
-`verdict-<agent>.json`. A separate, idempotent **gate** (`cli gate`) then publishes live
-only on **two-agent APPROVE consensus + host structural validation + a live link-check**.
-Same human-in-the-loop principle (a real approval is required before going live), but
-retriable and observable instead of a long-lived paused graph. See
-[05-tools-and-agents.md](05-tools-and-agents.md) and `content_pipeline/agent/review.py`.
+The live system doesn't keep a process paused for hours, and it no longer needs a separate
+fleet of reviewer agents. Instead the **judgement runs in-pipeline**: as the last build
+step, a LangChain `deepagents` **`RubricMiddleware`** grades the finished edition against an
+explicit publish rubric (harmless / on-brand / attributed) on an **independent model**
+(`gemma-4-12b-it`, *not* the writer), writing the result to `verdict-rubric.json`. A
+separate, idempotent **gate** (`cli gate`) then publishes live only on the **rubric
+`APPROVE` + host structural validation + a live link-check**. Same human-in-the-loop
+principle (a real approval is required before going live, and Graham can still override),
+but a single local model replaces the old two-VM (openclaw + hermes) consensus — fewer
+moving parts, still retriable and observable. See
+[05-tools-and-agents.md](05-tools-and-agents.md) and
+`content_pipeline/agent/rubric_review.py`.
 
 ---
 
@@ -164,7 +168,7 @@ This is the project's whole observability story — deliberately plain, fully op
 | The research→write harness | `content_pipeline/agent/editor_in_chief.py` (`run_edition`) |
 | HOLD on thin/degraded sources | `content_pipeline/agent/editor_in_chief.py` (`EditionHeld`, `_validate_ai_candidates`) |
 | OSS human-in-the-loop graph | `content_pipeline/agent/hitl.py` |
-| Decoupled two-agent gate | `content_pipeline/agent/review.py` + `cli.py` (`gate`) |
+| In-pipeline rubric judge + publish gate | `content_pipeline/agent/rubric_review.py` + `review.py` + `cli.py` (`gate`) |
 | Trace for "Under the Hood" | `content_pipeline/agent/trace.py` |
 
 ---

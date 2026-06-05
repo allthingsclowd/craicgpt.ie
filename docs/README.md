@@ -15,16 +15,17 @@ one LiteLLM proxy, with a frontier model as fallback).
 ## Read in order
 
 1. **[01-overview.md](01-overview.md)** — What it is, the end-to-end architecture (research
-   → deterministic harness → review → publish), the directory map, and a local quick start.
+   → deterministic harness → in-pipeline rubric judge → publish), the directory map, and a
+   local quick start.
 2. **[02-lcel-and-chains.md](02-lcel-and-chains.md)** — LCEL chains, robust structured
    (JSON) output, and the **local-first / frontier-fallback** wrapper (`run_with_fallback`).
 3. **[03-langgraph-workflow.md](03-langgraph-workflow.md)** — `create_deep_agent`, why the
    **harness writes the articles** (not the agent), OSS human-in-the-loop (`interrupt()` +
-   checkpointer) and the two-agent publish gate, plus the run trace.
+   checkpointer), the **in-pipeline rubric judge** + publish gate, plus the run trace.
 4. **[04-multi-provider-setup.md](04-multi-provider-setup.md)** — One **LiteLLM proxy**, the
    grazlab fleet (DGX Spark + M3 Ultra), routing models by name, and per-model quirks.
 5. **[05-tools-and-agents.md](05-tools-and-agents.md)** — The `@tool` decorator, deepagents
-   **`SubAgent` delegation**, the deterministic-vs-LLM split, and the autonomous reviewers.
+   **`SubAgent` delegation**, the deterministic-vs-LLM split, and the in-pipeline rubric judge.
 
 ---
 
@@ -34,11 +35,10 @@ one LiteLLM proxy, with a frontier model as fallback).
 Conductor @05:00 UTC ─▶ run_edition
    deep agent (research only) ─▶ research/{ai,fun}_candidates.json
    harness: curate → HOLD-or-write → snap URLs → images → compile (schema v3)
+   rubric judge (in-pipeline: deepagents RubricMiddleware on gemma-4-12b-it)
                           │
-                          ▼  draft → S3 preview/  (+ review-request.json)
-   reviewers openclaw(.199) + hermes(.50) ─▶ verdict-<agent>.json   (@06:00 UTC)
-                          │
-                          ▼  gate @06–08 UTC: 2× APPROVE + structural + link-check
+                          ▼  draft + verdict-rubric.json → S3 preview/
+                          ▼  gate @06–08 UTC: rubric APPROVE + structural + link-check
                      content/ (live, versioned) ─▶ CloudFront ─▶ craicgpt.ie
 ```
 
