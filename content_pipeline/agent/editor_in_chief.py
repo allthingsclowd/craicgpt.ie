@@ -551,6 +551,7 @@ def run_edition(
     ai_feed_fetch=None,
     image_generate=None,
     write_generate=None,
+    grade=None,
 ) -> dict:
     """Run an edition and return a schema-v3 paper dict.
 
@@ -575,6 +576,12 @@ def run_edition(
             empty set to disable the recency check).
         ai_feed_fetch: injectable ``url -> feed_xml`` for the curated AI-source
             harvest (tests pass a stub; ``None`` fetches the live feeds).
+        grade: optional ``paper -> verdict`` judge (see
+            :func:`content_pipeline.agent.rubric_review.grade_edition`). When given,
+            the finished edition is graded against the publish rubric on a separate
+            JUDGE model; the verdict is attached at ``paper["edition"]["rubric"]`` and
+            a ``rubric`` trace event is added for the "Under the Hood" drawer. Omitted
+            in tests (skips the live judge call), wired in by ``cli run``.
 
     Raises:
         EditionHeld: if too few real, fresh, link-validated sources survive on a
@@ -752,7 +759,7 @@ def run_edition(
     # ``trace`` (model routes, structured-output writes, image styles, brief, about).
     agent_trace = extract_trace(result.get("messages", [])) + trace.as_list()
 
-    return build_paper(
+    paper = build_paper(
         date_iso,
         generated_at,
         ai=ai,
@@ -761,3 +768,30 @@ def run_edition(
         about=about,
         context={"agent_trace": agent_trace, "files": list(files)},
     )
+
+    # Re-coupled review: a separate JUDGE model grades the FINISHED edition against
+    # the publish rubric (replacing the old two-VM consensus). We grade the compiled
+    # paper, attach the verdict, and record a `rubric` trace event so the "Under the
+    # Hood" drawer shows it. Best-effort: a grader crash yields a HOLD verdict (the
+    # gate surfaces it) rather than sinking generation.
+    if grade is not None:
+        try:
+            verdict = grade(paper)
+        except Exception as exc:  # noqa: BLE001 — a judge failure must not crash the run
+            logger.warning("[run_edition] rubric grading failed (%s); recording HOLD", exc)
+            verdict = {"verdict": "HOLD", "result": "grader_error",
+                       "reasons": [f"rubric grader crashed: {exc}"], "judge_model": ""}
+        paper.setdefault("edition", {})["rubric"] = verdict
+        reasons = verdict.get("reasons") or []
+        paper["context"]["agent_trace"].append({
+            "kind": "rubric",
+            "name": f"Rubric review — {verdict.get('verdict', 'HOLD')}",
+            "detail": {
+                "info": f"an independent judge model ({verdict.get('judge_model') or 'judge'}) "
+                        f"graded the finished edition against the publish rubric",
+                "result": "; ".join(reasons[:3]) if reasons else "all criteria satisfied",
+            },
+        })
+        logger.info("[run_edition] rubric verdict for %s: %s", date_iso, verdict.get("verdict"))
+
+    return paper

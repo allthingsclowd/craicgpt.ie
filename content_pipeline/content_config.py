@@ -101,6 +101,25 @@ class ContentConfig:
             "FALLBACK_TEXT_MODEL", "claude-sonnet-4-6"
         )
     )
+    # The RUBRIC JUDGE — grades the finished edition (harmless / on-brand / attributed)
+    # via a deepagents RubricMiddleware, replacing the old two-VM (openclaw+hermes)
+    # consensus. The grader needs STRUCTURED TOOL-CALLING, and (June 2026) the only M3
+    # route that emits it cleanly is the writer's own qwen3.6-35b — the other MLX routes
+    # (qwen3-omni, minimax) return tool calls as unparsed `<tool_call>` text, and the FC
+    # route is down. So the judge defaults to the writer's model: a separate COLD pass at
+    # temperature 0 against the rubric.
+    #
+    # ⚠️ FUTURE: this means the judge is NOT yet an independent model (it's the author
+    #   marking its own homework). It SHOULD be moved to a non-writer model once one can
+    #   tool-call. TO CHANGE IT (no code edit needed): set the JUDGE_MODEL env var (on the
+    #   host, in /etc/craicgpt.env) to the new LiteLLM route, e.g.
+    #       JUDGE_MODEL=claude-sonnet-4-6                  # frontier — works today
+    #       JUDGE_MODEL=m3/mlx/<new-tool-calling-route>    # once the fleet ships one
+    #   Verify a candidate emits real tool_calls first (see rubric_review.py
+    #   "Switching the judge"). The frontier fallback covers grader errors meanwhile.
+    judge_model: str = field(
+        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")
+    )
 
     # ── Generation parameters ─────────────────────────────────────────────────
     temperature: float = field(

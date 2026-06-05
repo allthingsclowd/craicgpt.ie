@@ -95,9 +95,11 @@
         (LangChain <code>deepagents</code> + LangGraph, all open source). It plans the
         edition with <code>write_todos</code>, delegates to a fun-news researcher and an
         AI-landscape researcher, and validates every source link — then the newsroom
-        writes the articles deterministically (plain chat&rarr;JSON), illustrates them in
-        rotating art styles, and leaves a draft for human approval. Below is the recorded
-        play-by-play — the open-source alternative to a hosted trace dashboard.
+        writes the articles deterministically (plain chat&rarr;JSON) and illustrates them
+        in rotating art styles. Finally a <strong>separate judge model</strong> grades the
+        finished edition against a <code>deepagents</code> <strong>rubric</strong> —
+        harmless, on-brand, every piece properly credited — before it can go live. Below
+        is the recorded play-by-play — the open-source alternative to a hosted trace dashboard.
       </p>
       <div class="hood-stats" id="hood-stats"></div>
       <div class="hood-trace" id="hood-trace">

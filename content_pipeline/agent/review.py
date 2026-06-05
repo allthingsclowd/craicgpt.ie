@@ -1,18 +1,21 @@
 """
 content_pipeline/agent/review.py
 ================================
-The autonomous-approval backbone the openclaw + hermes agents run each morning.
+The autonomous-approval backbone.
 
-The skill ``approving-craicgpt-editions`` asks each agent to: validate the draft
-(technically valid AND harmless), write its verdict so the peer can see it, and
-publish only on two-agent consensus. This module makes the **deterministic** half
-testable code:
+"Technically valid" is deterministic code (here); "harmless / on-brand" is an LLM
+judgement. That judgement used to be a two-VM (openclaw + hermes) consensus; it is
+now a single in-pipeline **rubric** verdict from a separate JUDGE model (see
+:mod:`content_pipeline.agent.rubric_review`) — produced at generate time and written
+to S3 as ``verdict-rubric.json``. The publish gate still consumes verdicts through
+the same plumbing; only the *producer* and the *required set* changed.
 
 * :func:`validate_paper` — schema/structure checks ("technically valid"). Pure,
-  offline. The "harmless" judgement stays with the LLM agent.
+  offline. The "harmless" judgement stays with the LLM.
 * :func:`write_verdict` / :func:`read_verdicts` — the S3 verdict exchange.
-* :func:`compute_consensus` — two-agent rule: any HOLD → HOLD; all required
-  APPROVE → APPROVE; missing a verdict → WAIT (never publish on one say-so).
+* :func:`compute_consensus` — the generic decision over ``required`` verdicts: any
+  HOLD → HOLD; all required APPROVE → APPROVE; missing one → WAIT (never publish on a
+  missing verdict). Generic over any agent set; the default is the single rubric judge.
 
 Counts are checked against the edition spec (1 headliner + 2 subarticles +
 ~10 shorts + ~5 fun) with a little tolerance so a *good* edition is never held
@@ -36,7 +39,11 @@ MIN_SUBARTICLES = 2
 MIN_SHORTS = 8
 MIN_FUN = 4
 
-DEFAULT_AGENTS = ("openclaw", "hermes")
+# The verdict(s) the gate requires by default. The two-VM consensus
+# ("openclaw", "hermes") is retired in favour of a single in-pipeline rubric judge
+# (see rubric_review.grade_edition), which writes verdict-rubric.json. compute_consensus
+# stays generic over any agent set, so this is just the default required tuple.
+DEFAULT_AGENTS = ("rubric",)
 
 
 def _is_http_url(u: Any) -> bool:

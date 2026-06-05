@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_con = sub.add_parser("consensus", help="Read both verdicts; publish live on two-agent APPROVE")
     p_con.add_argument("--date", required=True)
-    p_con.add_argument("--require", default="openclaw,hermes",
+    p_con.add_argument("--require", default="rubric",
                        help="comma-separated agents that must APPROVE (default: openclaw,hermes)")
     p_con.add_argument("--publish", action="store_true",
                        help="On APPROVE, publish live (idempotent — skips if already live)")
@@ -88,12 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_ann = sub.add_parser("announce", help="Write the generation status flag (decoupling marker)")
     p_ann.add_argument("--date", required=True)
     p_ann.add_argument("--state", required=True, choices=["generating", "complete", "failed"])
-    p_ann.add_argument("--require", default="openclaw,hermes",
+    p_ann.add_argument("--require", default="rubric",
                        help="agents to request review from when state=complete")
 
     p_gate = sub.add_parser("gate", help="Idempotent publisher poll: publish when ready + consensus")
     p_gate.add_argument("--date", required=True)
-    p_gate.add_argument("--require", default="openclaw,hermes")
+    p_gate.add_argument("--require", default="rubric")
     p_gate.add_argument("--publish", action="store_true",
                         help="Actually publish on APPROVE (else just report the decision)")
 
@@ -101,7 +101,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_ovr = sub.add_parser("override",
                            help="Human override: publish the edition over the agents' HOLD")
     p_ovr.add_argument("--date", required=True)
-    p_ovr.add_argument("--require", default="openclaw,hermes")
+    p_ovr.add_argument("--require", default="rubric")
     p_ovr.add_argument("--publish", action="store_true",
                        help="Enact now (else just write the directive for the gate to honour)")
     p_ovr.add_argument("--by", help="who issued the override, e.g. 'graham via openclaw'")
@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_rem.add_argument("--date", required=True)
     p_rem.add_argument("--drop", action="append", default=[], required=True,
                        help="article title (case-insensitive substring) to drop; repeatable")
-    p_rem.add_argument("--require", default="openclaw,hermes")
+    p_rem.add_argument("--require", default="rubric")
     p_rem.add_argument("--publish", action="store_true", help="Enact now (else just write the directive)")
     p_rem.add_argument("--by", help="who issued the remediation")
     p_rem.add_argument("--reason", help="why the remediation")
@@ -171,8 +171,16 @@ def cmd_run(args) -> int:
     if recent_keys is not None:
         logging.warning("[cli] --no-recency: recency de-dup DISABLED for this run "
                         "(stories may overlap recent editions)")
+    # When publishing a draft for review, grade the finished edition in-pipeline with
+    # the rubric judge (a separate model); the verdict rides on the paper and is then
+    # written to S3 so the gate can consense on it. A local `run` (no --publish-draft)
+    # skips the live judge call.
+    grade = None
+    if getattr(args, "publish_draft", False):
+        from content_pipeline.agent.rubric_review import grade_edition
+        grade = grade_edition
     try:
-        paper = run_edition(date_iso, generated_at=gen, recent_keys=recent_keys)
+        paper = run_edition(date_iso, generated_at=gen, recent_keys=recent_keys, grade=grade)
     except EditionHeld as held:
         reasons = held.reasons or ["edition held"]
         logging.error("[cli] edition %s HELD — nothing published: %s",
@@ -202,6 +210,9 @@ def cmd_run(args) -> int:
         print(f"draft published to preview: {key}")
         # Mark complete + drop the review-request the agents poll for.
         _announce_safe(date_iso, "complete", vid=vid)
+        # Write the in-pipeline rubric verdict so the idempotent gate can publish on
+        # it (replacing the two VMs' verdicts) — same S3 plumbing, a single "rubric".
+        _write_rubric_verdict_safe(date_iso, paper, vid=vid)
         # Tell Graham (via both agents' channels) a draft is up for review.
         ymd = "/".join(date_iso.split("-"))
         _notify_safe("generated", date_iso, vid=vid,
@@ -247,6 +258,28 @@ def _announce_safe(date_iso: str, state: str, *, vid: Optional[str] = None) -> N
             review.write_status(date_iso, state, at=_now_iso())
     except Exception as exc:  # noqa: BLE001
         logging.warning("[cli] status announce (%s) failed: %s", state, exc)
+
+
+def _write_rubric_verdict_safe(date_iso: str, paper: dict, *, vid: Optional[str] = None) -> None:
+    """Persist the in-pipeline rubric verdict to S3 as ``verdict-rubric.json``.
+
+    The judge ran at generate time (``run_edition``) and stamped the verdict onto
+    ``paper["edition"]["rubric"]``; we write it through the same verdict plumbing the
+    gate reads, as a single ``rubric`` agent (replacing openclaw + hermes). Fail-soft:
+    a missing/failed verdict just leaves the gate WAITing, never a crash."""
+    from content_pipeline.agent import review
+
+    verdict = (paper.get("edition") or {}).get("rubric") or {}
+    decision = verdict.get("verdict")
+    if not decision:
+        logging.warning("[cli] no rubric verdict on the paper; gate will WAIT")
+        return
+    try:
+        review.write_verdict(date_iso, "rubric", decision,
+                             verdict.get("reasons", []), vid=vid, at=_now_iso())
+        logging.info("[cli] rubric verdict %s written for %s (vid=%s)", decision, date_iso, vid)
+    except Exception as exc:  # noqa: BLE001
+        logging.warning("[cli] writing rubric verdict failed: %s", exc)
 
 
 def _draft_path(date_iso: str) -> str:
