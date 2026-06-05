@@ -1,314 +1,72 @@
-# Documentation - Additional Guides and Resources
+# CraicGPT.ie — Documentation
 
-**Comprehensive Documentation for CraicGPT.ie Multi-Provider AI System**
+This directory is a **deep-agent tutorial**: it explains how The Craic Gazette — an
+AI-powered Irish daily newspaper — is built with LangChain + `deepagents`, generating a
+fresh edition every morning, **open-source-first** (local models on a homelab fleet behind
+one LiteLLM proxy, with a frontier model as fallback).
 
-This directory contains additional documentation, setup guides, troubleshooting resources, and best practices for the CraicGPT.ie multi-provider AI newspaper generation system.
+> **Architecture note.** This is the **v3 deep-agent daily paper**. Earlier designs — a
+> 3-way *model comparator* (v2) and an AWS Lambda pipeline (v1) — are dead. If a doc or
+> comment mentions `RunnableParallel` across Claude/Gemini/local, or Lambda/Bedrock, it's
+> describing the old system. Trust this set and `CLAUDE.md`.
 
-## 📁 Documentation Contents
+---
 
-### **Setup and Configuration Guides**
-- **`secrets-manager-setup.md`**: Complete guide for configuring AWS Secrets Manager with multi-provider API keys
+## Read in order
 
-### **Planned Documentation** (To be added)
-- **`deployment-guide.md`**: Step-by-step deployment instructions
-- **`troubleshooting.md`**: Common issues and solutions
-- **`api-provider-setup.md`**: Individual provider account setup
-- **`cost-optimization.md`**: Managing costs across multiple providers
-- **`monitoring-guide.md`**: CloudWatch and observability setup
+1. **[01-overview.md](01-overview.md)** — What it is, the end-to-end architecture (research
+   → deterministic harness → review → publish), the directory map, and a local quick start.
+2. **[02-lcel-and-chains.md](02-lcel-and-chains.md)** — LCEL chains, robust structured
+   (JSON) output, and the **local-first / frontier-fallback** wrapper (`run_with_fallback`).
+3. **[03-langgraph-workflow.md](03-langgraph-workflow.md)** — `create_deep_agent`, why the
+   **harness writes the articles** (not the agent), OSS human-in-the-loop (`interrupt()` +
+   checkpointer) and the two-agent publish gate, plus the run trace.
+4. **[04-multi-provider-setup.md](04-multi-provider-setup.md)** — One **LiteLLM proxy**, the
+   grazlab fleet (DGX Spark + M3 Ultra), routing models by name, and per-model quirks.
+5. **[05-tools-and-agents.md](05-tools-and-agents.md)** — The `@tool` decorator, deepagents
+   **`SubAgent` delegation**, the deterministic-vs-LLM split, and the autonomous reviewers.
 
-## 🎯 Purpose
+---
 
-Provide comprehensive documentation to support:
-- **System Administration**: Setup, configuration, and maintenance
-- **Development**: Contributing to the codebase and adding features
-- **Operations**: Monitoring, troubleshooting, and optimization
-- **Education**: Understanding multi-provider AI integration
+## The system in one diagram
 
-## 🏗️ Documentation Architecture
-
-### **Multi-Provider Integration**
-Documentation covers all supported providers:
-- **AWS Bedrock**: IAM-based authentication, native integration
-- **OpenAI**: API key management, GPT and DALL-E integration
-- **Anthropic Direct**: Direct API access, Claude model optimization
-- **Google Gemini**: API key setup, multimodal capabilities
-
-### **Infrastructure Components**
-- **Frontend**: S3 static hosting, CloudFront CDN, Route 53 DNS
-- **Backend**: Lambda functions, EventBridge scheduling, S3 storage
-- **Security**: Secrets Manager, IAM policies, encryption
-- **Monitoring**: CloudWatch logs, metrics, alerting
-
-## 🚀 Quick Reference
-
-### **Essential Setup Commands**
-```bash
-# Deploy frontend infrastructure
-cd terraform/frontend && terraform apply
-
-# Deploy backend infrastructure (development)
-cd terraform/backend && terraform apply
-
-# Configure API secrets
-aws secretsmanager put-secret-value \
-  --secret-id craicgpt/openai-api-key \
-  --secret-string "your-api-key"
-
-# Test system end-to-end
-aws lambda invoke \
-  --function-name craicgptie-orchestrator \
-  --payload '{"START_DATE":"2025-01-15","END_DATE":"2025-01-15"}' \
-  --cli-binary-format raw-in-base64-out \
-  test.json
+```
+Conductor @05:00 UTC ─▶ run_edition
+   deep agent (research only) ─▶ research/{ai,fun}_candidates.json
+   harness: curate → HOLD-or-write → snap URLs → images → compile (schema v3)
+                          │
+                          ▼  draft → S3 preview/  (+ review-request.json)
+   reviewers openclaw(.199) + hermes(.50) ─▶ verdict-<agent>.json   (@06:00 UTC)
+                          │
+                          ▼  gate @06–08 UTC: 2× APPROVE + structural + link-check
+                     content/ (live, versioned) ─▶ CloudFront ─▶ craicgpt.ie
 ```
 
-### **Common Monitoring Commands**
-```bash
-# Monitor Lambda execution
-aws logs tail /aws/lambda/craicgptie-orchestrator --follow
+Key principles you'll see throughout:
 
-# Check S3 content generation
-aws s3 ls s3://your-bucket/static_assets/content/website/2025/01/15/
+- **Research is the agent's job; mechanical work is the harness's job** — cheaper, testable,
+  and fabrication-resistant.
+- **HOLD over fabricate** — below the per-desk integrity floor, or when search degrades, the
+  edition HOLDs and alerts; it never prints thin or invented content.
+- **Honest attribution** — the published `_text_model` / `_image_model` and the trace record
+  which model *actually* ran (local or fallback).
+- **Decoupled via S3 state** — every stage is independently retriable; the gate is idempotent.
 
-# Verify secrets access
-aws secretsmanager get-secret-value --secret-id craicgpt/openai-api-key
-```
+---
 
-## 📊 System Overview
+## Operations & deployment
 
-### **Content Generation Pipeline**
-```
-1. PromptGenerator → 2. Orchestrator → 3. LLM/Image Workers → 4. S3 Storage → 5. Frontend Display
-     │                      │                    │                   │               │
-     ├─ Context Gathering   ├─ Concurrency       ├─ Multi-Provider   ├─ JSON/Binary  ├─ Model Selection
-     ├─ Prompt Engineering  ├─ Dependency Mgmt   ├─ Error Handling   ├─ Caching      ├─ Comparison View
-     └─ S3 Storage         └─ Progress Tracking └─ Standardized      └─ Versioning   └─ Educational UI
-                                                    Response Format
-```
+- Operational source of truth: **[`../CLAUDE.md`](../CLAUDE.md)** (commands, key files,
+  schema, env vars, deployment).
+- The engine runs on the Conductor host `.75` (`/opt/craicgpt.ie`, branch `grazzer`); a
+  `git pull` there is the deploy (the Conductor worker shells out per task).
+- Conductor workflows/triggers and the worker live in the **`grazlab-llm-fleet`** repo
+  (`conductor/workers/craicgpt/worker.py`, `conductor/triggers/schedules/`).
 
-### **Architectural Principles**
-- **Multi-Provider Support**: Unified interface across all AI providers
-- **10 Lambda Limit Compliance**: Strict concurrency control and monitoring
-- **Educational Transparency**: Visible prompt engineering and parameters
-- **Production Ready**: Robust error handling and monitoring
-- **Cost Optimization**: Efficient resource usage and provider selection
+---
 
-## 🔧 Configuration Management
+## Legacy docs
 
-### **Environment Variables**
-All components use consistent environment variable patterns:
-
-```bash
-# S3 Storage
-PROMPT_BUCKET=your-s3-bucket-name
-
-# Multi-provider secrets
-OPENAI_SECRET_NAME=craicgpt/openai-api-key
-ANTHROPIC_SECRET_NAME=craicgpt/anthropic-api-key
-GOOGLE_SECRET_NAME=craicgpt/google-api-key
-
-# Concurrency control
-MAX_ACCOUNT_CONCURRENT=9
-CONCURRENCY_CHECK_ENABLED=true
-
-# Model configuration
-BEDROCK_MODEL_IDS=anthropic.claude-3-sonnet-20240229-v1:0,amazon.titan-text-express-v1
-OPENAI_MODEL_IDS=gpt-4,o3-mini
-```
-
-### **Terraform Variables**
-Centralized configuration through terraform.tfvars:
-
-```hcl
-# Core settings
-domain_name = "craicgpt.ie"
-environment = "production"
-project_name = "craicgpt"
-
-# Provider configuration
-enable_openai = true
-enable_anthropic = true
-enable_google = true
-
-# Resource sizing
-lambda_memory_size = 1024
-lambda_timeout = 300
-```
-
-## 🔐 Security Best Practices
-
-### **API Key Management**
-- Store all external API keys in AWS Secrets Manager
-- Use IAM policies for least-privilege access
-- Rotate keys regularly and monitor usage
-- Never commit keys to source control
-
-### **Infrastructure Security**
-- Enable encryption at rest for all S3 buckets
-- Use HTTPS only for all communications
-- Implement proper CORS policies
-- Regular security audits and updates
-
-### **Lambda Security**
-- Minimal IAM permissions for each function
-- VPC configuration when required
-- Environment variable encryption
-- Regular security patching
-
-## 📈 Performance and Cost Optimization
-
-### **Lambda Optimization**
-- Right-sized memory allocation based on function requirements
-- Optimal timeout settings to prevent unnecessary costs
-- Efficient error handling to reduce retry overhead
-- Connection pooling for external API calls
-
-### **Multi-Provider Cost Management**
-- Track usage and costs per provider
-- Implement intelligent provider selection
-- Monitor token usage and optimize prompt efficiency
-- Use reserved capacity where beneficial
-
-### **S3 and CloudFront Optimization**
-- Lifecycle policies for old content archival
-- Optimal caching strategies for different content types
-- Compression and optimization for static assets
-- Regional optimization for primary audience
-
-## 🔍 Monitoring and Observability
-
-### **CloudWatch Integration**
-- Comprehensive logging for all Lambda functions
-- Custom metrics for business KPIs
-- Alerting for failures and performance issues
-- Cost tracking and budget alerts
-
-### **Application Monitoring**
-- End-to-end content generation tracking
-- Provider-specific performance metrics
-- User interaction analytics
-- Error rate and success rate monitoring
-
-### **Operational Dashboards**
-- Real-time system health overview
-- Content generation pipeline status
-- Cost breakdown by provider and component
-- Performance trends and optimization opportunities
-
-## 🧪 Testing and Validation
-
-### **Infrastructure Testing**
-```bash
-# Terraform validation
-terraform validate
-terraform plan -detailed-exitcode
-
-# Security scanning
-checkov -f main.tf
-
-# Deployment validation
-./scripts/validate-deployment.sh
-```
-
-### **Application Testing**
-```bash
-# Unit tests for Lambda functions
-pytest tests/
-
-# Integration testing
-./scripts/integration-test.sh
-
-# End-to-end validation
-./scripts/e2e-test.sh
-```
-
-### **Performance Testing**
-```bash
-# Load testing
-./scripts/load-test.sh
-
-# Stress testing for concurrency limits
-./scripts/stress-test.sh
-
-# Cost analysis
-./scripts/cost-analysis.sh
-```
-
-## 🐛 Troubleshooting
-
-### **Common Issues and Solutions**
-
-#### **Lambda Concurrency Exceeded**
-- **Symptom**: TooManyRequestsException errors
-- **Solution**: Check CloudWatch metrics, adjust MAX_ACCOUNT_CONCURRENT
-- **Prevention**: Monitor concurrency usage proactively
-
-#### **API Key Authentication Failures**
-- **Symptom**: 401/403 errors from external providers
-- **Solution**: Verify secrets in Secrets Manager, check IAM permissions
-- **Prevention**: Regular key rotation and monitoring
-
-#### **Content Generation Failures**
-- **Symptom**: Empty or error responses from providers
-- **Solution**: Check prompts, validate model availability, review logs
-- **Prevention**: Comprehensive error handling and retry logic
-
-### **Debugging Tools and Commands**
-```bash
-# Lambda function logs
-aws logs tail /aws/lambda/function-name --follow
-
-# Secrets Manager access test
-aws secretsmanager get-secret-value --secret-id secret-name
-
-# S3 content verification
-aws s3 ls s3://bucket-name/path/ --recursive
-
-# CloudWatch metrics
-aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Duration
-```
-
-## 🤝 Contributing
-
-### **Documentation Guidelines**
-- Use clear, concise language with practical examples
-- Include code snippets and command-line examples
-- Maintain consistency in formatting and structure
-- Update documentation with any system changes
-
-### **Adding New Documentation**
-1. Identify documentation gaps or new requirements
-2. Create structured documentation following existing patterns
-3. Include practical examples and testing procedures
-4. Review for accuracy and completeness
-5. Update main README.md with new documentation links
-
-### **Documentation Maintenance**
-- Regular reviews to ensure accuracy with current system
-- Update examples and commands as system evolves
-- Incorporate feedback from users and operators
-- Maintain version control for documentation changes
-
-## 🔗 Related Resources
-
-### **Internal Documentation**
-- [Main README](../README.md): Complete system overview and documentation tree
-- [Frontend Documentation](../frontend/README.md): Static website and UI components
-- [Backend Documentation](../lambda_code/README.md): Serverless pipeline overview
-- [Infrastructure Documentation](../terraform/README.md): Complete infrastructure automation
-
-### **External Resources**
-- [AWS Lambda Best Practices](https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html)
-- [AWS Secrets Manager User Guide](https://docs.aws.amazon.com/secretsmanager/latest/userguide/)
-- [Terraform AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [OpenAI API Documentation](https://platform.openai.com/docs)
-- [Anthropic API Documentation](https://docs.anthropic.com/)
-- [Google AI API Documentation](https://ai.google.dev/)
-
-### **Provider-Specific Documentation**
-- **AWS Bedrock**: Native integration with IAM authentication
-- **OpenAI**: GPT-4, O3 Mini for text; DALL-E 3 for images
-- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus direct API access
-- **Google Gemini**: Gemini Pro, Gemini Ultra with multimodal capabilities
-
-**Comprehensive Documentation - Educational and Production Ready** 📚
+- `secrets-manager-setup.md` describes an **AWS Secrets Manager** setup from the v1/v2
+  era. The live engine reads secrets from `/etc/craicgpt.env` on the host (sourced from
+  1Password), **not** Secrets Manager — treat that file as historical until rewritten.

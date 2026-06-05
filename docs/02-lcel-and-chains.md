@@ -1,19 +1,18 @@
-# 02 — LCEL and Chains
+# 02 — LCEL, Structured Output, and Local-First Fallback
 
 ## What is LCEL?
 
-LCEL (LangChain Expression Language) is LangChain's composition system.
-It lets you build pipelines using the **pipe `|` operator**, similar to Unix pipes.
+LCEL (LangChain Expression Language) is LangChain's composition system. It lets you build
+pipelines with the **pipe `|` operator**, like Unix pipes:
 
 ```python
 chain = prompt | llm | output_parser
 result = chain.invoke({"topic": "potatoes"})
 ```
 
-When you call `chain.invoke()`, LangChain runs each stage in sequence:
-1. `prompt.invoke(input)` → produces `ChatPromptValue` (list of messages)
-2. `llm.invoke(messages)` → produces `AIMessage`
-3. `output_parser.invoke(ai_message)` → produces your final value (e.g. a string or dict)
+In v3 the deep agent does the *research*, but the **harness** writes each article with
+small, sharp LCEL calls — one per piece — because many small structured calls are far more
+reliable on a local model than one giant "write the whole paper" call.
 
 ---
 
@@ -21,138 +20,129 @@ When you call `chain.invoke()`, LangChain runs each stage in sequence:
 
 ```python
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import StrOutputParser
 
-# 1. Prompt Template — defines the message structure with {variable} slots
+from content_pipeline.providers.litellm import get_litellm_llm
+
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a witty Irish newspaper editor."),
-    ("human", "Write a headline about {topic}."),
+    ("system", "You are CraicGPT's AI editor. Irish, witty, gently cynical."),
+    ("human", "Write today's headliner from these candidates:\n{candidates}"),
 ])
 
-# 2. LLM — any ChatModel (Claude, Gemini, ChatOpenAI...)
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", temperature=0.8)
+llm = get_litellm_llm("dgx/vllm/qwen3.6-35b-a3b-fp8")   # any route on the LiteLLM proxy
+chain = prompt | llm | StrOutputParser()
 
-# 3. Output Parser — converts AIMessage → plain string
-parser = StrOutputParser()
-
-# 4. Chain — composed with |
-chain = prompt | llm | parser
-
-# 5. Invoke — pass variables, get result
-headline = chain.invoke({"topic": "the price of tea in Dublin"})
-# → "GOVERNMENT CONFIRMS TEA PRICES: NATION SOMEHOW SURPRISED"
+headline = chain.invoke({"candidates": "..."})
 ```
+
+`get_litellm_llm` returns a `ChatOpenAI` pointed at the grazlab LiteLLM proxy — see
+[04-multi-provider-setup.md](04-multi-provider-setup.md). The only thing that changes
+between "Qwen3.6 on the M3" and "a frontier model" is the route string you pass.
 
 ---
 
-## RunnableParallel — The Comparator's Core
+## Structured output: prose in, JSON out
 
-`RunnableParallel` runs multiple chains with the **same input simultaneously**.
-This is how the Craic Gazette sends identical prompts to all three providers at once.
+The writers want JSON (`{"headliner": …, "subarticles": […], "shorts": […]}`), and local
+models are *mostly* good at it but not perfectly. So the harness asks for compact JSON in
+the prompt and parses it **leniently** — and if the model returns something unparseable it
+**re-samples** (a few times, temperature-nudged) rather than failing the whole edition.
 
 ```python
-from langchain_core.runnables import RunnableParallel
-
-# Build one chain per provider (same prompt, different LLM)
-claude_chain = prompt | claude_llm | parser
-gemini_chain = prompt | gemini_llm | parser
-local_chain  = prompt | local_llm  | parser
-
-# RunnableParallel runs all three with the same input
-parallel = RunnableParallel(
-    claude = claude_chain,
-    gemini = gemini_chain,
-    local  = local_chain,
-)
-
-# .invoke() blocks until ALL three have finished
-results = parallel.invoke({"topic": "AI taking over Irish newspapers"})
-
-# results is a dict with the output of each chain
-print(results["claude"])   # → Claude's headline
-print(results["gemini"])   # → Gemini's headline
-print(results["local"])    # → Local LLM's headline
+# content_pipeline/generate/writer.py  (simplified)
+def write_ai_section(candidates, *, num_subarticles, num_shorts, generate=None):
+    prompt = _AI_PROMPT.format(n_sub=num_subarticles, n_short=num_shorts,
+                               candidates=json.dumps(candidates)[:12000])
+    data = (generate or _default_generate)(prompt)   # prompt -> dict
+    return {
+        "headliner":   data.get("headliner") or {},
+        "subarticles": (data.get("subarticles") or [])[:num_subarticles],
+        "shorts":      (data.get("shorts") or [])[:num_shorts],
+    }
 ```
 
-**Under the hood:** `RunnableParallel` uses Python's `ThreadPoolExecutor`.
-All three LLM API calls happen in separate threads simultaneously.
-Total time ≈ slowest provider, not sum of all providers.
+`loads_lenient()` tolerates the usual local-model JSON quirks (stray prose, a fenced code
+block, a trailing comma) and `_default_generate` re-samples on a hard parse failure. The
+`generate` parameter is injectable, which is why the writer tests run offline with a stub.
+
+> **TUTORIAL takeaway:** treat a local model's JSON as *probabilistic*. Ask for compact
+> JSON, parse defensively, re-sample on failure, and keep the call small. One short call
+> per article beats one heroic call for the whole paper.
 
 ---
 
-## RunnableLambda — Wrapping Any Function
+## RunnableLambda — wrapping plain functions
 
-You can wrap any Python function as a Runnable to include it in a chain:
+Any Python function can join a chain as a `RunnableLambda`, which is how mechanical steps
+sit alongside model calls:
 
 ```python
 from langchain_core.runnables import RunnableLambda
 
-def add_metadata(text: str) -> dict:
-    """Add provider metadata to the output."""
-    return {"content": text, "generated_by": "pipeline_v2"}
-
-# Wrap it for use in a chain
-chain = prompt | llm | parser | RunnableLambda(add_metadata)
+chain = prompt | llm | StrOutputParser() | RunnableLambda(loads_lenient)
 ```
 
-The Craic Gazette uses `RunnableLambda` to:
-- Time each LLM call and attach `_latency_ms`
-- Parse and validate JSON responses from LLMs
-- Handle per-provider errors without crashing the pipeline
+The harness uses plain functions (not always wrapped) for the mechanical work — snapping
+each written `source_url` onto a validated candidate, stamping the model attribution,
+generating images — because that work is deterministic and shouldn't cost a model call.
 
 ---
 
-## Streaming
+## The headline act: local-first, frontier-fallback
 
-LCEL chains support streaming out of the box with `.stream()`:
+This is the heart of the open-source-first strategy. We *want* the local model to do the
+work — that's the point, and it's what the published "generated by …" note should say —
+but a flaky local agentic run shouldn't ship a dud paper. `run_with_fallback` tries the
+local route, and only if it raises **or fails a validation check** does it retry on the
+frontier route — recording *which* model actually produced the output:
 
 ```python
-for chunk in chain.stream({"topic": "potatoes"}):
-    print(chunk, end="", flush=True)
+# content_pipeline/providers/litellm.py
+from content_pipeline.providers.litellm import run_with_fallback
+
+result = run_with_fallback(
+    lambda model: (prompt | get_litellm_llm(model) | StrOutputParser() | RunnableLambda(loads_lenient)).invoke(inputs),
+    local_model="m3/mlx/qwen3.6-35b-a3b-unsloth-8bit",
+    fallback_model="claude-sonnet-4-6",
+    validate=lambda out: bool(out and out.get("headliner")),   # empty/garbage → fall back
+)
+
+result.output       # the dict
+result.model_used   # the route that actually produced it  → stamped as _text_model
+result.fell_back    # True if the local attempt failed
+result.error        # why local failed (feeds the eval loop) — None if it didn't
 ```
 
-The Craic Gazette doesn't use streaming (the pipeline runs headlessly in CI),
-but for an interactive web UI, streaming would let users see responses as they type.
+If **both** attempts fail it raises — we never silently return a dud. Because
+`model_used` is recorded honestly, the published attribution and the "Under the Hood"
+trace tell the truth about whether the local model or the fallback wrote a given piece.
 
 ---
 
-## Async Support
+## Streaming & async
 
-All LCEL Runnables support async with `.ainvoke()` and `.astream()`:
-
-```python
-import asyncio
-
-async def run():
-    result = await chain.ainvoke({"topic": "potatoes"})
-    return result
-
-asyncio.run(run())
-```
+All LCEL runnables support `.stream()` / `.ainvoke()` / `.astream()`. The pipeline runs
+headlessly (no streaming needed), but the interfaces are there if a future interactive UI
+wants token-by-token output.
 
 ---
 
 ## Where to Find This in the Craic Gazette
 
-| Concept            | File                                          |
-|--------------------|-----------------------------------------------|
-| Prompt templates   | `content_pipeline/prompts/templates.py`       |
-| Claude chain       | `content_pipeline/providers/claude.py`        |
-| Gemini chain       | `content_pipeline/providers/gemini.py`        |
-| LM Studio chain    | `content_pipeline/providers/lmstudio.py`      |
-| RunnableParallel   | `content_pipeline/chains/newspaper_chain.py`  |
-| Output parsing     | `content_pipeline/chains/newspaper_chain.py`  |
+| Concept | File |
+|---------|------|
+| Model factory (`get_litellm_llm`) | `content_pipeline/providers/litellm.py` |
+| Local-first fallback (`run_with_fallback`) | `content_pipeline/providers/litellm.py` |
+| Writer prompts + chains | `content_pipeline/generate/writer.py` |
+| Lenient JSON parse + re-sample | `content_pipeline/generate/writer.py` (`loads_lenient`) |
+| Snapping written URLs onto validated candidates | `content_pipeline/agent/editor_in_chief.py` (`_snap_ai_sources`) |
 
 ---
 
 ## Key Takeaway
 
-> The entire multi-provider comparator is powered by three lines of code:
->
-> ```python
-> parallel = RunnableParallel(claude=c, gemini=g, local=l)
-> results = parallel.invoke(inputs)
-> ```
->
-> Everything else is configuration, prompts, and output formatting.
+> The whole multi-model story is two ideas:
+> 1. **One LCEL chain, any route** — `prompt | get_litellm_llm(route) | parser` reaches any
+>    model on the fleet by changing a string.
+> 2. **Local-first, honestly** — `run_with_fallback` prefers the open-source model, falls
+>    back to a frontier model only on failure, and records which one actually ran.
