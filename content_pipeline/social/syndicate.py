@@ -39,8 +39,8 @@ def build_posts(paper: dict[str, Any], *, site: str = "https://craicgpt.ie") -> 
     x = _trim(f"📰 {title}.{teaser} — today on The Craic Gazette. {site}", 280)
     long = (
         f"📰 The Craic Gazette — {title}.{teaser}\n\n"
-        f"The good stuff from around the world + what actually changed in AI, "
-        f"written overnight by open-source models.\n{site}\n\n"
+        f"Ireland's funniest + what actually changed in AI, written overnight "
+        f"by open-source models. No humans in the loop, no doom in the feed.\n{site}\n\n"
         f"#AI #GoodNews #Ireland"
     )
     return {
