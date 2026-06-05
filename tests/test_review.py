@@ -29,6 +29,18 @@ def _fun():
     }
 
 
+def _credited_fun():
+    # A PR-#26 Irish-creator digest item: it CREDITS a real creator via `source`
+    # (the creator's name) and therefore carries NO satire disclaimer — disclaiming
+    # "not sourced from the person depicted" would contradict crediting a named one.
+    return {
+        "title": "Foil Arms and Hog's new sketch", "body": "Body " * 12,
+        "source_url": "https://www.youtube.com/watch?v=abc123",
+        "source": "Foil Arms and Hog", "kind": "article",
+        "image_url": "https://craicgpt.ie/content/2026/06/02/images/f.png",
+    }
+
+
 def good_paper():
     return {
         "date": "2026-06-02",
@@ -63,6 +75,28 @@ def test_missing_satire_disclaimer_is_invalid():
     res = review.validate_paper(p)
     assert res["valid"] is False
     assert any("disclaimer" in r.lower() for r in res["reasons"])
+
+
+def test_credited_fun_item_valid_without_satire_disclaimer():
+    # PR #26 made the fun desk an Irish-creator digest: credited items drop the
+    # satire disclaimer. The gate must accept them — a fun item is valid when it is
+    # EITHER credited (`source`) OR marked as parody (`satire_disclaimer`). Without
+    # this, every live fun edition structurally HOLDs.
+    p = good_paper()
+    p["fun"] = [_credited_fun() for _ in range(5)]
+    res = review.validate_paper(p)
+    assert res["valid"] is True, res["reasons"]
+
+
+def test_uncredited_fun_without_disclaimer_is_invalid():
+    # The legal guard stays: a parody item with neither a credit nor a disclaimer
+    # is invalid (an AI impression must be marked as one).
+    p = good_paper()
+    p["fun"][0].pop("source", None)
+    p["fun"][0]["satire_disclaimer"] = ""
+    res = review.validate_paper(p)
+    assert res["valid"] is False
+    assert any("parody" in r.lower() or "disclaimer" in r.lower() for r in res["reasons"])
 
 
 def test_too_few_shorts_is_invalid():
