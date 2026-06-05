@@ -7,18 +7,22 @@ This replaces the old two-VM (openclaw + hermes) approval consensus with a singl
 LLM judge that grades the finished edition against an explicit rubric, run via
 ``content_cfg.judge_model``.
 
-THE JUDGE IS AN INDEPENDENT MODEL (June 2026): **Gemma 4 12B** on the M3 Ultra — a
-*different* family from the writer (``qwen3.6-35b``), so the edition is graded by a
-genuine second opinion at temperature 0, not the author marking its own homework.
+THE JUDGE IS THE WRITER'S qwen3.6-35b (June 2026, INTERIM) — local and reliable (it
+drives the RubricMiddleware reviewer-agent loop to a clean stop), but NOT independent
+(the author marks its own homework). Making the judge independent is the goal; it is
+paused on a model problem, recorded here so it can be fixed offline.
 
-We use the **reasoning-disabled** route ``m3/mlx/gemma-4-12b-it-nothink``. Gemma 4
-tool-calls cleanly, but the reasoning-ENABLED route (``m3/mlx/gemma-4-12b-it``) emits
-large reasoning-token streams (~5 tok/s) that made this one-shot grader loop take
-~20 min; the ``-nothink`` sibling returns content directly, so the grade is quick.
-
-    History: the judge briefly ran on the writer's own ``qwen3.6`` — back then the only
-    M3 route that tool-called cleanly (the others returned tool calls as unparsed
-    ``<tool_call>`` text; the FC route was down) — before Gemma 4 shipped.
+Why not gemma-4-12b-it-nothink (the intended independent judge)
+--------------------------------------------------------------
+Gemma 4 12B is a *different* family from the writer (so it WOULD be a genuine second
+opinion) and on the ``-nothink`` route tool-calls cleanly and fast PER CALL (~1s, no
+reasoning preamble). BUT ``RubricMiddleware`` runs a reviewer **deep-agent loop**, and a
+12B does not terminate it: on a real edition one ``grade_edition`` invoke made **490+ LLM
+calls with no verdict** (a frontier model or the 35B writer replies once and stops). That
+would also hang the autonomous run past its task timeout, so the judge is reverted to
+qwen3.6-35b until the gemma loop is fixed or a capable (~30B+) non-writer local route
+exists. (The reasoning-ENABLED ``m3/mlx/gemma-4-12b-it`` is worse still — a multi-thousand
+-token reasoning stream on top of the loop.)
 
 Switching the judge
 -------------------
@@ -38,8 +42,11 @@ text) — the deepagents grader silently retries/fails otherwise::
       "properties":{"result":{"type":"string"}}}}}]}' \
       | python3 -c 'import sys,json; print(json.load(sys.stdin)["choices"][0]["message"].get("tool_calls"))'
 
-Non-null ``tool_calls`` → safe to use. ``None`` / ``<tool_call>`` text → it will fail
-the grade and the frontier fallback will carry it.
+Non-null ``tool_calls`` is necessary but NOT sufficient. Also confirm the candidate
+**terminates the grader loop in a handful of calls** — run ``grade_edition`` on a real
+edition and check it returns ``judge_model == <route>`` after a few LLM calls, not
+hundreds (the gemma-12b failure above). ``None`` / ``<tool_call>`` text, OR a runaway
+loop, → the grade stalls and the frontier fallback carries it.
 
 TUTORIAL: Rubrics for deep agents
 ---------------------------------
