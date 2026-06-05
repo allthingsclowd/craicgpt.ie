@@ -22,6 +22,7 @@ import re
 from typing import Any, Callable, Optional
 
 from content_pipeline.content_config import content_cfg
+from content_pipeline.generate.personas import voice_brief
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,25 @@ _FUN_PROMPT = (
     "Creator's recent item JSON:\n{story}"
 )
 
+# Persona path: a celebrity "guest columnist" riffs on the creator's upload in
+# their unmistakable comic voice, while STILL crediting the real creator. The piece
+# carries both the creator credit (``source``) and a satire disclaimer (the voice is
+# the parody). Keeps URL fidelity — the creator's real link, never invented.
+_FUN_PERSONA_PROMPT = (
+    "Write a punchy Craic Gazette fun piece about this recent video from the Irish "
+    "creator {source}, but written ENTIRELY in the unmistakable comic voice of "
+    "{persona}.\n"
+    "VOICE — {persona}: {voice_brief}\n"
+    "Commit fully to {persona}'s tone, rhythm and catchphrases — this is an obvious "
+    "comedic impression, a celebrity guest columnist reacting to {source}'s upload. "
+    "STILL CREDIT the real creator: NAME-CHECK {source} in the copy and send readers "
+    "to their video. Keep their real source_url EXACTLY as given — never invent one.\n"
+    "Max 130 words, PG-13, warm — affectionate parody, nothing cruel, hateful or "
+    "defamatory about any real person. Output ONLY compact JSON (no markdown): "
+    '{{"title","body","source_url"}}\n\n'
+    "Creator's recent item JSON:\n{story}"
+)
+
 
 def write_ai_section(
     ai_candidates: list,
@@ -155,28 +175,45 @@ def write_fun_story(
     candidate: dict,
     source: str,
     *,
+    persona: Optional[str] = None,
     generate: Optional[Generate] = None,
 ) -> dict:
-    """Rewrite one Irish creator's recent item in Graham's voice, crediting them.
+    """Rewrite one Irish creator's recent item, crediting them.
 
     ATTRIBUTION (Graham's hard rule): ``source`` is the CREATOR'S NAME — it is
     name-checked in the copy and returned on the ``source`` field as the credit /
     byline. The creator's real ``source_url`` is preserved verbatim (URL fidelity:
     we fall back to the candidate's URL if the model omits it, and never invent one).
-    We do NOT impersonate the creator — this is Graham riffing on their upload.
+
+    ``persona`` (optional) is a parody-journalist from :mod:`personas` — when given,
+    the piece is written in that celebrity's comic VOICE (a guest columnist riffing
+    on the creator's upload) and the persona name is returned on the item so the
+    harness can stamp the byline + satire disclaimer. Without a persona it's Graham's
+    own house voice (the legacy/fallback path).
     """
     gen = generate or _default_generate
-    prompt = _FUN_PROMPT.format(
-        source=source,
-        story=json.dumps(candidate)[:1500],
-    )
+    if persona:
+        prompt = _FUN_PERSONA_PROMPT.format(
+            source=source,
+            persona=persona,
+            voice_brief=voice_brief(persona),
+            story=json.dumps(candidate)[:1500],
+        )
+    else:
+        prompt = _FUN_PROMPT.format(
+            source=source,
+            story=json.dumps(candidate)[:1500],
+        )
     data = gen(prompt)
-    return {
+    out = {
         "title": data.get("title", ""),
         "body": data.get("body", ""),
         "source_url": data.get("source_url") or candidate.get("source_url", ""),
         "source": source,  # credit: the creator's name, carried onto the piece
     }
+    if persona:
+        out["persona"] = persona  # the harness stamps byline + satire disclaimer
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -83,11 +83,13 @@ def validate_paper(paper: dict[str, Any]) -> dict[str, Any]:
             if not _is_http_url(it.get("source_url")):
                 reasons.append(f"{label} {i} missing a valid http source_url")
 
-    # Every fun item: title/body, source link, image, AND it must be EITHER credited
-    # to a real creator (the PR-#26 Irish-creator digest — `source` is the creator's
-    # name) OR marked as parody (`satire_disclaimer`). A credited item drops the
-    # disclaimer (it would contradict crediting a real, named person); a parody
-    # impression must carry it (the legal guard). One or the other — never neither.
+    # Every fun item: title/body, source link, image, AND it must be credited to a
+    # real creator (`source` — the Irish-creator digest) and/or marked as parody
+    # (`satire_disclaimer`). The live desk carries BOTH: a celebrity guest-columnist
+    # impression (persona byline + a disclaimer covering the VOICE) riffing on a
+    # credited creator's clip (`source`). A pure-parody fallback carries the disclaimer
+    # alone. Required: at least one of the two — never neither (an unattributed,
+    # unmarked piece).
     for i, it in enumerate(fun):
         if not (_nonempty(it, "title") and _nonempty(it, "body")):
             reasons.append(f"fun {i} missing title/body")

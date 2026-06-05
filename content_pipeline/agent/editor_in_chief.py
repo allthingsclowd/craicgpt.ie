@@ -277,12 +277,14 @@ def _cap_animal_stories(stories: list, limit: int = 1) -> list:
 def _curate_fun(fun_candidates: list, *, fetch, exclude_keys: Optional[set] = None) -> list:
     """Build Story objects from the fun candidates and curate to N: grim/political
     filter, recency exclusion, dedupe, LINK VALIDATION (drops unreachable sources
-    via ``fetch``), and continent diversity. Returns the picked, link-validated
+    via ``fetch``), and PER-CREATOR diversity. Returns the picked, link-validated
     stories.
 
     Passing ``fetch`` is what makes :func:`curate_candidates` actually HEAD-check
     the links — without it (the old behaviour) dead/fabricated fun URLs were never
-    caught here.
+    caught here. The per-creator diversity key (``creator``) is what makes the desk
+    read as five DIFFERENT creators rather than two uploads from the same one (the
+    "only 3 distinct sources" complaint): one piece per creator before any second.
     """
     stories = [
         Story(
@@ -291,38 +293,48 @@ def _curate_fun(fun_candidates: list, *, fetch, exclude_keys: Optional[set] = No
             source_url=c.get("source_url", ""),
             continent=c.get("continent"),
             category=c.get("category"),
+            creator=c.get("_creator") or c.get("source"),
         )
         for c in fun_candidates
         if isinstance(c, dict)
     ]
     stories = _cap_animal_stories(stories)  # at most one wildlife story
     return curate_candidates(
-        stories, content_cfg.num_fun_stories, fetch=fetch, exclude_keys=exclude_keys
+        stories, content_cfg.num_fun_stories, fetch=fetch, exclude_keys=exclude_keys,
+        # One per creator (fall back to URL for any candidate with no creator name).
+        diversity_key=lambda s: s.creator or s.source_url,
     )
 
 
 def _write_fun(picked: list, date_iso: str, credit_by_url: dict, *, generate=None) -> list:
-    """Rewrite each already-curated fun item in Graham's voice, CREDITING the creator.
+    """Rewrite each already-curated fun item in an assigned CELEBRITY VOICE, while
+    CREDITING the creator.
 
-    ``credit_by_url`` maps a normalised source_url to the creator's NAME — curation
-    returns bare ``Story`` objects (title/summary/url only), so we re-attach the
-    creator here from the harvested candidates. The creator's name is fed to the
-    writer (name-checked in the copy) and stamped on each item as ``source`` (the
-    credit/byline), alongside the creator's own validated ``source_url`` (URL
-    fidelity: never the writer's guess). We do NOT impersonate the creator.
+    Each piece is a parody "guest columnist": a day-stable persona from the roster
+    (see generate/personas.py) writes in their comic voice about the creator's
+    upload. ``credit_by_url`` maps a normalised source_url to the creator's NAME —
+    curation returns bare ``Story`` objects (title/summary/url only), so we re-attach
+    the creator here. Both are carried onto the item: ``source`` (the real creator
+    credit, alongside their validated ``source_url``) and ``persona`` (the voice; the
+    harness stamps the byline + satire disclaimer in :func:`_finalize_fun`). We never
+    impersonate the creator and never invent a URL.
     """
+    personas = assign_personas(len(picked), seed=date_iso)
     out: list[dict] = []
-    for story in picked:
+    for i, story in enumerate(picked):
         creator = credit_by_url.get(_norm_url(story.source_url), "")
+        persona = personas[i] if i < len(personas) else None
         story_dict = {"title": story.title, "summary": story.summary, "source_url": story.source_url}
         try:
-            written = write_fun_story(story_dict, creator, generate=generate)
+            written = write_fun_story(story_dict, creator, persona=persona, generate=generate)
         except Exception as exc:  # noqa: BLE001 — one bad rewrite shouldn't sink the edition
             logger.warning("[run_edition] fun rewrite failed (%s); using the raw story", exc)
             written = {"title": story.title, "body": story.summary, "source_url": story.source_url}
         written["kind"] = "article"
         written["source_url"] = story.source_url  # fidelity: the validated picked URL, not the writer's guess
         written["source"] = creator               # credit: the creator's name (Graham's attribution rule)
+        if persona:
+            written["persona"] = persona          # voice: stamped with a byline + disclaimer in _finalize_fun
         out.append(written)
     return out
 
@@ -398,31 +410,30 @@ def _snap_ai_sources(ai: dict, candidates: list) -> dict:
 
 
 def _finalize_fun(fun: list, date_iso: str) -> None:
-    """Stamp the credit on each fun item.
+    """Stamp the voice + parody guard on each fun item.
 
-    Creator-digest items (the Irish-creator harvest) carry a real ``source`` — the
-    creator's name — so they are CREDITED, not parody: we drop any persona and the
-    satire disclaimer (a disclaimer reading "not sourced from the person depicted"
-    would flatly contradict crediting a real, named creator), and let the kicker +
-    source link carry the "h/t <creator>" credit. Only a no-creator fallback item
-    (the rare dry-harvest good-news degrade) keeps the legacy parody persona +
-    byline + satire disclaimer (those ARE parody impressions and must carry it).
+    Every fun piece is a celebrity "guest columnist" impression (see
+    :func:`_write_fun`): it credits the real creator via ``source`` AND is written in
+    an assigned persona's comic VOICE. So each item carries BOTH — the creator credit
+    (``source`` + the kicker + source link) and the parody guard for the impression
+    (``persona`` byline + ``satire_disclaimer``). The disclaimer is explicit that the
+    VOICE is the parody and the credited creator is simply the source of the clip
+    (see :data:`personas.SATIRE_DISCLAIMER`), so the credit and the disclaimer no
+    longer contradict — and ``review.validate_paper`` accepts both together.
+
+    Any item missing a persona OR carrying an off-roster one (a degraded/fallback
+    rewrite, or the model inventing a name) is assigned a spare, unused roster
+    persona day-stably here — so a published piece always has a real byline +
+    disclaimer and never an off-brand impression.
     """
-    legacy = [it for it in fun if isinstance(it, dict) and not it.get("source")]
-    assigned = assign_personas(len(legacy), seed=date_iso) if legacy else []
-    li = 0
+    used = {it.get("persona") for it in fun
+            if isinstance(it, dict) and it.get("persona") in ROSTER}
+    spare = [p for p in assign_personas(len(ROSTER), seed=date_iso) if p not in used]
     for item in fun:
         if not isinstance(item, dict):
             continue
-        if item.get("source"):  # credited Irish-creator digest — NOT parody
-            item.pop("persona", None)
-            item.pop("satire_disclaimer", None)
-            item.pop("byline", None)  # the kicker + source link carry the credit
-            continue
-        # Legacy parody good-news (only reached when the creator harvest was dry).
-        if item.get("persona") not in ROSTER and li < len(assigned):
-            item["persona"] = assigned[li]
-        li += 1
+        if item.get("persona") not in ROSTER and spare:
+            item["persona"] = spare.pop(0)
         if item.get("persona"):
             item["byline"] = persona_byline(item["persona"])
         item["satire_disclaimer"] = SATIRE_DISCLAIMER
@@ -625,7 +636,7 @@ def run_edition(
         fun_credit: dict[str, str] = {}
         try:
             fun_c = feeds.harvest_fun_candidates(
-                since_hours=content_cfg.ai_feed_hours, fetch=ai_feed_fetch)
+                since_hours=content_cfg.fun_feed_hours, fetch=ai_feed_fetch)
             if fun_c:
                 logger.info("[run_edition] %d fun candidates from Irish-creator feeds", len(fun_c))
                 trace.tool_call("harvest_fun_feeds", f"{len(fun_c)} items",

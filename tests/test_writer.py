@@ -61,6 +61,29 @@ def test_write_fun_story_credits_creator_and_keeps_source_url():
     assert out["source_url"] == "https://www.youtube.com/watch?v=VID1"
     # The creator's name is carried onto the piece as the credit.
     assert out["source"] == "Foil Arms and Hog"
+    # No persona requested → no persona field (the legacy/fallback house-voice path).
+    assert "persona" not in out
+
+
+def test_write_fun_story_persona_voices_celebrity_while_crediting_creator():
+    captured = {}
+
+    def gen(prompt):
+        captured["prompt"] = prompt
+        return {"title": "BEHOLD, THE MIGHTY PHONE CALL", "body": "...", "source_url": ""}
+
+    cand = {"title": "Every Irish Mammy on the Phone", "summary": "",
+            "source_url": "https://www.youtube.com/watch?v=VID1"}
+    out = write_fun_story(cand, "Foil Arms and Hog", persona="Jack Blarney", generate=gen)
+    # Written in the assigned celebrity's comic VOICE (its brief is injected)...
+    assert "Jack Blarney" in captured["prompt"]
+    assert "comic voice" in captured["prompt"].lower()
+    assert "rock-and-roll" in captured["prompt"].lower()   # from Jack Black's voice_brief
+    # ...while STILL crediting the real creator and keeping their real URL.
+    assert "Foil Arms and Hog" in captured["prompt"]
+    assert out["source"] == "Foil Arms and Hog"            # creator credit kept
+    assert out["persona"] == "Jack Blarney"                # voice carried for byline + disclaimer
+    assert out["source_url"] == "https://www.youtube.com/watch?v=VID1"
 
 
 # --- _default_generate re-samples on unparseable JSON (the run-1 flake) ---------

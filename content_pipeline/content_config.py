@@ -95,6 +95,14 @@ class ContentConfig:
     ai_feed_hours: int = field(
         default_factory=lambda: int(os.getenv("AI_FEED_HOURS", "48"))
     )
+    # How far back the Irish-creator fun harvest looks (hours). Wider than the AI
+    # window (96h ≈ 4 days) because creators upload only a few times a week — too
+    # narrow a window leaves fewer than 5 DISTINCT creators with fresh content, and
+    # the desk collapses to 2-3 sources. With per-creator diversity selection, a
+    # wider pool is what lets every edition field five different creators.
+    fun_feed_hours: int = field(
+        default_factory=lambda: int(os.getenv("FUN_FEED_HOURS", "96"))
+    )
     # Frontier safety net. Used ONLY when a local call fails or fails validation.
     fallback_text_model: str = field(
         default_factory=lambda: os.getenv(
