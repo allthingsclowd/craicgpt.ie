@@ -212,7 +212,8 @@ def test_write_fun_forces_validated_source_url():
     from content_pipeline.research.curation import Story
 
     picked = [Story(title="Otters reunited", summary="lovely", source_url="https://validated/otters")]
-    written = _write_fun(picked, "2026-06-04",
+    written = _write_fun(picked, "2026-06-04", {"https://validated/otters": "Foil Arms and Hog"},
                          generate=lambda p: {"title": "Otters!", "body": "x",
                                              "source_url": "https://hallucinated/nope"})
-    assert written[0]["source_url"] == "https://validated/otters"
+    assert written[0]["source_url"] == "https://validated/otters"  # validated URL, never the writer's guess
+    assert written[0]["source"] == "Foil Arms and Hog"             # creator credit threaded through

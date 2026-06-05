@@ -28,6 +28,7 @@ from typing import Callable, Optional
 from xml.etree import ElementTree as ET
 
 from content_pipeline.research.ai_sources import AI_FEEDS
+from content_pipeline.research.fun_sources import FUN_FEEDS
 
 logger = logging.getLogger(__name__)
 
@@ -166,4 +167,25 @@ def harvest_ai_candidates(*, since_hours: int = 48, max_per_feed: int = 4,
     return [
         {"title": it.title, "summary": it.summary, "source_url": it.url, "_source": it.source}
         for it in harvest(since_hours=since_hours, max_per_feed=max_per_feed, fetch=fetch)
+    ]
+
+
+def harvest_fun_candidates(*, since_hours: int = 48, max_per_feed: int = 2,
+                           fetch: Optional[FetchText] = None) -> list[dict]:
+    """Harvest the curated Irish-creator feeds as fun-candidate dicts ready to merge
+    into the fun desk pool: ``{title, summary, source_url, source, _creator}``.
+
+    ATTRIBUTION (Graham's hard rule): ``source_url`` is the creator's own video URL
+    (straight from the feed entry — never invented), and ``source`` carries the
+    CREATOR'S NAME so it can be stamped onto the published piece as the credit. We
+    also mirror the name into ``_creator`` (an internal hint) so the editor can
+    thread the credit through curation, which otherwise keeps only title / summary /
+    url on its ``Story`` objects. ``max_per_feed`` defaults to 2 (a creator uploads a
+    handful a week — we only want their freshest), so no single creator dominates.
+    """
+    return [
+        {"title": it.title, "summary": it.summary, "source_url": it.url,
+         "source": it.source, "_creator": it.source}
+        for it in harvest(FUN_FEEDS, since_hours=since_hours,
+                          max_per_feed=max_per_feed, fetch=fetch)
     ]

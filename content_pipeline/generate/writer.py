@@ -116,12 +116,14 @@ _AI_PROMPT = (
 )
 
 _FUN_PROMPT = (
-    "Rewrite this good-news story as a punchy, fun tabloid piece IN THE "
-    "UNMISTAKABLE VOICE of {persona} — {voice}\n"
-    "Max 130 words, PG-13, warm and positive, use their signature phrases. Keep "
-    "the real source_url. Output ONLY compact JSON (no markdown): "
-    '{{"title","body","source_url"}}\n\n'
-    "Story JSON:\n{story}"
+    "Rewrite this recent video from the Irish creator {source} as a punchy Craic "
+    "Gazette fun piece, written in GRAHAM'S house voice: Irish, witty, gently "
+    "cynical — 'the Scripting Paddy'. You are NOT impersonating {source}; you are "
+    "Graham riffing on what they've just put out and pointing readers their way.\n"
+    "Max 130 words, PG-13, warm. NAME-CHECK and CREDIT the creator ({source}) in the "
+    "copy. Keep their real source_url EXACTLY as given — never invent one. Output ONLY "
+    'compact JSON (no markdown): {{"title","body","source_url"}}\n\n'
+    "Creator's recent item JSON:\n{story}"
 )
 
 
@@ -151,16 +153,21 @@ def write_ai_section(
 
 def write_fun_story(
     candidate: dict,
-    persona: str,
-    voice_brief: str,
+    source: str,
     *,
     generate: Optional[Generate] = None,
 ) -> dict:
-    """Write one fun story in the assigned persona's voice (small JSON call)."""
+    """Rewrite one Irish creator's recent item in Graham's voice, crediting them.
+
+    ATTRIBUTION (Graham's hard rule): ``source`` is the CREATOR'S NAME — it is
+    name-checked in the copy and returned on the ``source`` field as the credit /
+    byline. The creator's real ``source_url`` is preserved verbatim (URL fidelity:
+    we fall back to the candidate's URL if the model omits it, and never invent one).
+    We do NOT impersonate the creator — this is Graham riffing on their upload.
+    """
     gen = generate or _default_generate
     prompt = _FUN_PROMPT.format(
-        persona=persona,
-        voice=voice_brief,
+        source=source,
         story=json.dumps(candidate)[:1500],
     )
     data = gen(prompt)
@@ -168,6 +175,7 @@ def write_fun_story(
         "title": data.get("title", ""),
         "body": data.get("body", ""),
         "source_url": data.get("source_url") or candidate.get("source_url", ""),
+        "source": source,  # credit: the creator's name, carried onto the piece
     }
 
 

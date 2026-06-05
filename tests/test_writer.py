@@ -42,20 +42,25 @@ def test_write_ai_section_passes_candidates_into_prompt():
     assert "DeepSeek V4 drops" in seen["prompt"]
 
 
-def test_write_fun_story_keeps_source_url_and_persona_voice():
+def test_write_fun_story_credits_creator_and_keeps_source_url():
     captured = {}
 
     def gen(prompt):
         captured["prompt"] = prompt
-        return {"title": "Tremendous Whale, Believe Me", "body": "...", "source_url": ""}
+        return {"title": "Foil Arms and Hog Nail the Phone Call", "body": "...", "source_url": ""}
 
-    cand = {"title": "Whale freed", "summary": "net cut", "source_url": "https://x/whale"}
-    out = write_fun_story(cand, "Ronald Dump", "Trump style: 'believe me', 'tremendous'", generate=gen)
-    # The persona + its voice brief reach the prompt.
-    assert "Ronald Dump" in captured["prompt"]
-    assert "tremendous" in captured["prompt"].lower()
-    # Source URL falls back to the candidate's when the model omits it.
-    assert out["source_url"] == "https://x/whale"
+    cand = {"title": "Every Irish Mammy on the Phone", "summary": "",
+            "source_url": "https://www.youtube.com/watch?v=VID1"}
+    out = write_fun_story(cand, "Foil Arms and Hog", generate=gen)
+    # The creator is name-checked in the prompt and we write in GRAHAM'S voice,
+    # explicitly NOT impersonating the creator.
+    assert "Foil Arms and Hog" in captured["prompt"]
+    assert "scripting paddy" in captured["prompt"].lower()
+    assert "not impersonating" in captured["prompt"].lower()
+    # URL fidelity: falls back to the creator's real URL when the model omits it.
+    assert out["source_url"] == "https://www.youtube.com/watch?v=VID1"
+    # The creator's name is carried onto the piece as the credit.
+    assert out["source"] == "Foil Arms and Hog"
 
 
 # --- _default_generate re-samples on unparseable JSON (the run-1 flake) ---------

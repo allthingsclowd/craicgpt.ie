@@ -259,7 +259,9 @@ function funCard(item) {
   const art = document.createElement('article');
   const isAd = item.kind === 'ad';
   art.className = `card card--fun ${isAd ? 'card--ad' : ''}`;
-  art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `FUN DESK · ${item.persona || ''}`, 'gold'));
+  // Credited Irish-creator digest → show the creator; legacy parody → show the persona.
+  const funCredit = item.source || item.persona || '';
+  art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `FUN DESK · ${funCredit}`, 'gold'));
   const img = imageEl(item);
   if (img) art.append(img);
   art.append(headline(item.title, false));
@@ -295,7 +297,8 @@ function meta(item, isFun) {
     a.href = item.source_url;
     a.target = '_blank';
     a.rel = 'noopener';
-    a.textContent = '↗ source';
+    // Credit the creator by name on the link back to their own video/page.
+    a.textContent = (isFun && item.source) ? `↗ watch on ${item.source}` : '↗ source';
     wrap.append(a);
   }
   const models = [item._text_model, item._image_model].filter(Boolean).join(' · ');
