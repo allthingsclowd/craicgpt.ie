@@ -1,188 +1,180 @@
-# 03 — LangGraph Workflow
+# 03 — The Deep Agent, the Harness, and Human-in-the-Loop
 
-## What is LangGraph?
+## From a hand-wired StateGraph to a deep agent
 
-LangGraph extends LangChain to build **stateful, multi-step workflows** as explicit graphs.
+v2 wired an explicit LangGraph `StateGraph` (`research → generate → compile → publish`).
+v3 replaces the *research* half with a **deep agent** — `deepagents.create_deep_agent` —
+which is itself a LangGraph graph, but a far more capable one: it ships a planning tool
+(`write_todos`), a virtual filesystem, and **subagent delegation** (`task`) out of the box.
+The deterministic *write → images → compile → publish* half is a plain Python harness
+(`run_edition`) wrapped around it.
 
-Unlike a simple LCEL chain (`A | B | C`), a LangGraph `StateGraph` lets you:
-
-- Define state as a typed dictionary that flows between nodes
-- Add conditional edges (branch based on state values)
-- Handle retries and error recovery
-- Visualise the execution graph as a Mermaid diagram
-- Support human-in-the-loop checkpointing (pause and resume)
-
----
-
-## The Craic Gazette Pipeline Graph
-
-```mermaid
-graph TD
-    __start__ --> research
-    research --> generate
-    generate --> compile
-    compile --> publish
-    publish --> __end__
 ```
-
-Run `python content_pipeline/main.py --show-graph` to generate this diagram live.
-
----
-
-## State: The TypedDict Contract
-
-State is the data structure that flows between nodes. Each node receives the
-full current state and returns a **dict of fields to update** (not the whole state).
-
-```python
-# content_pipeline/agents/orchestrator.py
-
-class PipelineState(TypedDict, total=False):
-    target_date:   date         # Set at pipeline start
-    date_iso:      str          # "2026-03-03"
-    context:       dict         # Populated by [research]
-    raw_articles:  dict         # Populated by [generate]
-    paper_content: dict         # Populated by [compile]
-    published:     bool         # Set by [publish]
-    s3_key:        str          # Set by [publish]
-    errors:        list[str]    # Accumulated across all nodes
-```
-
-**Key insight:** Each node only returns the fields it changes.
-LangGraph merges returned fields into the existing state — other fields remain.
-
-```python
-# The research node only sets 'context' — other fields are untouched
-def node_research(state: PipelineState) -> dict:
-    context = run_research_agent(state["target_date"])
-    return {"context": context}   # ← Only return what changed
+            ┌──────────────────────────────────────────────┐
+  brief ───▶│  Editor-in-Chief  (create_deep_agent)         │
+            │   write_todos → task(fun-news-researcher)      │
+            │              → task(ai-landscape-researcher)   │
+            │   tools: web_search · fetch_page · validate_link│
+            │   virtual FS: research/{ai,fun}_candidates.json │
+            └──────────────────────────────────────────────┘
+                         │  result.files
+                         ▼
+            run_edition harness (plain Python, deterministic):
+              curate → HOLD-or-write → snap URLs → images → compile → publish-draft
 ```
 
 ---
 
-## Nodes: Plain Python Functions
-
-Each node is just a function that takes state and returns a partial state update.
-No special base class, no decorators — just functions.
+## Assembling the deep agent (three lines)
 
 ```python
-def node_research(state: PipelineState) -> dict:
-    """NODE 1: Fetch news and weather via ReAct agent."""
-    context = run_research_agent(state.get("target_date"))
-    return {"context": context}
+# content_pipeline/agent/editor_in_chief.py
+from deepagents import create_deep_agent
+from content_pipeline.agent.subagents import EDITOR_IN_CHIEF_PROMPT, SUBAGENTS
 
-def node_generate(state: PipelineState) -> dict:
-    """NODE 2: Run RunnableParallel across Claude, Gemini, Local."""
-    results = run_parallel_generation(
-        inputs=build_inputs(state["context"]),
-        claude_llm=get_claude_llm(),
-        gemini_llm=get_gemini_llm(),
-        local_llm=get_lmstudio_llm(),
+def build_editor_in_chief(*, model=None, checkpointer=None):
+    return create_deep_agent(
+        model=model or build_brain(),        # a tool-calling LiteLLM route (Qwen3.6)
+        system_prompt=EDITOR_IN_CHIEF_PROMPT, # "research only; never fabricate"
+        subagents=SUBAGENTS,                  # fun-news / ai-landscape / link-validator
+        checkpointer=checkpointer,            # pass a durable saver in production
     )
-    return {"raw_articles": results}
-
-def node_compile(state: PipelineState) -> dict:
-    """NODE 3: Assemble paper_content.json."""
-    paper = assemble_paper(state["raw_articles"], state["context"])
-    return {"paper_content": paper}
-
-def node_publish(state: PipelineState) -> dict:
-    """NODE 4: Upload to S3."""
-    s3_key = publish_to_s3(state["paper_content"], state["date_iso"])
-    return {"published": True, "s3_key": s3_key}
 ```
 
----
-
-## Building and Compiling the Graph
+`create_deep_agent` returns a compiled LangGraph you invoke with messages + a `thread_id`:
 
 ```python
-from langgraph.graph import StateGraph, START, END
-
-builder = StateGraph(PipelineState)    # ← Tells LangGraph about state shape
-
-# Register nodes
-builder.add_node("research", node_research)
-builder.add_node("generate", node_generate)
-builder.add_node("compile",  node_compile)
-builder.add_node("publish",  node_publish)
-
-# Define edges (execution order)
-builder.add_edge(START,      "research")
-builder.add_edge("research", "generate")
-builder.add_edge("generate", "compile")
-builder.add_edge("compile",  "publish")
-builder.add_edge("publish",  END)
-
-# Compile validates the graph and returns a runnable
-graph = builder.compile()
-```
-
----
-
-## Running the Pipeline
-
-```python
-# Initial state — only the fields the first node needs
-initial_state = {
-    "target_date": date(2026, 3, 3),
-    "date_iso":    "2026-03-03",
-    "errors":      [],
-}
-
-# invoke() runs the full graph and returns the final state
-final_state = graph.invoke(initial_state)
-
-print(final_state["published"])   # → True
-print(final_state["s3_key"])      # → "content/2026/03/03/paper_content.json"
-print(final_state["errors"])      # → [] (hopefully)
-```
-
----
-
-## Conditional Edges (not used here, but important to know)
-
-For branching workflows, use `add_conditional_edges`:
-
-```python
-def should_retry(state: PipelineState) -> str:
-    """Return the name of the next node based on state."""
-    if state.get("errors") and len(state["errors"]) < 3:
-        return "generate"   # retry
-    return "compile"        # continue
-
-builder.add_conditional_edges(
-    "generate",             # From this node
-    should_retry,           # Call this function to decide
-    {
-        "generate": "generate",  # If it returns "generate" → loop back
-        "compile":  "compile",   # If it returns "compile" → continue
-    }
+agent = build_editor_in_chief(checkpointer=InMemorySaver())
+result = agent.invoke(
+    {"messages": [{"role": "user", "content": brief}]},
+    config={"configurable": {"thread_id": date_iso}, "recursion_limit": 200},
 )
+files = result.get("files", {})   # the agent's virtual FS — research candidates live here
 ```
+
+The agent **plans, delegates, and writes candidate JSON** to its virtual filesystem, then
+stops. It deliberately does **not** write the articles (see below).
+
+---
+
+## Why the harness writes the articles (not the agent)
+
+The single hard-won lesson of v3: the deep agent reliably does **research**, but it does
+**not** reliably (a) complete one giant final write, or (b) wire tool outputs into the
+right fields — the local vLLM tool-call parser mangled the big `write_file`, and the model
+invented stock-image URLs. So `run_edition` enforces the rest deterministically:
+
+```python
+# content_pipeline/agent/editor_in_chief.py  (run_edition, simplified)
+result = agent.invoke({"messages": [{"role": "user", "content": brief}]}, config=config)
+files  = result.get("files", {})
+
+ai_candidates  = _read_candidates(files, "/research/ai_candidates.json")
+fun_candidates = _read_candidates(files, "/research/fun_candidates.json")
+
+# merge curated feeds, drop grim/recent/dupe/UNREACHABLE — and HOLD if a desk is too thin
+ai_valid,  _ = _validate_ai_candidates(ai_candidates + harvested_ai, fetch=fetch, exclude_keys=recent)
+fun_picks    = _curate_fun(fun_candidates or harvested_fun, fetch=fetch, exclude_keys=recent)
+if len(ai_valid) < cfg.min_ai_sources or len(fun_picks) < cfg.min_fun_sources:
+    raise EditionHeld([...])                      # never print thin/fabricated content
+
+ai  = write_ai_section(ai_valid, ...)             # small structured LCEL calls (doc 02)
+ai  = _snap_ai_sources(ai, ai_valid)              # force every URL onto a validated candidate
+fun = _write_fun(fun_picks, date_iso, credits)    # Graham's voice, crediting the creator
+_generate_images(ai, fun, date_iso)               # in the harness, not by the agent
+paper = build_paper(date_iso, generated_at, ai=ai, fun=fun, context={"agent_trace": trace, ...})
+```
+
+> **TUTORIAL takeaway:** let the agent do judgment (what's newsworthy, is this on-brand);
+> do the mechanical, must-be-exact work (counts, dedupe, link fidelity, images, schema) in
+> code. It's cheaper, testable, and fabrication-resistant.
+
+---
+
+## Human-in-the-loop, the OSS way (`interrupt()` + a checkpointer)
+
+No edition publishes itself. LangGraph's native HITL is a node that calls `interrupt()`:
+the graph **pauses**, the checkpointer persists state, and a human resumes with
+`Command(resume=…)`. No LangSmith, no hosted platform.
+
+```python
+# content_pipeline/agent/hitl.py  (simplified)
+def request_approval(state):
+    decision = interrupt({"action": "approve_edition", "date": state["paper"]["date"],
+                          "summary": _summarise(state["paper"])})   # pauses HERE
+    return {"decision": str(decision)}
+
+def publish(state):
+    if state.get("decision") == "approve":
+        publish_fn(state["paper"]); return {"published": True}
+    return {"published": False}
+
+graph = StateGraph(ApprovalState)
+graph.add_node("request_approval", request_approval)
+graph.add_node("publish", publish)
+graph.add_edge(START, "request_approval"); graph.add_edge("request_approval", "publish")
+graph.add_edge("publish", END)
+app = graph.compile(checkpointer=checkpointer or InMemorySaver())   # SqliteSaver in prod
+```
+
+A durable `SqliteSaver` means a paused, awaiting-approval edition survives a restart until
+someone approves it. The graph doesn't care *who* resumes it.
+
+### In production: a decoupled two-agent gate (same idea, via S3)
+
+The live system doesn't keep a process paused for hours. It **decouples through S3**: the
+draft + a `review-request.json` land in `preview/`, two independent reviewer agents
+(openclaw on .199, hermes on .50) read it, judge it harmless/on-brand, and write
+`verdict-<agent>.json`. A separate, idempotent **gate** (`cli gate`) then publishes live
+only on **two-agent APPROVE consensus + host structural validation + a live link-check**.
+Same human-in-the-loop principle (a real approval is required before going live), but
+retriable and observable instead of a long-lived paused graph. See
+[05-tools-and-agents.md](05-tools-and-agents.md) and `content_pipeline/agent/review.py`.
+
+---
+
+## Observability without LangSmith: the trace
+
+Every run records a flat, JSON-serialisable event list — the plan, each subagent
+delegation, every tool call (with a snippet of what it returned), each model route, and
+any local→frontier fallback. It's stored at `paper_content.context.agent_trace`, and the
+website's **"Under the Hood"** drawer renders it so readers learn deepagents by watching
+the Editor-in-Chief actually build the paper.
+
+```python
+# content_pipeline/agent/trace.py
+rec = TraceRecorder()
+rec.plan(["research fun news", "research AI landscape"])
+rec.delegate("ai-landscape-researcher", "rank the day's top 13 AI stories")
+rec.tool_call("web_search", "q=OpenAI", result="OpenAI ships … https://…")
+rec.model_route("write", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")
+# ...plus extract_trace(messages) turns a real run's tool calls into the same shape.
+agent_trace = extract_trace(result["messages"]) + rec.as_list()
+```
+
+This is the project's whole observability story — deliberately plain, fully open source.
 
 ---
 
 ## Where to Find This in the Craic Gazette
 
-| Concept               | File                                             |
-|-----------------------|--------------------------------------------------|
-| StateGraph definition | `content_pipeline/agents/orchestrator.py`        |
-| All four nodes        | `content_pipeline/agents/orchestrator.py`        |
-| Pipeline runner       | `content_pipeline/agents/orchestrator.py:run_pipeline()` |
-| Graph visualisation   | `python content_pipeline/main.py --show-graph`   |
+| Concept | File |
+|---------|------|
+| Assemble the deep agent | `content_pipeline/agent/editor_in_chief.py` (`build_editor_in_chief`) |
+| The research→write harness | `content_pipeline/agent/editor_in_chief.py` (`run_edition`) |
+| HOLD on thin/degraded sources | `content_pipeline/agent/editor_in_chief.py` (`EditionHeld`, `_validate_ai_candidates`) |
+| OSS human-in-the-loop graph | `content_pipeline/agent/hitl.py` |
+| Decoupled two-agent gate | `content_pipeline/agent/review.py` + `cli.py` (`gate`) |
+| Trace for "Under the Hood" | `content_pipeline/agent/trace.py` |
 
 ---
 
-## Why LangGraph Over Sequential Function Calls?
+## Why a deep agent over a hand-wired graph?
 
-| Aspect              | Sequential calls              | LangGraph StateGraph              |
-|---------------------|-------------------------------|-----------------------------------|
-| Visualisation       | Manual diagram in a doc       | Auto-generated Mermaid graph      |
-| Error handling      | Try/except around each call   | Per-node, state carries errors    |
-| Checkpointing       | Not possible                  | Built-in (add a checkpointer)     |
-| Testing             | Mock whole pipeline           | Test each node function in isolation |
-| Extending           | Add more functions + wire up  | Add node + add_edge               |
-| Learning value      | Implicit flow                 | Explicit, inspectable graph       |
-
-For a tutorial site, the explicit graph is far more educational.
+| Aspect | Hand-wired StateGraph (v2) | Deep agent + harness (v3) |
+|--------|----------------------------|---------------------------|
+| Research | Fixed nodes, fixed order | Agent plans + delegates; adapts per day |
+| Context hygiene | One growing context | Subagents each get their own context window |
+| Reliability of output | Trusted the model end-to-end | Agent researches; **harness** writes deterministically |
+| Fabrication risk | Possible (model filled gaps) | HOLD below the integrity floor; URLs snapped to real sources |
+| Observability | Mermaid of the static graph | A live per-run trace of the *actual* plan/tools/models |
