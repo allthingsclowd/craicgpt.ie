@@ -37,7 +37,7 @@ pip install -r content_pipeline/requirements.txt
 # Tests (real pytest — ~190+ tests, mostly offline with injected fetch/LLM stubs)
 python -m pytest -q
 
-# Generate an edition locally (writes a DRAFT to S3 preview/ + images + review-request)
+# Generate an edition locally (writes a DRAFT to S3 preview/ + images + verdict-rubric)
 python -m content_pipeline.agent.cli run --publish-draft --date 2026-06-05
 
 # Force a fresh same-day version when the news pool is thin (skip recency de-dup)
@@ -46,7 +46,7 @@ python -m content_pipeline.agent.cli run --no-recency --publish-draft --date 202
 # Host-side validate a draft the way the publish gate does (structural + live link-check)
 python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 
-# The publish gate: publish live on two-agent APPROVE consensus + host validation
+# The publish gate: publish live on the rubric APPROVE verdict + host validation + link-check
 python -m content_pipeline.agent.cli gate --publish --date 2026-06-05
 
 # Other CLI verbs: verdict / consensus / announce / override / remediate / directive / syndicate / message
@@ -93,14 +93,17 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    ├─ 4. IMAGES (deterministic) — generate/images.py (LiteLLM image route, HiDream-O1)
    │      one per AI lead + fun story, day-stable art-style rotation.
    │
-   └─ 5. COMPILE (compile.py, schema v3) + publish to S3 preview/  + review-request
-   ▼
-Review (decoupled, S3 state) — agent VMs openclaw (.199) + hermes (.50) read the
-   draft, judge harmless/on-brand (skill: approving-craicgpt-editions), write
-   verdict-<agent>.json (vid in the body). VM systemd timer craicgpt-review.timer @06:00.
+   ├─ 5. COMPILE (compile.py, schema v3)
+   │
+   └─ 6. JUDGE (in-pipeline, rubric_review.grade_edition) — a deepagents
+          RubricMiddleware grades the FINISHED edition (harmless/on-brand/attributed)
+          on an INDEPENDENT model (gemma-4-12b-it, NOT the writer; frontier fallback).
+          Verdict → paper["edition"]["rubric"]; cli publishes the draft + images +
+          verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
+          old decoupled two-VM openclaw+hermes review.)
    ▼
 Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli gate:
-   two-agent APPROVE consensus + host structural validation + MANDATORY browser-UA
+   the single rubric APPROVE verdict + host structural validation + MANDATORY browser-UA
    link-check → promote to content/ live + CloudFront invalidation + frontend sync.
    Editions are VERSIONED: content/<date>/paper_content.json (latest) +
    versions/<vid>.json + versions.json (multi-apply — several editions per day).
@@ -108,9 +111,10 @@ Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli 
 S3 + CloudFront → craicgpt.ie  (static HTML/JS fetches paper_content.json)
 ```
 
-The whole flow is **decoupled via S3 state** (status.json / review-request.json /
-verdict-*.json / directive.json) — nothing is physically chained, so each stage is
-independently retriable and the gate is idempotent.
+Generation now **judges itself in-pipeline** (the rubric is the last build step), so
+the only decoupled hop left is the **publish gate**, which coordinates via S3 state
+(status.json / verdict-rubric.json / directive.json) — nothing is physically chained,
+so each stage is independently retriable and the gate is idempotent.
 
 ---
 
@@ -124,7 +128,8 @@ independently retriable and the gate is idempotent.
 | `content_pipeline/agent/hitl.py` | OSS human-in-the-loop approval graph — LangGraph `interrupt()` + checkpointer |
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
-| `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` |
+| `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge) |
+| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on the INDEPENDENT `gemma-4-12b-it-nothink` (reasoning-disabled route; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
@@ -240,9 +245,10 @@ git -C /opt/craicgpt.ie pull          # <-- this IS the deploy; the worker shell
 
 No service restart is needed for engine code (the Conductor worker spawns a fresh
 `python -m content_pipeline.agent.cli …` per task). The autonomous schedule
-(`craicgpt_daily_0500` @05:00, `craicgpt_publish_gate_poll` @06–08, UTC) and the agent
-VMs' `craicgpt-review.timer` @06:00 do the rest. See the grazlab-llm-fleet repo for the
-Conductor workflows/triggers and the worker (`conductor/workers/craicgpt/worker.py`).
+(`craicgpt_daily_0500` @05:00 generate-and-judge, `craicgpt_publish_gate_poll` @06–08,
+UTC) does the rest — the rubric judge now runs **in-pipeline** at generation time, so
+the old agent-VM `craicgpt-review.timer` is retired. See the grazlab-llm-fleet repo for
+the Conductor workflows/triggers and the worker (`conductor/workers/craicgpt/worker.py`).
 
 **Frontend:** `aws s3 sync frontend/ s3://craicgpt-ie-production/ --delete` (the publish
 gate also syncs `frontend/` after each live publish so the shell never lags the content).

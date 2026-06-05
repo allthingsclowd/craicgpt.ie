@@ -42,13 +42,14 @@ site is both a working newspaper and a live deep-agents tutorial.
 │   4. IMAGES     deterministic: generate/images.py (LiteLLM image route)      │
 │   5. COMPILE    compile.py → schema-v3 paper_content.json                    │
 └───────────────────────────────────────────────────────────────────────────┘
-        │  draft → S3 preview/         + review-request.json + status.json
-        ▼
-  Review (decoupled via S3): agent VMs openclaw (.199) + hermes (.50) judge the
-  draft harmless/on-brand and write verdict-<agent>.json  (timer @ 06:00 UTC)
         │
+        ▼  6. JUDGE (in-pipeline) — rubric_review.grade_edition: a deepagents
+           RubricMiddleware grades the finished edition (harmless/on-brand/
+           attributed) on gemma-4-12b-it, a model independent of the writer
+        │
+        ▼  draft + images + verdict-rubric.json → S3 preview/ + status.json
         ▼
-  Publish gate (Conductor cron @ 06–08 UTC → cli gate): two-agent APPROVE consensus
+  Publish gate (Conductor cron @ 06–08 UTC → cli gate): the single rubric APPROVE
   + host structural validation + browser-UA link-check → promote to content/ (live),
   version it, invalidate CloudFront, sync the frontend
         │
@@ -57,8 +58,10 @@ site is both a working newspaper and a live deep-agents tutorial.
   renders the woven edition + a version picker + the "Under the Hood" trace)
 ```
 
-Everything is **decoupled through S3 state** — nothing is physically chained, so each
-stage is independently retriable and the gate is idempotent (safe to poll every 10 min).
+Generation now **judges itself in-pipeline** (the rubric is the last build step), so the
+only remaining hop is the **publish gate**, **decoupled through S3 state** — nothing is
+physically chained, so it is independently retriable and idempotent (safe to poll every
+10 min).
 
 ---
 
@@ -96,6 +99,7 @@ craicgpt.ie/
 │   │   ├── trace.py               ← TraceRecorder → "Under the Hood" payload
 │   │   ├── cli.py                 ← run / gate / validate / verdict / consensus / …
 │   │   ├── review.py              ← validate_paper, verdict exchange, gate consensus
+│   │   ├── rubric_review.py       ← in-pipeline RubricMiddleware judge (gemma) → verdict-rubric.json
 │   │   └── publish.py             ← S3 publish + versioning + CloudFront invalidation
 │   ├── generate/                  ← deterministic writers + images
 │   │   ├── writer.py              ← AI section, fun story, editor's brief, About page

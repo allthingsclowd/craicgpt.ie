@@ -111,22 +111,29 @@ class ContentConfig:
     )
     # The RUBRIC JUDGE — grades the finished edition (harmless / on-brand / attributed)
     # via a deepagents RubricMiddleware, replacing the old two-VM (openclaw+hermes)
-    # consensus. The grader needs STRUCTURED TOOL-CALLING, and (June 2026) the only M3
-    # route that emits it cleanly is the writer's own qwen3.6-35b — the other MLX routes
-    # (qwen3-omni, minimax) return tool calls as unparsed `<tool_call>` text, and the FC
-    # route is down. So the judge defaults to the writer's model: a separate COLD pass at
-    # temperature 0 against the rubric.
+    # consensus. The grader needs STRUCTURED TOOL-CALLING, so the judge must be a route
+    # that emits real `tool_calls`. As of June 2026 this is a DEDICATED, INDEPENDENT
+    # judge: Gemma 4 12B on the M3 Ultra — a *different* family from the writer
+    # (qwen3.6-35b), so the edition is graded by a genuine second opinion rather than the
+    # author marking its own homework.
+    #   IMPORTANT — we use the `-nothink` route. Gemma 4 tool-calls cleanly, but the
+    #   reasoning-ENABLED route (m3/mlx/gemma-4-12b-it) emits large reasoning-token
+    #   streams (~5 tok/s) that made the deepagents grader loop take ~20 min. The
+    #   reasoning-DISABLED sibling `m3/mlx/gemma-4-12b-it-nothink` returns content
+    #   directly, so the grade is quick — that is the judge.
+    #   (History: the judge briefly defaulted to the writer's own qwen3.6 — back then the
+    #   only M3 route that tool-called cleanly — before Gemma 4 shipped.)
     #
-    # ⚠️ FUTURE: this means the judge is NOT yet an independent model (it's the author
-    #   marking its own homework). It SHOULD be moved to a non-writer model once one can
-    #   tool-call. TO CHANGE IT (no code edit needed): set the JUDGE_MODEL env var (on the
-    #   host, in /etc/craicgpt.env) to the new LiteLLM route, e.g.
-    #       JUDGE_MODEL=claude-sonnet-4-6                  # frontier — works today
-    #       JUDGE_MODEL=m3/mlx/<new-tool-calling-route>    # once the fleet ships one
-    #   Verify a candidate emits real tool_calls first (see rubric_review.py
-    #   "Switching the judge"). The frontier fallback covers grader errors meanwhile.
+    # TO CHANGE IT (no code edit needed): set the JUDGE_MODEL env var (on the host, in
+    #   /etc/craicgpt.env) to another LiteLLM route, e.g.
+    #       JUDGE_MODEL=claude-sonnet-4-6        # frontier second opinion
+    #       JUDGE_MODEL=m3/mlx/<other-route>     # any other local route that tool-calls
+    #   Verify a candidate emits real tool_calls AND doesn't bury them under a long
+    #   reasoning stream (see rubric_review.py "Switching the judge") — a route returning
+    #   `<tool_call>` text, or one that reasons for thousands of tokens, stalls the grade
+    #   and the frontier fallback carries it.
     judge_model: str = field(
-        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")
+        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/gemma-4-12b-it-nothink")
     )
 
     # ── Generation parameters ─────────────────────────────────────────────────
