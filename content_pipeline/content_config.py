@@ -111,29 +111,29 @@ class ContentConfig:
     )
     # The RUBRIC JUDGE — grades the finished edition (harmless / on-brand / attributed)
     # via a deepagents RubricMiddleware, replacing the old two-VM (openclaw+hermes)
-    # consensus. The grader needs STRUCTURED TOOL-CALLING, so the judge must be a route
-    # that emits real `tool_calls`. As of June 2026 this is a DEDICATED, INDEPENDENT
-    # judge: Gemma 4 12B on the M3 Ultra — a *different* family from the writer
-    # (qwen3.6-35b), so the edition is graded by a genuine second opinion rather than the
-    # author marking its own homework.
-    #   IMPORTANT — we use the `-nothink` route. Gemma 4 tool-calls cleanly, but the
-    #   reasoning-ENABLED route (m3/mlx/gemma-4-12b-it) emits large reasoning-token
-    #   streams (~5 tok/s) that made the deepagents grader loop take ~20 min. The
-    #   reasoning-DISABLED sibling `m3/mlx/gemma-4-12b-it-nothink` returns content
-    #   directly, so the grade is quick — that is the judge.
-    #   (History: the judge briefly defaulted to the writer's own qwen3.6 — back then the
-    #   only M3 route that tool-called cleanly — before Gemma 4 shipped.)
+    # consensus. The grader needs STRUCTURED TOOL-CALLING *and* a model strong enough to
+    # drive the RubricMiddleware reviewer-agent loop to a clean stop.
+    #
+    # INTERIM (June 2026): the judge is the WRITER's own qwen3.6-35b — local + reliable
+    # (it drives the agent loop and terminates), but NOT independent (the author marks its
+    # own homework). An independent local judge is the goal; that work is paused on a model
+    # problem:
+    #   • gemma-4-12b-it-nothink (a *different* family → would be independent) tool-calls
+    #     cleanly and fast PER CALL, but a 12B does NOT terminate the deepagents reviewer
+    #     loop — on a real edition one grade_edition invoke made 490+ LLM calls with no
+    #     verdict, which would also hang the autonomous run. Being fixed offline (repro +
+    #     validation test in rubric_review.py "Switching the judge").
+    #   • Path back to independent: the gemma fix, OR a capable non-writer LOCAL route
+    #     (~30B+ that drives the agent loop), OR JUDGE_MODEL=claude-sonnet-4-6 (frontier).
     #
     # TO CHANGE IT (no code edit needed): set the JUDGE_MODEL env var (on the host, in
-    #   /etc/craicgpt.env) to another LiteLLM route, e.g.
-    #       JUDGE_MODEL=claude-sonnet-4-6        # frontier second opinion
-    #       JUDGE_MODEL=m3/mlx/<other-route>     # any other local route that tool-calls
-    #   Verify a candidate emits real tool_calls AND doesn't bury them under a long
-    #   reasoning stream (see rubric_review.py "Switching the judge") — a route returning
-    #   `<tool_call>` text, or one that reasons for thousands of tokens, stalls the grade
-    #   and the frontier fallback carries it.
+    #   /etc/craicgpt.env), e.g.
+    #       JUDGE_MODEL=claude-sonnet-4-6        # frontier — independent + reliable today
+    #       JUDGE_MODEL=m3/mlx/<other-route>     # an independent local route, once one drives the loop
+    #   Verify a candidate (a) emits real tool_calls and (b) TERMINATES the grader loop in
+    #   a handful of calls (not hundreds) — see rubric_review.py "Switching the judge".
     judge_model: str = field(
-        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/gemma-4-12b-it-nothink")
+        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")
     )
 
     # ── Generation parameters ─────────────────────────────────────────────────
