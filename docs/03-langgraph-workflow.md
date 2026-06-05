@@ -125,8 +125,9 @@ someone approves it. The graph doesn't care *who* resumes it.
 The live system doesn't keep a process paused for hours, and it no longer needs a separate
 fleet of reviewer agents. Instead the **judgement runs in-pipeline**: as the last build
 step, a LangChain `deepagents` **`RubricMiddleware`** grades the finished edition against an
-explicit publish rubric (harmless / on-brand / attributed) on an **independent model**
-(`gemma-4-12b-it`, *not* the writer), writing the result to `verdict-rubric.json`. A
+explicit publish rubric (harmless / on-brand / attributed) on a local model
+(`qwen3.6-35b` — interim, currently the writer's model; an independent judge is in progress),
+writing the result to `verdict-rubric.json`. A
 separate, idempotent **gate** (`cli gate`) then publishes live only on the **rubric
 `APPROVE` + host structural validation + a live link-check**. Same human-in-the-loop
 principle (a real approval is required before going live, and Graham can still override),

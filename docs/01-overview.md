@@ -45,7 +45,7 @@ site is both a working newspaper and a live deep-agents tutorial.
         │
         ▼  6. JUDGE (in-pipeline) — rubric_review.grade_edition: a deepagents
            RubricMiddleware grades the finished edition (harmless/on-brand/
-           attributed) on gemma-4-12b-it, a model independent of the writer
+           attributed) on qwen3.6-35b (interim — the writer's model; independent judge pending)
         │
         ▼  draft + images + verdict-rubric.json → S3 preview/ + status.json
         ▼
@@ -99,7 +99,7 @@ craicgpt.ie/
 │   │   ├── trace.py               ← TraceRecorder → "Under the Hood" payload
 │   │   ├── cli.py                 ← run / gate / validate / verdict / consensus / …
 │   │   ├── review.py              ← validate_paper, verdict exchange, gate consensus
-│   │   ├── rubric_review.py       ← in-pipeline RubricMiddleware judge (gemma) → verdict-rubric.json
+│   │   ├── rubric_review.py       ← in-pipeline RubricMiddleware judge (qwen3.6, interim) → verdict-rubric.json
 │   │   └── publish.py             ← S3 publish + versioning + CloudFront invalidation
 │   ├── generate/                  ← deterministic writers + images
 │   │   ├── writer.py              ← AI section, fun story, editor's brief, About page

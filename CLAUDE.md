@@ -97,7 +97,7 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │
    └─ 6. JUDGE (in-pipeline, rubric_review.grade_edition) — a deepagents
           RubricMiddleware grades the FINISHED edition (harmless/on-brand/attributed)
-          on an INDEPENDENT model (gemma-4-12b-it, NOT the writer; frontier fallback).
+          on a local model (qwen3.6-35b — INTERIM, the writer's model; frontier fallback).
           Verdict → paper["edition"]["rubric"]; cli publishes the draft + images +
           verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
           old decoupled two-VM openclaw+hermes review.)
@@ -129,7 +129,7 @@ so each stage is independently retriable and the gate is idempotent.
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
 | `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge) |
-| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on the INDEPENDENT `gemma-4-12b-it-nothink` (reasoning-disabled route; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus |
+| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on a local model (`qwen3.6-35b` — interim; independent judge pending — a 12B gemma can't drive the loop; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |

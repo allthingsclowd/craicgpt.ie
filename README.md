@@ -36,8 +36,9 @@ drawer visualises the deep agent's actual run — the lesson, in public.
 
 **Open-source only:** generation runs on **Qwen3.6** (text) and **FLUX.2 Klein**
 (images) via a homelab **LiteLLM** proxy; orchestration *and the edition judge* are
-**LangChain `deepagents` + LangGraph** (the rubric judge runs on **gemma-4-12b-it**,
-a model independent of the writer). No LangSmith, no LangGraph Platform.
+**LangChain `deepagents` + LangGraph** (the rubric judge runs in-pipeline on a local
+model — currently **qwen3.6-35b**, an interim while an independent local judge is sorted).
+No LangSmith, no LangGraph Platform.
 
 ---
 
@@ -46,7 +47,7 @@ a model independent of the writer). No LangSmith, no LangGraph Platform.
 The edition is **built and judged in one pass**, then **published by a separate,
 decoupled gate**. Generation runs the research → harness → compile pipeline and
 then grades the finished edition *inline* with a **LangChain rubric judge** (a
-`deepagents` `RubricMiddleware` grader on an **independent model**); the result is
+`deepagents` `RubricMiddleware` grader on a local model); the result is
 a draft plus a `verdict-rubric.json` in S3. A Conductor **publish gate** wakes on
 its own schedule, re-checks that state deterministically, and promotes the edition
 live. The two halves never call each other — they coordinate through **state files
@@ -55,8 +56,8 @@ in S3** — so a slow generation or a held edition can never wedge the pipeline.
 > **What changed:** the old design had a *third* decoupled stage — two approval
 > agents (openclaw + hermes) on separate VMs that polled the draft and voted. That
 > is **retired.** LangChain's rubric capability folds the *harmless / on-brand /
-> attributed* judgement back **into the generation pipeline** as a single grader on
-> a model that is independent of the writer, removing two VMs, two S3 verdict files,
+> attributed* judgement back **into the generation pipeline** as a single in-pipeline
+> grader, removing two VMs, two S3 verdict files,
 > and a whole coordination hop.
 
 ```mermaid
@@ -88,7 +89,7 @@ flowchart TD
         direction TB
         QWEN["Qwen3.6 · DGX Spark<br/>research + writing"]:::model
         FLUXM["FLUX.2 Klein · M3 Ultra<br/>images"]:::model
-        GEMMA["★ gemma-4-12b-it-nothink · M3 Ultra<br/>INDEPENDENT rubric judge"]:::model
+        GEMMA["qwen3.6-35b · M3 Ultra<br/>rubric judge (interim — same family as writer)"]:::model
     end
 
     subgraph STATE["🗄️ S3 state — the ONLY decoupling: the gate polls this"]
@@ -122,10 +123,10 @@ flowchart TD
 ```
 
 > **Colour key** — 🟣 violet = **LLM / agent** work · 🟢 teal = **deterministic
-> harness** (plain code) · 🟡 gold ★ = the **independent rubric judge** · 🔵 blue =
+> harness** (plain code) · 🟡 gold ★ = the **rubric judge** · 🔵 blue =
 > **Conductor** schedules · 🔷 indigo = **S3 state** · 🟢 green = **live**. Read it as one
 > spine: the agent only *researches* (①), code does every mechanical step (②–⑤), then
-> **gemma** judges (⑥) before anything reaches S3 — and the publish gate is the single
+> **qwen3.6** judges (⑥) before anything reaches S3 — and the publish gate is the single
 > place the flow is decoupled.
 
 ### Why this shape (the hard-won lesson)
@@ -148,8 +149,9 @@ the fleet. It's the `deciding-deterministic-vs-llm` principle in practice.
 
 Graham is asleep or commuting at 06:00, so an **in-pipeline rubric judge is the
 safety gate that replaces the human**. The judge — a LangChain `deepagents`
-`RubricMiddleware` grader on an **independent model** (`gemma-4-12b-it-nothink`, *not*
-the writer) — owns the *harmless / on-brand / attributed* judgement at generation time;
+`RubricMiddleware` grader on a local model (`qwen3.6-35b` — interim; currently the
+writer's model, with an independent judge in progress) — owns the *harmless / on-brand /
+attributed* judgement at generation time;
 the host's publish gate owns the deterministic *technically valid + links resolve*
 check and the publish itself.
 
@@ -158,7 +160,7 @@ sequenceDiagram
     autonumber
     participant T1 as ⏰ Conductor 05:00
     participant E as 🛠️ Engine · .75<br/>(agent + harness)
-    participant G as ★ gemma-4-12b-it-nothink<br/>rubric judge
+    participant G as qwen3.6-35b<br/>rubric judge (interim)
     participant S as 🗄️ S3 preview state
     participant T2 as 🚦 Conductor gate<br/>06–08 · every 10m
     participant L as 🌐 Live + CloudFront
@@ -194,8 +196,8 @@ sequenceDiagram
 | Stage | Where | What |
 |------|-------|------|
 | Generate | Conductor `craicgpt_daily_0500` @ 05:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + images → compile v3 |
-| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6 (research + writing), **gemma-4-12b-it-nothink (rubric judge)**, FLUX.2 Klein (images) |
-| Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent model** (`gemma-4-12b-it`) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
+| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6 (research + writing **+ rubric judge, interim**), FLUX.2 Klein (images) |
+| Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on a local model (`qwen3.6-35b` — interim; independent judge in progress) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
 | Notify | engine notifier on `.75` → **both agents' Telegram bots** | 📰 on draft generated (with the rubric verdict), ✅ on published, ✋ on HELD (with reasons) — once per edition |
 | Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + browser-UA link-check + **the rubric `APPROVE`** (or a human directive) → publish live + CloudFront invalidation + frontend redeploy; any HOLD/invalid → Telegram; else retry |
@@ -290,17 +292,17 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
 
 - **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS,
   and the **`RubricMiddleware`** edition judge.
-- **Qwen3.6** (research + writing) + **gemma-4-12b-it-nothink** (independent rubric judge —
-  the reasoning-disabled route) + **FLUX.2 Klein** (images) via **LiteLLM** on a DGX Spark
-  + M3 Ultra homelab fleet.
+- **Qwen3.6** (research + writing, *and* — interim — the rubric judge) + **FLUX.2 Klein**
+  (images) via **LiteLLM** on a DGX Spark + M3 Ultra homelab fleet.
 - **Orkes Conductor OSS** on the engine host — the scheduler + single console for
   the daily flow: `craicgpt_daily_0500` (05:00 generate + judge) and
   `craicgpt_publish_gate_poll` (06–08 UTC idempotent publish gate), decoupled via
   S3 state. (Replaced the original systemd timers.)
 - **In-pipeline rubric judge + human override** — a `deepagents` `RubricMiddleware`
-  grades each finished edition (harmless / on-brand / attributed) on a model
-  **independent of the writer** (`gemma-4-12b-it`) and writes `verdict-rubric.json`;
-  the host gate publishes on the rubric `APPROVE`. **Replaces the retired two-agent
+  grades each finished edition (harmless / on-brand / attributed) on a local model
+  (`qwen3.6-35b` — interim; an *independent* local judge is in progress, the gemma-4-12b
+  attempt paused because a 12B can't drive the RubricMiddleware reviewer loop) and writes
+  `verdict-rubric.json`; the host gate publishes on the rubric `APPROVE`. **Replaces the retired two-agent
   (openclaw + hermes) consensus.** Graham can override or remediate a HOLD via an S3
   `directive.json` (CLI on `.75`).
 - **Telegram notifications** — the engine fans draft-generated / published / HELD

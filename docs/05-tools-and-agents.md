@@ -133,9 +133,9 @@ longer a fleet of reviewer VMs polling S3; it's a LangChain `deepagents`
 
 - A tiny reviewer deep agent is handed the compiled edition; its grader sub-agent scores the
   transcript against an explicit `EDITION_RUBRIC` (harmless / no-defamation / every fun item
-  attributed / the AI desk is substantive). The grader runs on an **independent model** —
-  `gemma-4-12b-it`, *not* the writer — so the edition is marked by a genuine second opinion,
-  with a frontier fallback if the local judge errors. It writes `verdict-rubric.json`
+  attributed / the AI desk is substantive). The grader runs on a local model — currently
+  `qwen3.6-35b` (INTERIM: the writer's model, so not yet a true second opinion; an independent
+  local judge is in progress), with a frontier fallback if the local judge errors. It writes `verdict-rubric.json`
   (decision + per-criterion reasons + the version id in the body).
 - The deterministic **gate** (`cli gate`, `content_pipeline/agent/review.py`) publishes
   live only on the **rubric `APPROVE`** + host structural validation + a live link-check.
@@ -145,7 +145,7 @@ longer a fleet of reviewer VMs polling S3; it's a LangChain `deepagents`
 This keeps the LLM's job to **judgment** ("is this harmless/on-brand?") and the gate's job
 to **fact** ("is it structurally valid and are all links reachable?") — the same
 deterministic-vs-LLM split, applied to publishing. (It replaces the earlier two-VM
-openclaw + hermes consensus: one local, independent judge instead of two networked agents.)
+openclaw + hermes consensus: one local in-pipeline judge instead of two networked agents.)
 
 ---
 
