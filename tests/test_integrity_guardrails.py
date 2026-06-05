@@ -205,6 +205,36 @@ def test_snap_ai_sources_forces_validated_urls():
     assert [s["source_url"] for s in out["shorts"]] == ["https://real/mistral"]  # faithful kept, ungrounded dropped
 
 
+def test_snap_ai_sources_headliner_never_keeps_writer_url():
+    # Task #28: the headliner is never DROPPED, but it must never RETAIN the
+    # writer's own (possibly invented / bot-blocked) URL either. With no title
+    # match it falls back to a validated candidate — never the writer's guess.
+    from content_pipeline.agent.editor_in_chief import _snap_ai_sources
+    cands = [
+        {"title": "DeepSeek raises a funding round", "source_url": "https://real/deepseek"},
+        {"title": "Mistral opens a Paris lab", "source_url": "https://real/mistral"},
+    ]
+    ai = {
+        "headliner": {"title": "Something nobody can verify", "body": "b",
+                      "source_url": "https://openai.com/index/invented-slug"},  # no title match
+        "subarticles": [], "shorts": [],
+    }
+    out = _snap_ai_sources(ai, cands)
+    assert out["headliner"]["source_url"] in {"https://real/deepseek", "https://real/mistral"}
+    assert out["headliner"]["source_url"] != "https://openai.com/index/invented-slug"
+
+
+def test_snap_ai_sources_headliner_blanked_when_no_validated_candidates():
+    # Defensive: with NO validated candidate to snap onto (an edition that will be
+    # HELD anyway), the headliner's unverified URL is blanked rather than smuggled
+    # through — a clean structural "missing source_url", not an unreachable link.
+    from content_pipeline.agent.editor_in_chief import _snap_ai_sources
+    ai = {"headliner": {"title": "T", "body": "b", "source_url": "https://openai.com/index/invented"},
+          "subarticles": [], "shorts": []}
+    out = _snap_ai_sources(ai, [])
+    assert out["headliner"]["source_url"] == ""
+
+
 def test_write_fun_forces_validated_source_url():
     # Even if the writer emits a hallucinated URL, the published fun story carries
     # the validated picked candidate's URL — never the writer's guess.

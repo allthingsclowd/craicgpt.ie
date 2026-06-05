@@ -383,8 +383,11 @@ def _snap_ai_sources(ai: dict, candidates: list) -> dict:
         if best >= 1:
             item["source_url"] = best_u
             return item
-        if headliner:  # never drop the headliner — fall back to the top candidate
-            item["source_url"] = cand[0][1] if cand else item.get("source_url", "")
+        if headliner:  # never DROP the headliner — but never keep the writer's URL
+            # Fall back to the top validated candidate; if there are none (an edition
+            # that will be HELD anyway), blank it rather than smuggle an unverified
+            # URL to the gate — a clean structural "missing source_url".
+            item["source_url"] = cand[0][1] if cand else ""
             return item
         return None  # ungrounded sub/short → drop
 

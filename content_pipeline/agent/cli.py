@@ -328,28 +328,27 @@ def cmd_validate(args) -> int:
     return 0 if res["valid"] else 1
 
 
-def _check_links(paper: dict) -> dict:
-    """HEAD every source_url; return {all_ok, checked, failed:[url]}."""
-    import httpx
+def _check_links(paper: dict, *, fetch=None) -> dict:
+    """Validate EVERY source_url with the SAME browser-UA check generation uses.
 
-    urls = []
+    The gate used to HEAD each URL with httpx's default (bot) User-Agent — but real
+    sources a reader's browser reaches fine (CNBC, OpenAI, VentureBeat, Microsoft's
+    AI blog) answer that bot UA with 403/429, so editions whose links generation had
+    ALREADY browser-validated were falsely HELD as "unreachable" (2026-06-04/05). And
+    a bot UA can't tell a real OpenAI URL from an invented one — both 403; a browser
+    UA returns 200 for the real one, 404 for the invented one. Reusing
+    :func:`curation.validate_source_link` (fetches as a browser, treats any non-2xx /
+    error as unreachable) makes the gate agree with generation: a generation-validated
+    link can never be falsely held here, while an invented URL (browser 404) still
+    fails. ``fetch`` is injectable for tests (a ``url -> status`` map). Returns
+    ``{all_ok, checked, failed:[url]}``."""
+    from content_pipeline.research.curation import validate_source_link
+
     ai = paper.get("ai") or {}
-    for it in [ai.get("headliner")] + (ai.get("subarticles") or []) + \
-              (ai.get("shorts") or []) + (paper.get("fun") or []):
-        u = (it or {}).get("source_url")
-        if u:
-            urls.append(u)
-    failed = []
-    with httpx.Client(timeout=15, follow_redirects=True) as c:
-        for u in urls:
-            try:
-                r = c.head(u)
-                if r.status_code >= 400:
-                    r = c.get(u)  # some hosts reject HEAD
-                if r.status_code >= 400:
-                    failed.append(u)
-            except Exception:  # noqa: BLE001
-                failed.append(u)
+    items = [ai.get("headliner"), *(ai.get("subarticles") or []),
+             *(ai.get("shorts") or []), *(paper.get("fun") or [])]
+    urls = [u for it in items if (u := (it or {}).get("source_url"))]
+    failed = [u for u in urls if not validate_source_link(u, fetch=fetch)]
     return {"all_ok": not failed, "checked": len(urls), "failed": failed}
 
 
