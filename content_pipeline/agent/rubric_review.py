@@ -7,58 +7,35 @@ This replaces the old two-VM (openclaw + hermes) approval consensus with a singl
 LLM judge that grades the finished edition against an explicit rubric, run via
 ``content_cfg.judge_model``.
 
-THE JUDGE IS THE WRITER'S qwen3.6-35b (June 2026, INTERIM) — local and reliable (it
-drives the RubricMiddleware reviewer-agent loop to a clean stop), but NOT independent
-(the author marks its own homework). Making the judge independent is the goal; it is
-paused on a model problem, recorded here so it can be fixed offline.
+THE JUDGE IS ``m3/mlx/gemma-4-12b-it-nothink`` — an INDEPENDENT, different-family
+(Google Gemma 4) local model, not the writer's own qwen3.6-35b (no more marking its
+own homework). Set ``content_cfg.judge_model`` / the ``JUDGE_MODEL`` env var to swap
+it; any LiteLLM route that returns a real ``tool_calls`` field works.
 
-Why not gemma-4-12b-it-nothink (the intended independent judge)
---------------------------------------------------------------
-Gemma 4 12B is a *different* family from the writer (so it WOULD be a genuine second
-opinion) and on the ``-nothink`` route tool-calls cleanly and fast PER CALL (~1s, no
-reasoning preamble). BUT ``RubricMiddleware`` runs a reviewer **deep-agent loop**, and a
-12B does not terminate it: on a real edition one ``grade_edition`` invoke made **490+ LLM
-calls with no verdict** (a frontier model or the 35B writer replies once and stops). That
-would also hang the autonomous run past its task timeout, so the judge is reverted to
-qwen3.6-35b until the gemma loop is fixed or a capable (~30B+) non-writer local route
-exists. (The reasoning-ENABLED ``m3/mlx/gemma-4-12b-it`` is worse still — a multi-thousand
--token reasoning stream on top of the loop.)
+How the grade runs — ONE structured tool call, not a deep-agent loop
+--------------------------------------------------------------------
+deepagents' :class:`RubricMiddleware` grades via a reviewer **deep-agent loop** + a
+grader sub-agent. A frontier model or the 35B writer drove that to a clean stop, but
+a ~12B open model could not: the reviewer deep-agent ships write_todos / task /
+filesystem / execute tools and a ``recursion_limit=9999``, and gemma engaged that
+machinery and looped hundreds of times instead of replying once; even past it, the
+grader re-called its discriminated-union structured tool (``CriterionPass |
+CriterionFail``) forever because a 12B can't satisfy that schema. One real
+``grade_edition`` made 490+ LLM calls with no verdict and would hang the autonomous
+05:00 run past its task cap.
 
-Switching the judge
--------------------
-NO code change is needed — set the ``JUDGE_MODEL`` env var (on the host, in
-``/etc/craicgpt.env``) to another LiteLLM route::
+So we DON'T run the deepagents loop. :func:`_grade_once` makes **one forced
+``submit_grade`` tool call** against a FLAT schema (:data:`_GRADE_TOOL`: a ``result``
+enum + a one-sentence ``explanation``) that gemma — and any tool-caller — produces
+reliably in a single ~1s call. ``satisfied`` → APPROVE; ``needs_revision`` → HOLD
+with the explanation as the reason. If the local judge returns no usable tool call
+(or is unreachable), :func:`grade_edition` falls back ONCE to the frontier, then
+HOLDs — we never auto-publish an edition no judge could read.
 
-    JUDGE_MODEL=claude-sonnet-4-6             # frontier second opinion
-    JUDGE_MODEL=m3/mlx/<other-route>         # any other local route that tool-calls
-
-First confirm the candidate returns a REAL ``tool_calls`` field (not ``<tool_call>``
-text) — the deepagents grader silently retries/fails otherwise::
-
-    curl -s "$LITELLM_BASE_URL/chat/completions" -H 'Authorization: Bearer sk-no-key-required' \
-      -H 'Content-Type: application/json' -d '{"model":"<route>","tool_choice":"auto",
-      "messages":[{"role":"user","content":"call the verdict tool with PASS"}],
-      "tools":[{"type":"function","function":{"name":"verdict","parameters":{"type":"object",
-      "properties":{"result":{"type":"string"}}}}}]}' \
-      | python3 -c 'import sys,json; print(json.load(sys.stdin)["choices"][0]["message"].get("tool_calls"))'
-
-Non-null ``tool_calls`` is necessary but NOT sufficient. Also confirm the candidate
-**terminates the grader loop in a handful of calls** — run ``grade_edition`` on a real
-edition and check it returns ``judge_model == <route>`` after a few LLM calls, not
-hundreds (the gemma-12b failure above). ``None`` / ``<tool_call>`` text, OR a runaway
-loop, → the grade stalls and the frontier fallback carries it.
-
-TUTORIAL: Rubrics for deep agents
----------------------------------
-deepagents' :class:`RubricMiddleware` lets you declare *what "good" looks like* as
-a checklist and have a separate **grader sub-agent** score an agent's work against
-it (https://docs.langchain.com/oss/python/deepagents/rubric). Normally it loops the
-*authoring* agent until the grader is satisfied. Here the edition is already written
-deterministically by the harness, so we use it as a **one-shot judge**
-(``max_iterations=1``): a tiny reviewer agent is handed the compiled edition, the
-grader evaluates the transcript against :data:`EDITION_RUBRIC`, and we read the
-structured :class:`RubricEvaluation` back via the ``on_evaluation`` callback —
-``satisfied`` → APPROVE, anything else → HOLD with the failing criteria as reasons.
+Validate a candidate route before switching ``JUDGE_MODEL``: run ``grade_edition`` on
+a real edition and confirm it returns ``judge_model == <route>`` (not the frontier
+fallback) in a single-digit number of calls and a few seconds, and that it HOLDs a
+deliberately-bad edition (empty AI desk / unattributed impersonation).
 
 The deterministic structural check + browser-UA link-check still run host-side in
 the publish gate (see :mod:`content_pipeline.agent.review` / ``cli`` ): the rubric
@@ -95,21 +72,6 @@ EDITION_RUBRIC = (
     "what actually happened and cite a real source (rather than being blank or pure "
     "vague hype).\n"
 )
-
-# The reviewer agent's own instructions. It only needs to *receive* the edition so
-# it lands in the transcript the grader reads; the grader (its own sub-agent) does
-# the actual scoring against the rubric.
-_REVIEWER_PROMPT = (
-    "You are CraicGPT's duty sub-editor. You are handed today's compiled edition. "
-    "Read it carefully and reply in ONE short sentence on whether it looks fit to "
-    "print. Do not call any tools."
-)
-
-_REVIEW_TASK = (
-    "Here is today's CraicGPT edition for review. Judge whether it is fit to "
-    "publish.\n\n"
-)
-
 
 def _host(url: str) -> str:
     u = url or ""
@@ -186,27 +148,83 @@ def _verdict_from_evaluation(ev: Optional[dict]) -> dict:
     return {"verdict": "HOLD", "result": result, "reasons": reasons, "explanation": explanation}
 
 
-def _grade_once(model_name: str, view: str) -> Optional[dict]:
-    """Run ONE rubric grading pass on ``model_name``; return the RubricEvaluation
-    dict (or None on failure). Builds a minimal reviewer deep agent whose only job
-    is to receive the edition so the grader can score the transcript."""
-    from deepagents import RubricMiddleware, create_deep_agent
+# A FLAT grading tool — the publish-gate verdict in one structured tool call.
+# deepagents' RubricMiddleware grades via a deep-agent loop whose grader emits a
+# discriminated-union schema (CriterionPass | CriterionFail). A frontier model or
+# the 35B writer drives that to a clean stop, but a ~12B open model can't: the
+# reviewer deep-agent (write_todos/task/fs/execute + recursion_limit=9999) loops
+# instead of replying once, and even past it the grader re-calls its structured
+# tool forever because it can't satisfy the union. So we DON'T run the deepagents
+# loop — we grade with one forced tool call against this flat schema, which gemma
+# (and any tool-caller) produces reliably in a single ~1s call.
+_GRADE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_grade",
+        "description": "Submit the publish-gate grade for today's edition.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "type": "string",
+                    "enum": ["satisfied", "needs_revision"],
+                    "description": "satisfied = every rubric criterion passes; "
+                                   "needs_revision = at least one fails.",
+                },
+                # Two flat fields only — a small (~12B) model reliably fills strings
+                # + an enum, but mangles array-of-string fields in tool args (returns
+                # a truncated string like '[__Q1__'). The explanation must NAME each
+                # failing criterion, so it carries the gap detail without an array.
+                "explanation": {
+                    "type": "string",
+                    "description": "One sentence. If needs_revision, name EACH failing "
+                                   "criterion and what makes it unsafe/unfair to "
+                                   "publish (e.g. 'empty AI desk; unattributed "
+                                   "impersonation of a real person').",
+                },
+            },
+            "required": ["result", "explanation"],
+        },
+    },
+}
 
-    captured: list[dict] = []
+_GRADER_SYSTEM = (
+    "You are CraicGPT's publish-gate grader. Decide whether today's edition is SAFE "
+    "and FAIR to publish by checking it against EVERY criterion in the rubric. This "
+    "is a publish gate, not a style review: pass plain or dry prose — only fail an "
+    "item for something that makes it unsafe or unfair (harm, defamation, "
+    "unattributed impersonation, an empty AI desk). Call submit_grade exactly once."
+)
+
+
+def _grade_once(model_name: str, view: str) -> Optional[dict]:
+    """ONE structured grading call → a RubricEvaluation-shaped dict (or None).
+
+    A single forced ``submit_grade`` tool call against :data:`_GRADE_TOOL`, NOT a
+    deepagents reviewer/grader loop (which a ~12B can't terminate — see the note on
+    :data:`_GRADE_TOOL`). Returns the same ``{result, criteria, explanation}`` shape
+    :func:`_verdict_from_evaluation` reads, so the verdict mapping + frontier
+    fallback are unchanged. Works for the 35B and the frontier fallback too."""
     llm = get_litellm_llm(model_name, temperature=0)
-    middleware = RubricMiddleware(
-        model=llm,
-        max_iterations=1,  # one-shot judge: the harness already wrote the edition
-        on_evaluation=lambda e: captured.append(dict(e)),
+    user = (f"<rubric>\n{EDITION_RUBRIC}</rubric>\n\n"
+            f"<edition>\n{view}\n</edition>\n\n"
+            "Grade this edition against the rubric, then call submit_grade.")
+    resp = llm.bind_tools([_GRADE_TOOL], tool_choice="required").invoke(
+        [{"role": "system", "content": _GRADER_SYSTEM},
+         {"role": "user", "content": user}]
     )
-    reviewer = create_deep_agent(
-        model=llm, system_prompt=_REVIEWER_PROMPT, middleware=[middleware],
-    )
-    reviewer.invoke({
-        "messages": [{"role": "user", "content": _REVIEW_TASK + view}],
-        "rubric": EDITION_RUBRIC,
-    })
-    return captured[-1] if captured else None
+    calls = getattr(resp, "tool_calls", None) or []
+    grade = next((c for c in calls if c.get("name") == "submit_grade"), None)
+    if not grade:
+        return None  # no usable tool call → grade_edition falls back to the frontier
+    args = grade.get("args") or {}
+    # No per-criterion `criteria` list — the explanation carries the gap detail, and
+    # `_verdict_from_evaluation` falls back to the explanation for the HOLD reason.
+    return {
+        "result": args.get("result") or "needs_revision",
+        "criteria": [],
+        "explanation": (args.get("explanation") or "").strip(),
+    }
 
 
 def grade_edition(paper: dict, *, judge_model: Optional[str] = None,
