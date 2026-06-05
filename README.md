@@ -79,7 +79,7 @@ flowchart TD
 
     subgraph Fleet["grazlab LLM fleet (via LiteLLM proxy)"]
         QWEN["Qwen3.6 — DGX Spark vLLM — research + writing"]
-        GEMMA["gemma-4-12b-it — M3 Ultra — independent rubric judge"]
+        GEMMA["gemma-4-12b-it-nothink — M3 Ultra — independent rubric judge"]
         FLUX["FLUX.2 Klein — M3 Ultra — images"]
     end
 
@@ -170,7 +170,7 @@ sequenceDiagram
 | Stage | Where | What |
 |------|-------|------|
 | Generate | Conductor `craicgpt_daily_0500` @ 05:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + images → compile v3 |
-| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6 (research + writing), **gemma-4-12b-it (rubric judge)**, FLUX.2 Klein (images) |
+| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6 (research + writing), **gemma-4-12b-it-nothink (rubric judge)**, FLUX.2 Klein (images) |
 | Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent model** (`gemma-4-12b-it`) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
 | Notify | engine notifier on `.75` → **both agents' Telegram bots** | 📰 on draft generated (with the rubric verdict), ✅ on published, ✋ on HELD (with reasons) — once per edition |
@@ -266,8 +266,9 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
 
 - **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS,
   and the **`RubricMiddleware`** edition judge.
-- **Qwen3.6** (research + writing) + **gemma-4-12b-it** (independent rubric judge) +
-  **FLUX.2 Klein** (images) via **LiteLLM** on a DGX Spark + M3 Ultra homelab fleet.
+- **Qwen3.6** (research + writing) + **gemma-4-12b-it-nothink** (independent rubric judge —
+  the reasoning-disabled route) + **FLUX.2 Klein** (images) via **LiteLLM** on a DGX Spark
+  + M3 Ultra homelab fleet.
 - **Orkes Conductor OSS** on the engine host — the scheduler + single console for
   the daily flow: `craicgpt_daily_0500` (05:00 generate + judge) and
   `craicgpt_publish_gate_poll` (06–08 UTC idempotent publish gate), decoupled via
