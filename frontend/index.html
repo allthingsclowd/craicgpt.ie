@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="static_assets/style-v3.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,700;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="icon" href="favicon.ico">
 </head>
 
@@ -30,12 +30,19 @@
     </div>
 
     <div class="masthead-main">
-      <img src="static_assets/images/CraicGPT_240h.png" alt="CraicGPT logo"
-           class="masthead-logo masthead-logo--left">
-      <div class="masthead-title-block">
-        <h1 class="masthead-title">THE CRAIC GAZETTE</h1>
-        <p class="masthead-subtitle">All the craic that's fit to hallucinate</p>
-      </div>
+      <h1 class="masthead-wordmark">
+        <svg viewBox="0 0 760 104" role="img" aria-label="The Craic Gazette" xmlns="http://www.w3.org/2000/svg">
+          <!-- The "ai" in crAIc is picked out in the accent red — the wink that
+               this is an AI paper (CraicGPT). It's the masthead's one red moment. -->
+          <text x="380" y="70" text-anchor="middle" fill="currentColor"
+                font-family="'Source Serif 4', Georgia, 'Times New Roman', serif"
+                font-size="72" font-weight="600" letter-spacing="0.5">The Cr<tspan fill="#B23A36">ai</tspan>c Gazette</text>
+          <text x="380" y="96" text-anchor="middle" fill="#565650"
+                font-family="'Archivo', Arial, sans-serif"
+                font-size="13" font-weight="700" letter-spacing="3.2">IRELAND'S AI NEWSPAPER · EST. 2026</text>
+        </svg>
+      </h1>
+      <p class="masthead-subtitle">All the craic that's fit to hallucinate</p>
     </div>
 
     <div class="masthead-dateline">
