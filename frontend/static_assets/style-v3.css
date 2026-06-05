@@ -40,25 +40,23 @@
 
 .card {
   background: var(--white);
-  border: var(--border-mid);
-  border-top: 6px solid var(--ink);
-  padding: 1rem 1.1rem 1.2rem;
+  border: 1px solid var(--hairline);
+  border-top: 2px solid var(--ink);
+  padding: 1.1rem 1.2rem 1.3rem;
   border-radius: var(--radius);
-  /* Lift cards off the newsprint background so the gaps read as clean gutters. */
-  box-shadow: 3px 3px 0 rgba(26, 26, 26, 0.12);
 }
-.card--ai   { border-top-color: var(--red); }
-.card--fun  { border-top-color: var(--flash-dark); background: #fffdf5; }
-.card--ad   { border-style: dashed; background: var(--flash); }
-.card--lead { border-top-width: 10px; padding: 1.4rem 1.6rem; }
+.card--ai   { border-top-color: var(--accent); }   /* AI desk: the one red marker */
+.card--fun  { border-top-color: var(--ink); background: var(--white); }
+.card--ad   { border-style: dashed; border-color: var(--hairline); background: var(--paper-2); }
+.card--lead { border-top-width: 3px; padding: 1.5rem 1.7rem; }
 
 /* ── The Editor's Brief band (full width, top of the page) ─────────────────── */
-.editors-brief { border-top: 10px solid var(--red); padding: 1.4rem 1.6rem; }
+.editors-brief { border-top: 3px solid var(--accent); padding: 1.5rem 1.7rem; }
 .editors-brief .headline { font-size: clamp(1.4rem, 2.4vw, 1.9rem); }
 .brief-head { display: flex; align-items: center; gap: .8rem; margin-bottom: .5rem; }
 .brief-portrait {
   width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
-  border: 2px solid var(--ink); flex: none;
+  border: 1px solid var(--hairline); flex: none;
 }
 .brief-byline { font-family: var(--font-ui); font-weight: 800; font-size: .9rem; color: var(--red-dark); }
 .editors-brief .body { columns: 2; column-gap: 2rem; }
@@ -66,11 +64,10 @@
 
 /* ── About the Editor page (about.html) ────────────────────────────────────── */
 .about-page { max-width: 820px; margin: 1.5rem auto; padding: 0 1rem; }
-.about-card { border-top: 10px solid var(--red); padding: 1.6rem 1.8rem; }
+.about-card { border-top: 3px solid var(--accent); padding: 1.6rem 1.8rem; }
 .about-portrait {
   float: right; width: 180px; height: 180px; object-fit: cover; border-radius: 50%;
-  border: 3px solid var(--ink); margin: 0 0 1rem 1.5rem;
-  box-shadow: 3px 3px 0 rgba(26, 26, 26, 0.15);
+  border: 1px solid var(--hairline); margin: 0 0 1rem 1.5rem;
 }
 .about-card .headline { font-size: clamp(1.6rem, 3vw, 2.4rem); }
 .about-card .body { font-size: 1rem; line-height: 1.6; }
@@ -85,30 +82,29 @@
   display: inline-block;
   font-family: var(--font-ui);
   font-weight: 800;
-  font-size: .66rem;
-  letter-spacing: .08em;
+  font-size: .64rem;
+  letter-spacing: .14em;
   text-transform: uppercase;
-  padding: .2rem .5rem;
-  margin-bottom: .55rem;
-  color: var(--white);
-  background: var(--ink);
+  margin-bottom: .6rem;
+  color: var(--ink-soft);     /* quiet small-caps label, not a filled pill */
 }
-.kicker--red  { background: var(--red); }
-.kicker--gold { background: var(--flash-dark); color: var(--ink); }
+.kicker--red  { color: var(--accent); }   /* the day's one red moment per card */
+.kicker--gold { color: var(--ink); }
 
 .headline {
   font-family: var(--font-headline);
   font-weight: 700;
-  line-height: 1.08;
+  line-height: 1.1;
+  letter-spacing: -0.005em;
   color: var(--ink);
   margin: 0 0 .5rem;
-  font-size: 1.35rem;
+  font-size: 1.3rem;
 }
-.headline--lead { font-size: clamp(2rem, 4.5vw, 3.4rem); }
-.card--short .headline { font-size: 1.1rem; }
+.headline--lead { font-size: clamp(2rem, 4.5vw, 3.3rem); font-weight: 800; line-height: 1.02; letter-spacing: -0.015em; }
+.card--short .headline { font-size: 1.08rem; }
 
 .standfirst {
-  font-family: var(--font-headline);
+  font-family: var(--font-body);   /* serif italic deck under the sans headline */
   font-style: italic;
   font-size: 1.1rem;
   color: var(--ink-soft);
@@ -150,9 +146,9 @@
   gap: .5rem 1rem;
   align-items: baseline;
 }
-.source-link { font-family: var(--font-ui); font-size: .72rem; font-weight: 700; color: var(--gemini); text-decoration: none; }
-.source-link:hover { text-decoration: underline; }
-.model-note { font-family: var(--font-ui); font-size: .68rem; color: var(--local); opacity: .85; }
+.source-link { font-family: var(--font-ui); font-size: .72rem; font-weight: 700; color: var(--ink-soft); text-decoration: none; }
+.source-link:hover { color: var(--accent); text-decoration: underline; }
+.model-note { font-family: var(--font-ui); font-size: .68rem; color: var(--ink-soft); opacity: .85; }
 .disclaimer {
   flex-basis: 100%;
   font-family: var(--font-ui);
@@ -166,26 +162,28 @@
 /* ── Newsletter band (inert v1) ───────────────────────────────────────────── */
 .newsletter {
   max-width: var(--page-width);
-  margin: 1.5rem auto;
-  padding: 1.5rem 1rem;
+  margin: 2rem auto;
+  padding: 2rem 1rem;
   text-align: center;
-  background: var(--ink);
-  color: var(--newsprint);
+  background: var(--paper-2);
+  color: var(--ink);
+  border: 1px solid var(--hairline);
   border-radius: var(--radius);
 }
-.newsletter-title { font-family: var(--font-display); font-size: 1.6rem; letter-spacing: .02em; margin: 0; }
-.newsletter-sub { font-family: var(--font-body); opacity: .8; margin: .3rem 0 1rem; }
+.newsletter-title { font-family: var(--font-display); font-weight: 800; font-size: 1.5rem; letter-spacing: .01em; margin: 0; }
+.newsletter-sub { font-family: var(--font-body); color: var(--ink-soft); margin: .35rem 0 1.1rem; }
 .newsletter-form { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; }
-.newsletter-input { font-family: var(--font-ui); padding: .55rem .8rem; border: none; border-radius: var(--radius); min-width: 240px; }
-.newsletter-btn { font-family: var(--font-ui); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: .55rem 1.2rem; border: none; border-radius: var(--radius); background: var(--flash); color: var(--ink); cursor: pointer; }
-.newsletter-msg { font-family: var(--font-ui); font-size: .8rem; color: var(--flash); margin: .7rem 0 0; min-height: 1em; }
+.newsletter-input { font-family: var(--font-ui); padding: .55rem .8rem; border: 1px solid var(--hairline); border-radius: var(--radius); min-width: 240px; background: var(--white); color: var(--ink); }
+.newsletter-btn { font-family: var(--font-ui); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: .55rem 1.2rem; border: none; border-radius: var(--radius); background: var(--ink); color: var(--paper); cursor: pointer; transition: background .15s ease; }
+.newsletter-btn:hover { background: var(--accent); }
+.newsletter-msg { font-family: var(--font-ui); font-size: .8rem; color: var(--accent); margin: .7rem 0 0; min-height: 1em; }
 
 /* ── Under the Hood — agent visualiser ────────────────────────────────────── */
 /* The drawer is dark (style.css), so force readable dark text on the light chips
    and inline code we add here — otherwise it's light-on-light and unreadable. */
-.hood-intro { font-family: var(--font-body); font-size: .92rem; line-height: 1.55; max-width: 72ch; margin: 0 auto 1rem; color: var(--newsprint); }
-.hood-intro code { background: var(--flash); color: var(--ink); padding: .05em .35em; border-radius: 2px; font-weight: 700; }
-.hood-intro strong { color: var(--flash); }
+.hood-intro { font-family: var(--font-body); font-size: .95rem; line-height: 1.6; max-width: 72ch; margin: 0 auto 1.1rem; color: var(--paper); }
+.hood-intro code { background: rgba(255,255,255,0.14); color: var(--paper); padding: .05em .4em; border-radius: 2px; font-weight: 700; }
+.hood-intro strong { color: var(--accent); }
 .hood-stats { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin-bottom: 1rem; }
 .hood-stat { font-family: var(--font-ui); font-size: .78rem; font-weight: 700; background: var(--white); color: var(--ink); border-radius: 999px; padding: .3rem .8rem; }
 
@@ -198,9 +196,9 @@
 .trace-row--subagent   { border-left-color: var(--claude); }
 .trace-row--tool       { border-left-color: var(--gemini); }
 .trace-row--vfs        { border-left-color: var(--ink-soft); }
-.trace-row--structured { border-left-color: var(--flash); }
+.trace-row--structured { border-left-color: #c2a76b; }   /* muted gold */
 .trace-row--model      { border-left-color: var(--local); }
-.trace-row--fallback   { border-left-color: var(--flash-dark); }
+.trace-row--fallback   { border-left-color: var(--ink-soft); }
 .trace-icon { font-size: 1rem; }
 .trace-name { font-family: var(--font-ui); font-weight: 800; font-size: .8rem; }
 .trace-blurb { display: block; font-family: var(--font-ui); font-size: .68rem; font-style: italic; color: var(--ink-soft); margin: .1rem 0 .25rem; }
@@ -224,6 +222,3 @@
   cursor: pointer;
 }
 .version-select:hover { color: var(--ink); border-color: var(--ink); }
-
-/* The v3 body retires the comparator chrome if any leaks through. */
-body.v3 .model-bar, body.v3 .compare-panel { display: none; }

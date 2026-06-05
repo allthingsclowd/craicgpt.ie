@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Craic Gazette — masthead wordmark (Modern Mono).
+  A quiet serif wordmark in which the "ai" of crAIc is picked out in the accent
+  red — the wink that this is an AI paper (CraicGPT). It's the brand's one red
+  moment. Self-contained (web-safe serif stack) so it renders identically as an
+  <img>, favicon, or social asset. The front page inlines a currentColor copy of
+  this so it can inherit the page's Source Serif web font and theme colour.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 104" role="img" aria-label="The Craic Gazette">
+  <text x="380" y="70" text-anchor="middle" fill="#1A1A1A"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="72" font-weight="600" letter-spacing="0.5">The Cr<tspan fill="#B23A36">ai</tspan>c Gazette</text>
+  <text x="380" y="96" text-anchor="middle" fill="#565650"
+        font-family="Arial, Helvetica, sans-serif"
+        font-size="13" font-weight="700" letter-spacing="3.2">IRELAND'S AI NEWSPAPER · EST. 2026</text>
+</svg>
