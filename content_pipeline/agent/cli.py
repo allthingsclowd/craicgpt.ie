@@ -132,6 +132,21 @@ def build_parser() -> argparse.ArgumentParser:
                        choices=["openclaw", "hermes", "both"],
                        help="which bot(s) to send via (default: both)")
 
+    p_nar = sub.add_parser(
+        "narrate",
+        help="Generate per-article audio + the rubric-gated dad↔son podcast for an edition")
+    p_nar.add_argument("--date", required=True)
+    p_nar.add_argument("--source", help="explicit edition JSON path/URL (default: CDN by --prefix)")
+    p_nar.add_argument("--prefix", default="preview", choices=["preview", "content"],
+                       help="which prefix to load the edition from (default: preview)")
+    p_nar.add_argument("--limit", type=int, default=None,
+                       help="cap the number of articles narrated (for quick test runs)")
+    p_nar.add_argument("--publish", action="store_true",
+                       help="upload the audio + enriched edition JSON back to S3")
+    p_nar.add_argument("--live", action="store_true",
+                       help="with --publish, write to content/ (default: preview/)")
+    p_nar.add_argument("--out", help="also write the enriched edition JSON to this local path")
+
     return parser
 
 
@@ -359,6 +374,41 @@ def cmd_validate(args) -> int:
                 f"{len(res['link_check']['failed'])} source link(s) unreachable")
     print(json.dumps(res, indent=2, ensure_ascii=False))
     return 0 if res["valid"] else 1
+
+
+def cmd_narrate(args) -> int:
+    """Narrate an edition: per-article audio + the rubric-gated dad↔son podcast.
+
+    Loads the (validated) edition, enriches it with audio via the narration step, and —
+    with ``--publish`` — uploads the audio + the audio-enriched JSON to S3 (``preview/``
+    unless ``--live``). TTS runs on the M3; this verb runs on .75 or the M3, never the laptop.
+    """
+    from content_pipeline.generate.narration import narrate_paper
+
+    prefix = getattr(args, "prefix", "preview") or "preview"
+    paper = _load_edition(args.date, args.source, prefix=prefix)
+    paper = narrate_paper(paper, limit=getattr(args, "limit", None))
+
+    ai = paper.get("ai") or {}
+    arts = [ai.get("headliner"), *(ai.get("subarticles") or []),
+            *(ai.get("shorts") or []), *(paper.get("fun") or [])]
+    summary = {
+        "date": args.date,
+        "articles_narrated": sum(1 for a in arts if a and a.get("audio_url")),
+        "podcast": bool(paper.get("podcast")),
+        "podcast_hold": (paper.get("edition") or {}).get("podcast_hold"),
+    }
+    if getattr(args, "out", None):
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(paper, fh, ensure_ascii=False, indent=2)
+        summary["out"] = args.out
+    if getattr(args, "publish", False):
+        from content_pipeline.agent.publish import publish_paper
+        live = getattr(args, "live", False)
+        summary["published_key"] = publish_paper(paper, args.date, live=live)
+        summary["live"] = live
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0
 
 
 def _check_links(paper: dict, *, fetch=None) -> dict:
@@ -725,6 +775,8 @@ def main(argv=None) -> int:
         return cmd_syndicate(args)
     if args.command == "validate":
         return cmd_validate(args)
+    if args.command == "narrate":
+        return cmd_narrate(args)
     if args.command == "verdict":
         return cmd_verdict(args)
     if args.command == "consensus":

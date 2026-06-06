@@ -155,6 +155,26 @@ def publish_paper(
         item["image_url"] = f"{site}/{img_key}"
         logger.info("[publish] image → %s", img_key)
 
+    # 1b) Upload any locally-generated audio (per-article readings + the daily podcast)
+    #     and rewrite their URLs to the CDN — same pattern as images. NB: shorts carry
+    #     audio (they have no image), and the podcast lives at paper["podcast"].
+    audio_items = [ai.get("headliner"), *(ai.get("subarticles") or []),
+                   *(ai.get("shorts") or []), *(paper.get("fun") or []), paper.get("podcast")]
+    for item in audio_items:
+        if not item:
+            continue
+        url = item.get("audio_url")
+        if not _is_local_path(url):
+            continue
+        path = url[len("file://"):] if url.startswith("file://") else url
+        ctype = "audio/wav" if path.lower().endswith(".wav") else "audio/mpeg"
+        aud_key = s3_key(date_iso, prefix, f"audio/{os.path.basename(path)}")
+        with open(path, "rb") as fh:
+            s3.put_object(Bucket=bucket, Key=aud_key, Body=fh.read(),
+                          ContentType=ctype, CacheControl="public, max-age=86400")
+        item["audio_url"] = f"{site}/{aud_key}"
+        logger.info("[publish] audio → %s", aud_key)
+
     # 2) Upload the edition JSON.
     key = s3_key(date_iso, prefix)
     body = json.dumps(paper, ensure_ascii=False, indent=2).encode("utf-8")

@@ -86,6 +86,52 @@ def test_publish_uploads_ai_lead_images_too(tmp_path):
     assert paper["fun"][0]["image_url"].startswith(pub)
 
 
+def test_publish_uploads_local_audio_and_rewrites_url(tmp_path):
+    """Per-article readings (incl. shorts) + the podcast audio upload under
+    <prefix>/audio/ and get rewritten to public CDN URLs, mirroring images."""
+    a_head = tmp_path / "graham-head.mp3"; a_head.write_bytes(b"ID3 head")
+    a_short = tmp_path / "graham-short.mp3"; a_short.write_bytes(b"ID3 short")
+    a_fun = tmp_path / "graham-fun.mp3"; a_fun.write_bytes(b"ID3 fun")
+    a_pod = tmp_path / "podcast.mp3"; a_pod.write_bytes(b"ID3 pod")
+    paper = {
+        "date": "2026-06-02",
+        "ai": {
+            "headliner": {"title": "H", "audio_url": str(a_head)},
+            "subarticles": [],
+            "shorts": [{"title": "S", "audio_url": str(a_short)}],
+        },
+        "fun": [{"title": "f0", "audio_url": str(a_fun)}],
+        "podcast": {"audio_url": str(a_pod), "transcript": "..."},
+        "layout": [], "context": {},
+    }
+    s3 = _FakeS3()
+    publish_paper(paper, "2026-06-02", live=True, s3=s3, bucket="b",
+                  site_base_url="https://craicgpt.ie")
+    aud_puts = [p for p in s3.puts if "/audio/" in p["Key"]]
+    assert len(aud_puts) == 4, "headliner + short + fun + podcast audio must upload"
+    assert all(p["ContentType"] == "audio/mpeg" for p in aud_puts)
+    pub = "https://craicgpt.ie/content/2026/06/02/audio/"
+    assert paper["ai"]["headliner"]["audio_url"].startswith(pub)
+    assert paper["ai"]["shorts"][0]["audio_url"].startswith(pub)
+    assert paper["fun"][0]["audio_url"].startswith(pub)
+    assert paper["podcast"]["audio_url"].startswith(pub)
+
+
+def test_publish_leaves_remote_audio_urls_untouched():
+    s3 = _FakeS3()
+    paper = {
+        "date": "2026-06-02",
+        "ai": {"headliner": {"title": "H", "audio_url": "https://cdn/x.mp3"},
+               "subarticles": [], "shorts": []},
+        "fun": [],
+        "podcast": {"audio_url": "https://cdn/p.mp3"},
+        "layout": [], "context": {},
+    }
+    publish_paper(paper, "2026-06-02", live=False, s3=s3, bucket="b")
+    assert not [p for p in s3.puts if "/audio/" in p["Key"]]
+    assert paper["podcast"]["audio_url"] == "https://cdn/p.mp3"
+
+
 def test_publish_live_uses_content_prefix(tmp_path):
     s3 = _FakeS3()
     paper = _paper_with_local_image(tmp_path)
