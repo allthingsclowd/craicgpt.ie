@@ -1,0 +1,126 @@
+"""The narration orchestrator: per-article audio + the gated dad↔son podcast.
+
+All heavy deps (TTS, banter LLM, rubric judge) are injected, so this runs offline and
+tests the wiring + the gate behaviour, not the models.
+"""
+from content_pipeline.generate import narration
+
+
+def _sample():
+    return {
+        "ai": {
+            "headliner": {"title": "Long Context", "body": "A lab gave its model a big memory.",
+                          "source_url": "http://x"},
+            "subarticles": [{"title": "Chips", "body": "A chip story.", "source_url": "http://y"}],
+            "shorts": [{"title": "Short", "body": "A brief.", "source_url": "http://z"}],
+        },
+        "fun": [{"title": "Foil Arms", "body": "A sketch.", "source": "Foil Arms and Hog",
+                 "source_url": "http://yt"}],
+        "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0"],
+    }
+
+
+def _fake_article(item, *, voice="graham", **kw):
+    return (f"/tmp/{voice}-{item['title']}.mp3", "tts-model")
+
+
+def _fake_build(paper, **kw):
+    return {"turns": [("graham", "Welcome."), ("tom", "Howya!")],
+            "script_text": "GRAHAM: Welcome.\nTOM: Howya!",
+            "banter_text": "TOM: Howya!", "refs": ["ai.headliner"]}
+
+
+def _approve(text, **kw):
+    return {"verdict": "APPROVE", "reasons": [], "judge_model": "judge"}
+
+
+def _fake_render(turns, **kw):
+    return ("/tmp/podcast.mp3", "tts-model")
+
+
+def test_sets_audio_url_on_every_article():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["ai"]["headliner"]["audio_url"] == "/tmp/graham-Long Context.mp3"
+    assert paper["ai"]["subarticles"][0]["audio_url"].endswith("Chips.mp3")
+    assert paper["ai"]["shorts"][0]["audio_url"].endswith("Short.mp3")
+    assert paper["fun"][0]["audio_url"].endswith("Foil Arms.mp3")
+    assert paper["ai"]["headliner"]["_audio_voice"] == "graham"
+
+
+def test_attaches_podcast_when_banter_passes_the_gate():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["podcast"]["audio_url"] == "/tmp/podcast.mp3"
+    assert "GRAHAM: Welcome." in paper["podcast"]["transcript"]
+    assert paper["podcast"]["rubric"]["verdict"] == "APPROVE"
+
+
+def test_holds_podcast_when_banter_fails_the_gate():
+    def _hold(text, **kw):
+        return {"verdict": "HOLD", "reasons": ["too cruel"], "judge_model": "judge"}
+
+    rendered = []
+
+    def _render_spy(turns, **kw):
+        rendered.append(turns)
+        return ("/tmp/podcast.mp3", "tts-model")
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_hold, render_podcast=_render_spy)
+    assert paper["podcast"] is None
+    assert rendered == []  # never rendered the audio for held banter
+    assert "too cruel" in paper["edition"]["podcast_hold"]
+
+
+def test_per_article_audio_failure_is_soft():
+    def _flaky(item, *, voice="graham", **kw):
+        if item["title"] == "Chips":
+            raise RuntimeError("tts down")
+        return (f"/tmp/{item['title']}.mp3", "tts-model")
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_flaky, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["ai"]["headliner"]["audio_url"].endswith("Long Context.mp3")
+    assert paper["ai"]["subarticles"][0]["audio_url"] is None  # failed one is soft-null
+
+
+def test_no_banter_skips_the_gate_but_still_renders():
+    def _build_no_banter(paper, **kw):
+        return {"turns": [("graham", "Just readings.")], "script_text": "GRAHAM: Just readings.",
+                "banter_text": "", "refs": []}
+
+    graded = []
+
+    def _grade_spy(text, **kw):
+        graded.append(text)
+        return {"verdict": "APPROVE", "reasons": [], "judge_model": "j"}
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_build_no_banter,
+        grade=_grade_spy, render_podcast=_fake_render)
+    assert graded == []  # nothing to gate
+    assert paper["podcast"]["audio_url"] == "/tmp/podcast.mp3"
+
+
+def test_records_audio_and_podcast_trace_events():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    kinds = [e["kind"] for e in paper["context"]["agent_trace"]]
+    assert "audio" in kinds and "podcast" in kinds
+
+
+def test_held_podcast_is_traced_as_held():
+    def _hold(text, **kw):
+        return {"verdict": "HOLD", "reasons": ["too cruel"], "judge_model": "j"}
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_hold, render_podcast=_fake_render)
+    pod = [e for e in paper["context"]["agent_trace"] if e["kind"] == "podcast"]
+    assert pod and "held" in pod[0]["name"].lower()
