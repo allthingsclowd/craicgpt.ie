@@ -1,7 +1,7 @@
 """
 content_pipeline/generate/images.py
 ====================================
-FLUX image generation via the grazlab LiteLLM proxy.
+Image generation via the grazlab LiteLLM proxy (primary route + approved fallback).
 
 The proxy exposes the OpenAI **images** API (``/v1/images/generations``), so an
 image is one ``client.images.generate(...)`` call away — the same OpenAI-shaped
@@ -63,6 +63,7 @@ def generate_image(
     model: Optional[str] = None,
     size: str = "1024x1024",
     client: Optional[Any] = None,
+    fallback_model: Optional[str] = None,
 ) -> GeneratedImage:
     """Generate one image for ``prompt`` via the LiteLLM proxy.
 
@@ -77,18 +78,29 @@ def generate_image(
         A :class:`GeneratedImage` carrying the base64 PNG and the model used.
     """
     model = model or content_cfg.image_model
+    fb = fallback_model if fallback_model is not None else content_cfg.image_fallback_model
     cli = client if client is not None else _default_client()
-    logger.info("[images] generating model=%s size=%s", model, size)
-    # NB: do NOT pass response_format — the Ollama image routes reject it
-    # (LiteLLM 400 UnsupportedParamsError). Read whichever field comes back.
-    resp = cli.images.generate(model=model, prompt=prompt, size=size)
-    datum = resp.data[0]
-    return GeneratedImage(
-        model=model,
-        prompt=prompt,
-        b64_png=getattr(datum, "b64_json", None),
-        url=getattr(datum, "url", None),
-    )
+    # Try the primary route, then the approved fallback — a DIFFERENT M3 server (Ollama),
+    # so an mlx outage doesn't hold the whole edition on missing images. NB: do NOT pass
+    # response_format — the Ollama image routes reject it (LiteLLM 400).
+    routes = [model] + ([fb] if fb and fb != model else [])
+    last_exc: Optional[Exception] = None
+    for route in routes:
+        logger.info("[images] generating model=%s size=%s", route, size)
+        try:
+            resp = cli.images.generate(model=route, prompt=prompt, size=size)
+            datum = resp.data[0]
+            return GeneratedImage(
+                model=route,
+                prompt=prompt,
+                b64_png=getattr(datum, "b64_json", None),
+                url=getattr(datum, "url", None),
+            )
+        except Exception as exc:  # noqa: BLE001 — try the fallback route before giving up
+            logger.warning("[images] model=%s failed (%s)%s", route, exc,
+                           "; trying fallback" if route != routes[-1] else "")
+            last_exc = exc
+    raise last_exc if last_exc else RuntimeError("no image route attempted")
 
 
 def save_image(

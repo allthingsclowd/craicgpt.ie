@@ -47,6 +47,31 @@ def test_generate_image_returns_b64_and_records_model():
     assert "otter" in client.calls[0]["prompt"]
 
 
+def test_generate_image_falls_back_when_primary_route_fails():
+    # If the primary route errors (e.g. its backend is down), generate_image retries on
+    # the fallback route and records the one that actually produced the image.
+    b64 = base64.b64encode(b"PNGDATA").decode()
+
+    class _FlakyClient:
+        def __init__(self):
+            self.calls = []
+
+            class _Images:
+                def generate(_self, **kwargs):
+                    self.calls.append(kwargs["model"])
+                    if kwargs["model"] == "primary-down":
+                        raise RuntimeError("500 connection error")
+                    return _FakeResp(b64)
+
+            self.images = _Images()
+
+    client = _FlakyClient()
+    img = generate_image("x", client=client, model="primary-down", fallback_model="fallback-up")
+    assert img.b64_png == b64
+    assert img.model == "fallback-up"                         # the fallback produced it
+    assert client.calls == ["primary-down", "fallback-up"]    # primary tried first, then fallback
+
+
 def test_generate_image_decodes_to_bytes():
     b64 = base64.b64encode(b"PNGDATA").decode()
     img = generate_image("x", client=_FakeClient(b64), model="m")
