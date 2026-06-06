@@ -46,10 +46,12 @@ class ContentConfig:
     )
 
     # ── Model routes (names from grazlab catalog/models.yaml) ─────────────────
-    # The *writing* model — generates the article prose. Qwen3.6 per Graham.
+    # The *writing* model — generates the article prose. Qwen3.6 on the DGX (vLLM).
+    # The M3 mlx qwen3.6 route was never a reliable backend (500 connection errors), so
+    # the writer uses the DGX vLLM qwen3.6 — the same healthy route as the brain.
     write_model: str = field(
         default_factory=lambda: os.getenv(
-            "WRITE_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit"
+            "WRITE_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
         )
     )
     # The *research brain* — drives the agentic websearch/curation tool loop.
@@ -105,10 +107,13 @@ class ContentConfig:
     fun_feed_hours: int = field(
         default_factory=lambda: int(os.getenv("FUN_FEED_HOURS", "96"))
     )
-    # Frontier safety net. Used ONLY when a local call fails or fails validation.
+    # Fallback model — used ONLY when the primary local call fails or fails validation.
+    # NB: the grazlab LiteLLM proxy has NO frontier route (`claude-sonnet-4-6` was a DEAD
+    # route → HTTP 400), so the fallback is the OTHER box's qwen3.6 (M3 mlx) — a real
+    # cross-box safety net for when the DGX is down.
     fallback_text_model: str = field(
         default_factory=lambda: os.getenv(
-            "FALLBACK_TEXT_MODEL", "claude-sonnet-4-6"
+            "FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit"
         )
     )
     # The RUBRIC JUDGE — grades the finished edition (harmless / on-brand / attributed)
@@ -116,26 +121,24 @@ class ContentConfig:
     # consensus. The grader needs STRUCTURED TOOL-CALLING *and* a model strong enough to
     # drive the RubricMiddleware reviewer-agent loop to a clean stop.
     #
-    # INTERIM (June 2026): the judge is the WRITER's own qwen3.6-35b — local + reliable
-    # (it drives the agent loop and terminates), but NOT independent (the author marks its
-    # own homework). An independent local judge is the goal; that work is paused on a model
-    # problem:
+    # INTERIM (June 2026): the judge is the WRITER's qwen3.6 on the DGX (vLLM) — local +
+    # reliable (it drives the agent loop and terminates), but NOT independent (the author
+    # marks its own homework). An independent local judge is the goal; it is paused on a
+    # model problem:
     #   • gemma-4-12b-it-nothink (a *different* family → would be independent) tool-calls
     #     cleanly and fast PER CALL, but a 12B does NOT terminate the deepagents reviewer
     #     loop — on a real edition one grade_edition invoke made 490+ LLM calls with no
     #     verdict, which would also hang the autonomous run. Being fixed offline (repro +
     #     validation test in rubric_review.py "Switching the judge").
     #   • Path back to independent: the gemma fix, OR a capable non-writer LOCAL route
-    #     (~30B+ that drives the agent loop), OR JUDGE_MODEL=claude-sonnet-4-6 (frontier).
+    #     (~30B+ that drives the agent loop). NB the proxy has NO frontier route.
     #
     # TO CHANGE IT (no code edit needed): set the JUDGE_MODEL env var (on the host, in
-    #   /etc/craicgpt.env), e.g.
-    #       JUDGE_MODEL=claude-sonnet-4-6        # frontier — independent + reliable today
-    #       JUDGE_MODEL=m3/mlx/<other-route>     # an independent local route, once one drives the loop
-    #   Verify a candidate (a) emits real tool_calls and (b) TERMINATES the grader loop in
-    #   a handful of calls (not hundreds) — see rubric_review.py "Switching the judge".
+    #   /etc/craicgpt.env) to another route that (a) emits real tool_calls and (b)
+    #   TERMINATES the grader loop in a handful of calls (not hundreds) — see
+    #   rubric_review.py "Switching the judge".
     judge_model: str = field(
-        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")
+        default_factory=lambda: os.getenv("JUDGE_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8")
     )
 
     # ── Generation parameters ─────────────────────────────────────────────────

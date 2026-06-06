@@ -33,11 +33,11 @@ def test_as_list_is_json_serialisable():
 
 def test_fallback_event_is_recorded():
     rec = TraceRecorder()
-    rec.fallback("brain", local="m3/mlx/qwen3-coder-next-4bit", to="claude-sonnet-4-6",
+    rec.fallback("brain", local="dgx/vllm/qwen3.6-35b-a3b-fp8", to="m3/mlx/qwen3.6-35b-a3b-unsloth-8bit",
                  reason="timeout")
     e = rec.as_list()[0]
     assert e["kind"] == "fallback"
-    assert e["detail"]["to"] == "claude-sonnet-4-6"
+    assert e["detail"]["to"] == "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit"
 
 
 # ── extracting a trace from a real agent run's messages ──────────────────────

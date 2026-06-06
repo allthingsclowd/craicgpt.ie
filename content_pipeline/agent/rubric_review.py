@@ -7,7 +7,7 @@ This replaces the old two-VM (openclaw + hermes) approval consensus with a singl
 LLM judge that grades the finished edition against an explicit rubric, run via
 ``content_cfg.judge_model``.
 
-THE JUDGE IS THE WRITER'S qwen3.6-35b (June 2026, INTERIM) — local and reliable (it
+THE JUDGE IS THE WRITER'S qwen3.6 on the DGX (June 2026, INTERIM) — local and reliable (it
 drives the RubricMiddleware reviewer-agent loop to a clean stop), but NOT independent
 (the author marks its own homework). Making the judge independent is the goal; it is
 paused on a model problem, recorded here so it can be fixed offline.

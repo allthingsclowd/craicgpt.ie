@@ -219,9 +219,10 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `LITELLM_BASE_URL` | No | `https://llm.grazlab.thescriptingpaddy.com/v1` |
 | `LITELLM_API_KEY` | No | `sk-no-key-required` |
 | `BRAIN_MODEL` (research) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| `WRITE_MODEL` (prose) | No | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
+| `WRITE_MODEL` (prose) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
+| `JUDGE_MODEL` (rubric judge) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
 | `IMAGE_MODEL` | No | `m3/mlx/hidream-o1-image-dev` |
-| `FALLBACK_TEXT_MODEL` (frontier) | No | `claude-sonnet-4-6` |
+| `FALLBACK_TEXT_MODEL` (local cross-box) | No | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 | `SERPER_API_KEY` | Yes (web_search) | — |
 | `MIN_AI_SOURCES` / `MIN_FUN_SOURCES` | No | `11` / `4` |
 | `AI_FEED_HOURS` | No | `48` |
