@@ -183,3 +183,7 @@ for chunk in agent.stream({"messages": [("human", brief)]}, stream_mode="values"
 | In-pipeline rubric judge + consensus gate | `content_pipeline/agent/rubric_review.py` + `review.py` + `cli.py` (`gate`) |
 | The publish rubric (criteria) | `content_pipeline/agent/rubric_review.py` (`EDITION_RUBRIC`) |
 | Trace capture / display | `content_pipeline/agent/trace.py` · `frontend/static_assets/main.js` |
+
+> **Next:** [06-narration-and-audio.md](06-narration-and-audio.md) extends this
+> deterministic-vs-LLM split to **audio** — articles are read deterministically, while the
+> dad↔son podcast banter is LLM-written and gated by the same `deepagents` rubric before it's voiced.
