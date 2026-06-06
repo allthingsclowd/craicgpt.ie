@@ -35,9 +35,9 @@ different model? Change the string. That's the whole multi-provider story.
 
 | Box | Role | Example routes |
 |-----|------|----------------|
-| **DGX Spark** | Research brain (reliable tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| **M3 Ultra (Mac Studio)** | Prose + images | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit`, `m3/mlx/hidream-o1-image-dev` |
-| **Frontier provider** | Fallback only | `claude-sonnet-4-6` |
+| **DGX Spark** | Research brain + prose + rubric judge (reliable tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
+| **M3 Ultra (Mac Studio)** | Images (+ qwen3.6 as the cross-box fallback) | `m3/mlx/hidream-o1-image-dev`, `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
+| **Fallback** | Local cross-box (the proxy has **no** frontier route) | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 
 Route names come from the fleet catalog (`grazlab-llm-fleet` repo, `catalog/models.yaml`).
 Promoting a new model there makes it reachable here by name — no code change. The proxy
@@ -53,9 +53,9 @@ The config picks a route per *role* (override any with an env var):
 ```python
 # content_pipeline/content_config.py
 brain_model         = os.getenv("BRAIN_MODEL",        "dgx/vllm/qwen3.6-35b-a3b-fp8")          # research agent loop
-write_model         = os.getenv("WRITE_MODEL",        "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")   # article prose
+write_model         = os.getenv("WRITE_MODEL",        "dgx/vllm/qwen3.6-35b-a3b-fp8")           # article prose
 image_model         = os.getenv("IMAGE_MODEL",        "m3/mlx/hidream-o1-image-dev")           # illustrations
-fallback_text_model = os.getenv("FALLBACK_TEXT_MODEL", "claude-sonnet-4-6")                     # frontier safety net
+fallback_text_model = os.getenv("FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit")   # local cross-box fallback
 ```
 
 - **brain** needs solid tool-calling (it drives the agentic search/curation loop) — the
@@ -118,9 +118,9 @@ LITELLM_BASE_URL=https://llm.grazlab.thescriptingpaddy.com/v1
 LITELLM_API_KEY=sk-no-key-required
 
 BRAIN_MODEL=dgx/vllm/qwen3.6-35b-a3b-fp8
-WRITE_MODEL=m3/mlx/qwen3.6-35b-a3b-unsloth-8bit
+WRITE_MODEL=dgx/vllm/qwen3.6-35b-a3b-fp8
 IMAGE_MODEL=m3/mlx/hidream-o1-image-dev
-FALLBACK_TEXT_MODEL=claude-sonnet-4-6
+FALLBACK_TEXT_MODEL=m3/mlx/qwen3.6-35b-a3b-unsloth-8bit
 
 SERPER_API_KEY=...                  # web_search via Serper.dev (doc 05)
 

@@ -102,8 +102,8 @@ from content_pipeline.providers.litellm import run_with_fallback
 
 result = run_with_fallback(
     lambda model: (prompt | get_litellm_llm(model) | StrOutputParser() | RunnableLambda(loads_lenient)).invoke(inputs),
-    local_model="m3/mlx/qwen3.6-35b-a3b-unsloth-8bit",
-    fallback_model="claude-sonnet-4-6",
+    local_model="dgx/vllm/qwen3.6-35b-a3b-fp8",
+    fallback_model="m3/mlx/qwen3.6-35b-a3b-unsloth-8bit",
     validate=lambda out: bool(out and out.get("headliner")),   # empty/garbage → fall back
 )
 
