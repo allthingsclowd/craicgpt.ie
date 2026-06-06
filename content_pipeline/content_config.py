@@ -73,6 +73,13 @@ class ContentConfig:
     image_model: str = field(
         default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/mlx/hidream-o1-image-dev")
     )
+    # Approved image FALLBACK — used when the primary image route is down. z-image-turbo
+    # is on the M3 OLLAMA server, a DIFFERENT process than hidream (M3 mlx), so it survives
+    # an mlx outage. (hidream's mlx backend 500'd 2026-06-06 → editions HELD on missing
+    # images, which host validation requires — so a working fallback is load-bearing.)
+    image_fallback_model: str = field(
+        default_factory=lambda: os.getenv("IMAGE_FALLBACK_MODEL", "m3/ollama/z-image-turbo")
+    )
     # ── Web search: Serper.dev (Google SERP) API. Replaced Brave (2026-06): Brave
     # killed its free API tier in Feb 2026 (→ metered + a small monthly credit), so the
     # agent's ~80 searches/run blew the quota and 429'd. Serper is cheaper ($0.30–1 /1k)
