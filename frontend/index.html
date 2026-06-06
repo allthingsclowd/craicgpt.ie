@@ -55,6 +55,9 @@
     </div>
   </header>
 
+  <!-- ── DAILY PODCAST (populated by main.js when the edition carries audio) ── -->
+  <section class="masthead-podcast-bar" id="podcast-bar" aria-label="Daily podcast" hidden></section>
+
   <!-- ── KICKER STRIP ─────────────────────────────────────────────────────── -->
   <div class="kicker-strip">
     <span class="kicker-label">TODAY</span>
@@ -98,8 +101,15 @@
         writes the articles deterministically (plain chat&rarr;JSON) and illustrates them
         in rotating art styles. Finally a <strong>separate judge model</strong> grades the
         finished edition against a <code>deepagents</code> <strong>rubric</strong> —
-        harmless, on-brand, every piece properly credited — before it can go live. Below
-        is the recorded play-by-play — the open-source alternative to a hosted trace dashboard.
+        harmless, on-brand, every piece properly credited — before it can go live.
+        After validation a <strong>narration step</strong> reads every article aloud in
+        Graham's cloned voice and produces the daily dad&harr;son podcast: the readings are
+        <strong>deterministic</strong> (chunk&rarr;synth&rarr;stitch, no LLM), while the
+        banter is <strong>probabilistic</strong> — LLM-written, then gated by the same
+        <code>deepagents</code> rubric before a word is voiced. That split — plain code for
+        the deterministic work, a rubric to govern the probabilistic work — is the whole
+        pattern of this paper. Below is the recorded play-by-play — the open-source
+        alternative to a hosted trace dashboard.
       </p>
       <div class="hood-stats" id="hood-stats"></div>
       <div class="hood-trace" id="hood-trace">
