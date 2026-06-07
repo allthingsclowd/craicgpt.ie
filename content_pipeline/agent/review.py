@@ -247,8 +247,9 @@ def read_review_request(date_iso: str, *, s3: Any | None = None,
 
 def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
          already_live: bool, valid: bool = True, invalid_reasons: Optional[list] = None,
-         required: Iterable[str] = DEFAULT_AGENTS,
-         directive: Optional[dict] = None) -> dict[str, Any]:
+         required: Iterable[str] = DEFAULT_AGENTS, directive: Optional[dict] = None,
+         held_minutes: Optional[float] = None,
+         passive_after_minutes: Optional[float] = None) -> dict[str, Any]:
     """Pure decision for the idempotent publisher poll. Returns
     ``{"action": ..., "decision": ..., "reasons": [...]}`` where action is one of:
 
@@ -295,14 +296,29 @@ def gate(date_iso: str, *, verdicts: dict[str, dict], status: Optional[dict],
         return {"action": "remediate-publish", "decision": "OVERRIDE",
                 "reasons": [f"human remediation by {directive.get('by') or 'operator'}"],
                 "drop": list(directive.get("drop") or []), "directive": directive}
+    if action == "hold":
+        # An explicit human HOLD pins the edition down and SUPPRESSES the passive
+        # timeout — Graham said no, so it must never auto-publish.
+        return {"action": "hold", "decision": "HOLD",
+                "reasons": [f"human hold by {directive.get('by') or 'operator'}"],
+                "directive": directive}
 
     if consensus["decision"] == "HOLD":
+        # No human response to the escalation. Once the HITL window elapses — and ONLY
+        # if the edition is structurally valid (never auto-publish a broken page or dead
+        # links) — passively approve it. This is the fail-open Graham asked for, fenced
+        # so it can only ever override the *judgement*, not the host structural checks.
+        if (valid and passive_after_minutes is not None and held_minutes is not None
+                and held_minutes >= passive_after_minutes):
+            return {"action": "passive-publish", "decision": "PASSIVE-APPROVE",
+                    "reasons": [f"passive approval — no human response within "
+                                f"{int(passive_after_minutes)} min of the HOLD"]}
         return {"action": "hold", "decision": "HOLD", "reasons": consensus["reasons"]}
     return {"action": "retry", "decision": "WAIT", "reasons": consensus["reasons"]}
 
 
 # --- human-in-the-loop directive (override / remediate) ---------------------
-DIRECTIVE_ACTIONS = ("force-publish", "remove-and-publish")
+DIRECTIVE_ACTIONS = ("force-publish", "remove-and-publish", "hold")
 
 
 def directive_key(date_iso: str) -> str:
@@ -313,9 +329,10 @@ def write_directive(date_iso: str, action: str, *, drop: Optional[Iterable[str]]
                     by: Optional[str] = None, reason: Optional[str] = None,
                     s3: Any | None = None, bucket: Optional[str] = None,
                     at: Optional[str] = None) -> str:
-    """Write the human override directive the publish gate honours. ``action`` is
-    ``force-publish`` (publish over the HOLD) or ``remove-and-publish`` (drop the
-    items named in ``drop`` — matched on title — then publish)."""
+    """Write the human directive the publish gate honours. ``action`` is
+    ``force-publish`` (publish over the HOLD), ``remove-and-publish`` (drop the items
+    named in ``drop`` — matched on title — then publish), or ``hold`` (pin the edition
+    held and SUPPRESS the passive-approval timeout)."""
     if action not in DIRECTIVE_ACTIONS:
         raise ValueError(f"action must be one of {DIRECTIVE_ACTIONS}, got {action!r}")
     s3 = s3 or _default_s3()

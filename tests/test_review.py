@@ -449,6 +449,48 @@ def test_gate_directive_ignored_when_already_live():
     assert g["action"] == "already-live"
 
 
+# --- HITL passive-approval (the 60-min fail-open, fenced by structural validity) ---
+def test_gate_passive_publishes_after_the_window():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    valid=True, held_minutes=61, passive_after_minutes=60)
+    assert g["action"] == "passive-publish" and g["decision"] == "PASSIVE-APPROVE"
+
+
+def test_gate_no_passive_before_the_window():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    valid=True, held_minutes=10, passive_after_minutes=60)
+    assert g["action"] == "hold"
+
+
+def test_gate_never_passive_publishes_a_structurally_invalid_edition():
+    # the safety carve-out: a broken page hard-holds no matter how long it waits
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    valid=False, invalid_reasons=["headliner missing an image_url"],
+                    held_minutes=999, passive_after_minutes=60)
+    assert g["action"] == "hold"
+
+
+def test_gate_passive_disabled_when_no_window_given():
+    # default (no window) → classic hold-until-human, never auto-publishes
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False, valid=True)
+    assert g["action"] == "hold"
+
+
+def test_gate_human_hold_directive_pins_and_suppresses_the_timeout():
+    g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE, already_live=False,
+                    valid=True, directive={"action": "hold", "by": "graham"},
+                    held_minutes=999, passive_after_minutes=60)
+    assert g["action"] == "hold"
+    assert any("human hold" in r for r in g["reasons"])
+
+
+def test_write_directive_accepts_hold():
+    s3 = FakeS3()
+    review.write_directive("2026-06-03", "hold", by="graham", s3=s3, bucket="b", at="t0")
+    d = review.read_directive("2026-06-03", s3=s3, bucket="b")
+    assert d["action"] == "hold" and d["by"] == "graham"
+
+
 def test_gate_normal_approve_unaffected_by_no_directive():
     v = {"openclaw": {"verdict": "APPROVE"}, "hermes": {"verdict": "APPROVE"}}
     g = review.gate("2026-06-03", verdicts=v, status=COMPLETE, already_live=False,

@@ -199,6 +199,14 @@ class ContentConfig:
     site_base_url: str = field(
         default_factory=lambda: os.getenv("SITE_BASE_URL", "https://craicgpt.ie")
     )
+    # HITL passive-approval window. A JUDGEMENT-held edition (rubric HOLD, but
+    # structurally valid) is escalated to Graham on Telegram; if no human directive
+    # lands within this many minutes, the gate PASSIVELY approves it (publishes). 0
+    # disables the timeout (classic hold-until-human). A structurally-broken edition or
+    # one with dead links is NEVER passively published — that always hard-holds.
+    hitl_passive_minutes: int = field(
+        default_factory=lambda: int(os.getenv("CRAICGPT_HITL_PASSIVE_MINUTES", "60"))
+    )
     # Local scratch dir where the image tool writes generated PNGs before publish
     # uploads them. Keeps base64 out of the agent's context window.
     image_dir: str = field(

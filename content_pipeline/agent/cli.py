@@ -117,6 +117,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_rem.add_argument("--by", help="who issued the remediation")
     p_rem.add_argument("--reason", help="why the remediation")
 
+    p_hold = sub.add_parser("hold",
+                            help="Human HOLD: keep the edition held + SUPPRESS the passive-approval timeout")
+    p_hold.add_argument("--date", required=True)
+    p_hold.add_argument("--by", help="who issued the hold, e.g. 'graham via telegram'")
+    p_hold.add_argument("--reason", help="why keep it held")
+
     p_dir = sub.add_parser("directive", help="Inspect or clear the pending human directive")
     p_dir.add_argument("--date", required=True)
     p_dir.add_argument("--clear", action="store_true", help="Remove the pending directive")
@@ -567,6 +573,33 @@ def _after_publish(date_iso: str, *, note: Optional[str] = None,
     return out
 
 
+def _minutes_since(iso_ts: Optional[str]) -> Optional[float]:
+    """Minutes elapsed since an ISO8601 timestamp (UTC-aware), or None if unparseable."""
+    if not iso_ts:
+        return None
+    from datetime import datetime, timezone
+    try:
+        t = datetime.fromisoformat(str(iso_ts).replace("Z", "+00:00"))
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - t).total_seconds() / 60.0
+    except Exception:  # noqa: BLE001 — a garbled timestamp just disables the timer
+        return None
+
+
+def _stamp_held_since(date_iso: str, status: Optional[dict]) -> None:
+    """Anchor the HITL passive-approval clock on the first valid judgement hold,
+    preserving the rest of the status object."""
+    from content_pipeline.agent import review
+    try:
+        st = status or {}
+        extra = {k: v for k, v in st.items() if k not in ("date", "state", "at")}
+        extra["held_since"] = _now_iso()
+        review.write_status(date_iso, st.get("state", "complete"), at=st.get("at"), extra=extra)
+    except Exception as exc:  # noqa: BLE001 — never let the clock-stamp break the poll
+        logging.warning("[cli] stamping held_since failed: %s", exc)
+
+
 def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
     """The decoupled, idempotent publisher decision + enactment. Reads status,
     verdicts and any human directive; computes the host-side structural check;
@@ -587,6 +620,12 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
     verdicts = review.read_verdicts(date_iso, vid=vid)
     directive = review.read_directive(date_iso)
 
+    # HITL passive-approval clock: how long has this version been held, and after how
+    # many minutes do we passively approve absent a human directive? (0 → disabled.)
+    passive_after = content_cfg.hitl_passive_minutes or None
+    held_since = (status or {}).get("held_since")
+    held_minutes = _minutes_since(held_since)
+
     # Host-side deterministic re-check before any publish (only worth fetching the
     # draft once content is marked complete). The agents own "harmless"; we own
     # "technically valid" — belt and braces against a bad draft slipping through.
@@ -599,14 +638,19 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
 
     g = review.gate(date_iso, verdicts=verdicts, status=status,
                     already_live=_already_live(date_iso), valid=valid,
-                    invalid_reasons=invalid_reasons, required=required, directive=directive)
+                    invalid_reasons=invalid_reasons, required=required, directive=directive,
+                    held_minutes=held_minutes, passive_after_minutes=passive_after)
     g["voted"] = {a: review.verdict_of(verdicts[a]) or None for a in verdicts}
     if not publish:
         return g
 
     by = (directive or {}).get("by") or "operator"
-    if g["action"] in ("publish", "override-publish"):
-        note = None if g["action"] == "publish" else f"override by {by}"
+    if g["action"] in ("publish", "override-publish", "passive-publish"):
+        note = None
+        if g["action"] == "override-publish":
+            note = f"override by {by}"
+        elif g["action"] == "passive-publish":
+            note = f"passive-approval — no human response within {int(passive_after)} min"
         rc = _publish_live(date_iso, _draft_path(date_iso))
         g["published"] = rc == 0
         if rc == 0:
@@ -615,9 +659,18 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
     elif g["action"] == "remediate-publish":
         g.update(_remediate_and_publish(date_iso, g.get("drop") or [], by=by))
     elif g["action"] == "hold":
-        # An editorial HOLD (or failed host validation) is exactly the case that
-        # used to go unseen — surface it to both agents' channels (once per version).
-        _notify_safe("held", date_iso, reasons=g.get("reasons"), vid=vid)
+        # Surface the HOLD (once per version). On the FIRST structurally-valid judgement
+        # hold, START the HITL clock and tell Graham he has a window to respond before it
+        # passively auto-publishes. A structural/link failure (valid=False) is a HARD
+        # hold — no clock, no passive-approval.
+        reasons = list(g.get("reasons") or [])
+        first_valid_hold = bool(valid and passive_after and not held_since)
+        if first_valid_hold:
+            reasons.append(f"auto-publishes in {int(passive_after)} min unless you respond "
+                           "— `cli override` to publish now, or `cli hold` to keep it held")
+        _notify_safe("held", date_iso, reasons=reasons, vid=vid)
+        if first_valid_hold:
+            _stamp_held_since(date_iso, status)
     return g
 
 
@@ -724,6 +777,17 @@ def cmd_remediate(args) -> int:
             "hold": 2, "retry": 3}.get(g["action"], 3)
 
 
+def cmd_hold(args) -> int:
+    """Human HOLD: pin the edition held and SUPPRESS the passive-approval timeout.
+    Writes a 'hold' directive the gate honours; it will not auto-publish until you
+    clear it (`cli directive --clear`) or override (`cli override`)."""
+    from content_pipeline.agent import review
+
+    key = review.write_directive(args.date, "hold", by=args.by, reason=args.reason, at=_now_iso())
+    print(f"directive written: hold {args.date} → {key}")
+    return 0
+
+
 def cmd_directive(args) -> int:
     """Inspect or clear the pending human directive for a date."""
     from content_pipeline.agent import review
@@ -790,6 +854,8 @@ def main(argv=None) -> int:
         return cmd_override(args)
     if args.command == "remediate":
         return cmd_remediate(args)
+    if args.command == "hold":
+        return cmd_hold(args)
     if args.command == "directive":
         return cmd_directive(args)
     if args.command == "message":
