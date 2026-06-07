@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Callable, Optional
 
 from content_pipeline.content_config import content_cfg
@@ -223,3 +224,92 @@ def _default_generate(prompt: str) -> dict:
     """Default banter LLM call — reuses the writer's local-first JSON generator."""
     from content_pipeline.generate.writer import _default_generate as _gen
     return _gen(prompt)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TL;DR — the <180s two-voice headline bulletin (deterministic; same jingle)
+# ─────────────────────────────────────────────────────────────────────────────
+# A fast "headlines podcast": Graham and Tom ALTERNATE reading the day's headlines
+# (each item's already-approved title + a one-line gloss), topped & tailed by the
+# SAME trad jingle as the full show. Fully DETERMINISTIC — no LLM, no banter to gate —
+# and word-budgeted to the speaking time left after the jingle, so it reliably lands
+# under the cap even if the voice clone reads slowly.
+TLDR_BUDGET_WPM = 135          # a deliberately conservative read-rate FLOOR (real speech
+                               # is faster) so the budget never overshoots the cap
+TLDR_JINGLE_SECONDS = 26       # the trad bookend (intro + outro) eats into the time budget
+
+
+def build_tldr_intro(date_iso: str) -> list[Turn]:
+    return [
+        ("graham", f"Good morning! Here's your quick CraicGPT headline round-up for "
+                   f"{_date_phrase(date_iso)}."),
+        ("tom", "Right, let's rattle through them!"),
+    ]
+
+
+TLDR_OUTRO: list[Turn] = [
+    ("graham", "And that's your headlines. The full show and every story are at "
+               "craicgpt.ie — back tomorrow."),
+    ("tom", "See yiz!"),
+]
+
+
+def _first_sentence(text: str, *, max_chars: int = 140) -> str:
+    """A one-line gloss: the first sentence (or a clipped clause) of the standfirst/body."""
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    s = re.split(r"(?<=[.!?])\s+", t, maxsplit=1)[0]
+    if len(s) > max_chars:
+        s = s[: max_chars - 1].rsplit(" ", 1)[0] + "…"
+    return s
+
+
+def _headline_beat(item: dict, reader: str) -> Turn:
+    """One headline read: the (clipped) title + a one-line gloss, in ``reader``'s voice."""
+    title = (" ".join(str(item.get("title", "")).split()).rstrip("."))[:100]
+    gloss = _first_sentence(item.get("standfirst") or item.get("body") or "")
+    return (reader, f"{title}." if not gloss else f"{title}. {gloss}")
+
+
+def _count_words(turns: list[Turn]) -> int:
+    return sum(len(t.split()) for _, t in turns)
+
+
+def build_tldr_script(paper: dict, *, max_seconds: int = 180,
+                      limit: Optional[int] = None) -> dict:
+    """Assemble the sub-``max_seconds`` TL;DR headline bulletin for ``paper``.
+
+    Graham and Tom ALTERNATE reading each headline (the edition's own, already-approved
+    title + a one-line gloss). Deterministic — no LLM — and word-budgeted to the speaking
+    time left after the jingle bookend, so it reliably lands under ``max_seconds``.
+    Returns the same shape as :func:`build_podcast_script`; ``banter_text`` is empty
+    (nothing is model-written, so there's nothing for the rubric to gate).
+    """
+    budget_words = max(0, int((max_seconds - TLDR_JINGLE_SECONDS) * TLDR_BUDGET_WPM / 60.0))
+
+    pairs = [(ref, _resolve_ref(paper, ref)) for ref in _ordered_refs(paper)]
+    pairs = [(ref, item) for ref, item in pairs if item]
+    if limit is not None:
+        pairs = pairs[:limit]
+
+    intro = list(build_tldr_intro(paper.get("date") or ""))
+    turns: list[Turn] = list(intro)
+    used = _count_words(intro) + _count_words(TLDR_OUTRO)  # reserve the outro's words
+    refs: list[str] = []
+    for i, (ref, item) in enumerate(pairs):
+        beat = _headline_beat(item, _reader_for(i))
+        w = len(beat[1].split())
+        if refs and used + w > budget_words:   # always keep at least one headline
+            break
+        turns.append(beat)
+        used += w
+        refs.append(ref)
+    turns += TLDR_OUTRO
+
+    return {
+        "turns": turns,
+        "script_text": _script_text(turns),
+        "banter_text": "",      # deterministic — no LLM banter, nothing to gate
+        "refs": refs,
+    }

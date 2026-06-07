@@ -70,6 +70,15 @@ def test_attaches_podcast_when_banter_passes_the_gate():
     assert paper["podcast"]["rubric"]["verdict"] == "APPROVE"
 
 
+def test_attaches_tldr_headline_bulletin():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["podcast_tldr"]["audio_url"] == "/tmp/podcast.mp3"
+    assert paper["podcast_tldr"]["_kind"] == "tldr"
+    assert "GRAHAM:" in paper["podcast_tldr"]["transcript"]   # the bulletin transcript
+
+
 def test_holds_podcast_when_banter_fails_the_gate():
     def _hold(text, **kw):
         return {"verdict": "HOLD", "reasons": ["too cruel"], "judge_model": "judge"}
@@ -84,7 +93,8 @@ def test_holds_podcast_when_banter_fails_the_gate():
         _sample(), narrate_article=_fake_article, build_script=_fake_build,
         grade=_hold, render_podcast=_render_spy)
     assert paper["podcast"] is None
-    assert rendered == []  # never rendered the audio for held banter
+    # the held main-podcast banter is never voiced; the independent TL;DR still renders
+    assert all(not any("Welcome." in t for _, t in turns) for turns in rendered)
     assert "too cruel" in paper["edition"]["podcast_hold"]
 
 

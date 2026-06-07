@@ -127,3 +127,40 @@ def test_digest_tells_the_banter_who_reads_each_article():
     digest = ps._digest(pairs)
     assert "read by GRAHAM" in digest and "read by TOM" in digest
     assert "first" in digest
+
+
+# --- TL;DR headline bulletin ------------------------------------------------
+def test_tldr_is_topped_tailed_and_alternates_voices():
+    res = ps.build_tldr_script(SAMPLE)
+    turns = res["turns"]
+    assert "headline" in turns[0][1].lower()                      # intro hook
+    assert "craicgpt.ie" in " ".join(t for _, t in turns[-2:]).lower()  # outro → the site
+    assert res["banter_text"] == ""                               # deterministic, no gate
+    n_intro = len(ps.build_tldr_intro(SAMPLE["date"]))
+    beats = turns[n_intro: len(turns) - len(ps.TLDR_OUTRO)]
+    assert [w for w, _ in beats][:2] == ["graham", "tom"]         # alternating anchors
+    assert "Long Context" in " ".join(t for _, t in beats)        # the edition's own title
+
+
+def test_tldr_stays_within_its_word_budget():
+    big = {
+        "date": "2026-05-12",
+        "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0"],
+        "ai": {
+            "headliner": {"title": "Head " * 40, "standfirst": "s " * 80, "body": "b " * 200,
+                          "source_url": "x"},
+            "subarticles": [{"title": "Sub", "standfirst": "d " * 80, "body": "b " * 80,
+                             "source_url": "y"}],
+            "shorts": [{"title": "Short", "body": "b " * 80, "source_url": "z"}],
+        },
+        "fun": [{"title": "Fun", "body": "b " * 80, "source": "X"}],
+    }
+    res = ps.build_tldr_script(big, max_seconds=180)
+    assert sum(len(t.split()) for _, t in res["turns"]) <= 360    # trimmed under budget
+
+
+def test_tldr_keeps_at_least_one_headline_even_if_huge():
+    one = {"date": "2026-05-12", "layout": ["ai.headliner"],
+           "ai": {"headliner": {"title": "Big", "body": "word " * 500, "source_url": "x"}}}
+    res = ps.build_tldr_script(one, max_seconds=180)
+    assert res["refs"] == ["ai.headliner"]                        # never drops the only story

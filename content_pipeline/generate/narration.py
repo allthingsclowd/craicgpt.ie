@@ -56,6 +56,7 @@ def narrate_paper(
     voice: str = "graham",
     narrate_article: Optional[Callable] = None,
     build_script: Optional[Callable] = None,
+    build_tldr: Optional[Callable] = None,
     grade: Optional[Callable] = None,
     render_podcast: Optional[Callable] = None,
 ) -> dict:
@@ -72,6 +73,8 @@ def narrate_paper(
         from content_pipeline.generate.audio import narrate_article as narrate_article
     if build_script is None:
         from content_pipeline.generate.podcast_script import build_podcast_script as build_script
+    if build_tldr is None:
+        from content_pipeline.generate.podcast_script import build_tldr_script as build_tldr
     if grade is None:
         from content_pipeline.agent.rubric_review import grade_podcast_script as grade
     if render_podcast is None:
@@ -125,12 +128,31 @@ def narrate_paper(
         paper["podcast"] = None
         paper.setdefault("edition", {})["podcast_hold"] = verdict.get("reasons") or ["rubric HOLD"]
 
+    # ── 2b. The <180s TL;DR headline bulletin (deterministic; same jingle) ────
+    # No LLM banter → nothing to gate; it's independent of the main podcast's verdict.
+    tldr = build_tldr(paper, limit=limit)
+    paper["podcast_tldr"] = None
+    if tldr and tldr.get("turns"):
+        try:
+            tldr_path, tldr_tts = render_podcast(tldr["turns"])
+            paper["podcast_tldr"] = {
+                "audio_url": tldr_path,
+                "transcript": tldr.get("script_text", ""),
+                "_voices": ["graham", "tom"],
+                "_kind": "tldr",
+                "_text_model": None,           # deterministic: titles + glosses, no LLM
+                "_tts_model": tldr_tts,
+            }
+        except Exception as exc:  # noqa: BLE001 — TL;DR render failure is soft, like images
+            logger.warning("[narrate] TL;DR render failed: %s", exc)
+            paper["podcast_tldr"] = None
+
     # ── 3. Trace the audio build for "Under the Hood" — the deterministic readings
     #       vs the probabilistic, rubric-gated podcast (the teaching split, Goal 5).
     trace = paper.setdefault("context", {}).setdefault("agent_trace", [])
     n_audio = sum(1 for it in targets if it.get("audio_url"))
     trace.append({"kind": "audio", "name": "narrate articles",
-                  "detail": {"info": f"{n_audio} article(s) read in Graham's voice — "
+                  "detail": {"info": f"{n_audio} article(s) read by Graham & Tom (alternating) — "
                                      "deterministic TTS: chunk → synth → stitch → S3"}})
     if paper.get("podcast"):
         trace.append({"kind": "podcast", "name": "daily podcast",
@@ -144,4 +166,8 @@ def narrate_paper(
         trace.append({"kind": "podcast", "name": "daily podcast — held",
                       "detail": {"info": "banter held by rubric: "
                                          + "; ".join(verdict.get("reasons") or [])}})
+    if paper.get("podcast_tldr"):
+        trace.append({"kind": "podcast", "name": "TL;DR headline bulletin",
+                      "detail": {"info": "a <180s two-voice headline round-up — "
+                                         "deterministic reads, same trad jingle"}})
     return paper

@@ -93,6 +93,7 @@ def test_publish_uploads_local_audio_and_rewrites_url(tmp_path):
     a_short = tmp_path / "graham-short.mp3"; a_short.write_bytes(b"ID3 short")
     a_fun = tmp_path / "graham-fun.mp3"; a_fun.write_bytes(b"ID3 fun")
     a_pod = tmp_path / "podcast.mp3"; a_pod.write_bytes(b"ID3 pod")
+    a_tldr = tmp_path / "tldr.mp3"; a_tldr.write_bytes(b"ID3 tldr")
     paper = {
         "date": "2026-06-02",
         "ai": {
@@ -102,19 +103,21 @@ def test_publish_uploads_local_audio_and_rewrites_url(tmp_path):
         },
         "fun": [{"title": "f0", "audio_url": str(a_fun)}],
         "podcast": {"audio_url": str(a_pod), "transcript": "..."},
+        "podcast_tldr": {"audio_url": str(a_tldr), "transcript": "..."},
         "layout": [], "context": {},
     }
     s3 = _FakeS3()
     publish_paper(paper, "2026-06-02", live=True, s3=s3, bucket="b",
                   site_base_url="https://craicgpt.ie")
     aud_puts = [p for p in s3.puts if "/audio/" in p["Key"]]
-    assert len(aud_puts) == 4, "headliner + short + fun + podcast audio must upload"
+    assert len(aud_puts) == 5, "headliner + short + fun + podcast + TL;DR audio must upload"
     assert all(p["ContentType"] == "audio/mpeg" for p in aud_puts)
     pub = "https://craicgpt.ie/content/2026/06/02/audio/"
     assert paper["ai"]["headliner"]["audio_url"].startswith(pub)
     assert paper["ai"]["shorts"][0]["audio_url"].startswith(pub)
     assert paper["fun"][0]["audio_url"].startswith(pub)
     assert paper["podcast"]["audio_url"].startswith(pub)
+    assert paper["podcast_tldr"]["audio_url"].startswith(pub)
 
 
 def test_publish_leaves_remote_audio_urls_untouched():
