@@ -240,6 +240,17 @@ class ContentConfig:
             "TOM_REF_AUDIO", "/Users/graz/ai-models/voice-ref/tom/ref.wav"
         )
     )
+    # Base dir on the M3 for parody-persona voice-clone refs: <base>/<voice_key>/ref.wav
+    # (graham/tom live under here too); transcripts ship in generate/voice_refs/<key>.txt.
+    voice_ref_base: str = field(
+        default_factory=lambda: os.getenv("VOICE_REF_BASE", "/Users/graz/ai-models/voice-ref")
+    )
+    # Parody voices whose ref WAV is actually DEPLOYED on the M3 (comma-separated keys).
+    # Only these render in their cloned voice; the rest fall back to the text "character"
+    # framing. Grows as the impressionist's refs land — set on .75 (no code change).
+    available_parody_voices: str = field(
+        default_factory=lambda: os.getenv("CRAICGPT_PARODY_VOICES", "")
+    )
     # Local scratch dir for generated audio before publish uploads it to S3.
     audio_dir: str = field(
         default_factory=lambda: os.getenv("CRAICGPT_AUDIO_DIR", "/tmp/craicgpt-audio")

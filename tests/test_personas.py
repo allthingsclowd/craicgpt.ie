@@ -59,3 +59,14 @@ def test_voice_brief_is_nonempty_for_roster_members():
 def test_satire_disclaimer_is_present_and_marks_parody():
     assert SATIRE_DISCLAIMER.strip()
     assert "parody" in SATIRE_DISCLAIMER.lower() or "satire" in SATIRE_DISCLAIMER.lower()
+
+
+def test_persona_voice_key_normalises():
+    from content_pipeline.generate.personas import persona_voice_key
+    assert persona_voice_key("Jack Blarney") == "jack_blarney"
+    assert persona_voice_key("A-Dell") == "a_dell"
+    assert persona_voice_key("Keira Knightleigh") == "keira_knightleigh"
+
+
+def test_keira_knightleigh_added_to_roster():
+    assert "Keira Knightleigh" in ROSTER   # the 11th parody persona (new)

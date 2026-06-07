@@ -152,6 +152,8 @@ function resolveRef(data, ref) {
 function renderPaper(data) {
   const grid = el('edition');
   if (!grid) return;
+  resetStickyPlayer();                          // stop audio from a previous version/date
+  const oldTx = el('podcast-transcript-panel'); if (oldTx) oldTx.remove();
 
   // Build the three front-page regions: a full-width Editor's Brief, the AI
   // analysis columns (1+2), and the fun desk (column 3). Cards are placed by their
@@ -362,35 +364,61 @@ function playArticle(url, title) {
   audio.play().catch(() => { /* autoplay blocked → the visible controls still work */ });
 }
 
-/** Render ONE podcast player (full show or TL;DR) into its masthead bar + a transcript. */
-function renderPodcastInto(barId, pod, label) {
-  const bar = el(barId);
-  if (!bar) return;
-  bar.innerHTML = '';
-  if (!pod || !pod.audio_url) { bar.hidden = true; return; }
-  bar.hidden = false;
-  bar.append(node('span', 'podcast-label', label));
-  const audio = document.createElement('audio');
-  audio.className = 'podcast-audio'; audio.controls = true; audio.preload = 'none';
-  const src = document.createElement('source');
-  src.src = pod.audio_url;
-  src.type = pod.audio_url.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
-  audio.append(src, document.createTextNode('Your browser does not support audio playback.'));
-  bar.append(audio);
-  if (pod.transcript) {   // pairs the audio with text — for deaf/blind readers and skimmers
-    const det = document.createElement('details'); det.className = 'podcast-transcript';
-    det.append(node('summary', '', 'Transcript'));
-    det.append(node('pre', 'transcript-text', pod.transcript));
-    bar.append(det);
-  }
+/** A subtle one-row audio strip: each show is a small play (into the shared sticky
+ *  player, so only one thing plays at a time) + a download + a transcript toggle —
+ *  replacing the old full-width <audio> bars that ate a row each. */
+function renderPodcast(data) {
+  const strip = el('podcast-strip');
+  if (!strip) return;
+  strip.innerHTML = '';
+  const date = (data && data.date) || '';
+  const shows = [
+    { pod: data && data.podcast, label: 'Daily podcast', dl: 'craicgpt-podcast' },
+    { pod: data && data.podcast_tldr, label: '90-sec headlines', dl: 'craicgpt-tldr' },
+  ].filter(s => s.pod && s.pod.audio_url);
+  if (!shows.length) { strip.hidden = true; return; }   // no audio (e.g. an older version)
+  strip.hidden = false;
+  strip.append(node('span', 'ps-lead', '🎧 Listen'));
+  shows.forEach((s, i) => {
+    if (i) strip.append(node('span', 'ps-sep', '·'));
+    const item = node('span', 'ps-item');
+    const play = node('button', 'ps-play', '▶ ' + s.label);
+    play.type = 'button';
+    play.addEventListener('click', () => playArticle(s.pod.audio_url, s.label));
+    item.append(play);
+    const dl = document.createElement('a');
+    dl.className = 'ps-dl'; dl.href = s.pod.audio_url;
+    dl.download = s.dl + (date ? '-' + date : '') + '.mp3';
+    dl.title = 'Download the ' + s.label; dl.setAttribute('aria-label', 'Download the ' + s.label);
+    dl.textContent = '⤓';
+    item.append(dl);
+    if (s.pod.transcript) {
+      const tx = node('button', 'ps-tx', 'transcript'); tx.type = 'button';
+      tx.addEventListener('click', () => toggleTranscript(s.label, s.pod.transcript));
+      item.append(tx);
+    }
+    strip.append(item);
+  });
 }
 
-/** The masthead audio: the full dad↔son podcast and the under-3-minute TL;DR bulletin. */
-function renderPodcast(data) {
-  renderPodcastInto('podcast-bar', data && data.podcast,
-    '🎙️ Daily Podcast — Graham & Tom explain the AI news');
-  renderPodcastInto('podcast-tldr-bar', data && data.podcast_tldr,
-    '⏱️ Headlines in under 3 minutes — Graham & Tom');
+/** Toggle a small transcript panel under the strip (deaf/blind readers + skimmers). */
+function toggleTranscript(label, text) {
+  const existing = el('podcast-transcript-panel');
+  if (existing) { const same = existing.dataset.label === label; existing.remove(); if (same) return; }
+  const panel = node('div', 'podcast-transcript-panel');
+  panel.id = 'podcast-transcript-panel'; panel.dataset.label = label;
+  panel.append(node('strong', 'ptp-title', label + ' — transcript'));
+  panel.append(node('pre', 'transcript-text', text));
+  el('podcast-strip').after(panel);
+}
+
+/** Stop + hide the shared sticky player (e.g. when switching edition version/date), so
+ *  audio from the previous view never lingers. */
+function resetStickyPlayer() {
+  const bar = el('sticky-player');
+  if (!bar) return;
+  const a = el('np-audio'); if (a) a.pause();
+  bar.hidden = true;
 }
 
 // ── Under the Hood: deep-agent visualiser ──────────────────────────────────

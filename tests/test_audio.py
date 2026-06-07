@@ -34,7 +34,7 @@ def _fake_speak(calls):
 def test_resolve_voice_graham_points_at_locked_reference():
     ref_audio, ref_text = audio.resolve_voice("graham")
     assert ref_audio == content_cfg.graham_ref_audio
-    assert "Shane" in ref_text
+    assert ref_text.strip()   # a real transcript resolves (content varies as the ref is retuned)
 
 
 def test_resolve_voice_tom_points_at_his_reference():
@@ -99,3 +99,19 @@ def test_craicgpt_ie_is_pronounced_as_a_spoken_url():
     spoken = audio._phonetic("Come back to craicgpt.ie tomorrow")
     assert "Crack Gee Pee Tee dot Eye Ee" in spoken
     assert "craicgpt.ie" not in spoken.lower()
+
+
+def test_has_clone_gates_parody_on_availability(monkeypatch):
+    assert audio.has_clone("graham") and audio.has_clone("tom")
+    assert not audio.has_clone("nobody")
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "")
+    assert not audio.has_clone("ronald_dump")            # ref not deployed -> not usable
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump, a_dell")
+    assert audio.has_clone("ronald_dump") and audio.has_clone("a_dell")
+    assert not audio.has_clone("bonio")
+
+
+def test_resolve_voice_parody_uses_base_dir_and_repo_transcript():
+    ref_audio, ref_text = audio.resolve_voice("ronald_dump")
+    assert ref_audio == os.path.join(content_cfg.voice_ref_base, "ronald_dump", "ref.wav")
+    assert ref_text and len(ref_text) > 10              # transcript ships in voice_refs/

@@ -1,0 +1,5 @@
+# Regenerable from the sources here (see README.md) — keep the repo lean.
+*.wav
+synth
+render
+__pycache__/

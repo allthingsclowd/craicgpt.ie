@@ -154,3 +154,14 @@ def test_narrates_the_editor_in_chief_sections():
         grade=_approve, render_podcast=_fake_render)
     assert paper["editors_brief"]["audio_url"]   # the Editor's Brief is listenable
     assert paper["about"]["audio_url"]            # the About page is listenable
+
+
+def test_parody_fun_item_reads_in_its_clone_when_deployed(monkeypatch):
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump")
+    paper = _sample()
+    paper["fun"][0]["persona"] = "Ronald Dump"    # make the fun item a parody with a clone
+    out = narration.narrate_paper(
+        paper, narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert out["fun"][0]["_audio_voice"] == "ronald_dump"

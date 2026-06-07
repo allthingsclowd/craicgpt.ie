@@ -135,22 +135,31 @@ def _ordered_refs(paper: dict) -> list[str]:
 
 
 def _reading(item: dict) -> str:
-    """The verbatim text read for an article: headline, standfirst, then body.
-
-    For a PARODY item (one written in a roster persona) we prepend a short spoken
-    'character' framing — our no-clone way to flag a character bit — while the body
-    stays verbatim (it's already written in that persona's voice). See
-    :func:`personas.character_read_intro`.
-    """
+    """The verbatim text read for an article: headline, standfirst, then body (plain)."""
     parts = [item.get("title", ""), item.get("standfirst", ""), item.get("body", "")]
-    body = "\n\n".join(p.strip() for p in parts if p and p.strip())
+    return "\n\n".join(p.strip() for p in parts if p and p.strip())
+
+
+def _reading_turn(item: dict, host_voice: str) -> Turn:
+    """Build the (voice, text) reading turn for an article.
+
+    A PARODY item (written in a roster persona) whose voice clone is DEPLOYED is read in
+    that cloned voice — the voice itself IS the character, so no text intro is needed.
+    Without a deployed clone it falls back to the host reading a short spoken
+    "in the style of X" character intro before the verbatim body.
+    """
+    from content_pipeline.generate.audio import has_clone
+    from content_pipeline.generate.personas import character_read_intro, persona_voice_key
+    body = _reading(item)
     persona = item.get("persona")
     if persona:
-        from content_pipeline.generate.personas import character_read_intro
+        vk = persona_voice_key(persona)
+        if has_clone(vk):
+            return (vk, body)
         intro = character_read_intro(persona)
         if intro:
-            return f"{intro}\n\n{body}"
-    return body
+            return (host_voice, f"{intro}\n\n{body}")
+    return (host_voice, body)
 
 
 def _digest(pairs: list[tuple[str, dict]]) -> str:
@@ -221,7 +230,7 @@ def build_podcast_script(paper: dict, *, generate: Optional[Generate] = None,
         after = _turns_from_banter(b.get("after"))
         banter_turns += before + after
         turns += before
-        turns.append((reader, _reading(item)))      # verbatim reading, alternating voice
+        turns.append(_reading_turn(item, reader))   # parody clone, else alternating host
         turns += after
     turns += SIGNATURE_OUTRO
 
