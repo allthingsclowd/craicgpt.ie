@@ -251,6 +251,13 @@ class ContentConfig:
     audio_dir: str = field(
         default_factory=lambda: os.getenv("CRAICGPT_AUDIO_DIR", "/tmp/craicgpt-audio")
     )
+    # Mastering backend for the final audio polish (level-match voices, de-box EQ,
+    # loudness, limiter). "ffmpeg" = the portable two-pass chain (runs on .75 today);
+    # "none" disables mastering (raw stitch). Reserved: "apple" = an M3-side Match-EQ
+    # pass once wired. The chain is best-effort — any failure falls back to the input.
+    audio_master: str = field(
+        default_factory=lambda: os.getenv("CRAICGPT_AUDIO_MASTER", "ffmpeg")
+    )
     # Master switch for the narration step (per-article audio + the podcast).
     enable_narration: bool = field(
         default_factory=lambda: os.getenv("ENABLE_NARRATION", "true").lower() == "true"
