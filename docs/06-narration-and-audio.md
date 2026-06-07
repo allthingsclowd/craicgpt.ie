@@ -71,14 +71,25 @@ path, model = audio.render_podcast([("graham", "…"), ("tom", "…")])  # multi
 - **Custom transport, not the proxy** — the clone takes a non-OpenAI body
   (`ref_audio` + `ref_text`), so unlike chat/images we POST straight to the M3 mlx-audio
   server. `speak` is an injectable callable, so the chunk/stitch logic tests with no network.
-- **Chunking + stitching** — split on paragraph/sentence boundaries (TTS token cap), stitch
-  with stdlib `wave`, encode MP3 with `ffmpeg` (falls back to WAV if ffmpeg is absent).
+- **Chunking + stitching** — split on paragraph/sentence boundaries (TTS token cap), then
+  stitch through a small **mastering chain**, encode MP3 with `ffmpeg` (falls back to WAV if
+  ffmpeg is absent).
 - **Two quality fixes earned from real playback:**
   - `_phonetic` rewrites the **spoken** text only: `craic → "crack"`,
     `CraicGPT → "Crack Gee Pee Tee"`. The on-screen transcript keeps the real spelling, so
     "craic of dawn" / "put the AI back in craic" land as puns you can *see*.
-  - `normalize_loudness` runs EBU R128 (`ffmpeg loudnorm`) per speaker turn, so Graham's
-    and Tom's clones sit at the same level instead of one drowning the other.
+  - **The mastering chain** (`_rms_normalize` → `_crossfade_concat` → `master_wav`) replaces
+    the old single bare per-turn `loudnorm`. Each chunk is RMS-levelled to a common target
+    (so a quiet or *boxy* chunk no longer jumps against the next, and Graham/Tom land at one
+    level **before** they're stitched); seams get a ~35 ms **equal-power crossfade** (hiding
+    the room-tone step between independent inferences); then the **whole** show gets one
+    `ffmpeg` master — high-pass + a de-box EQ dip (~350 Hz) + a touch of air + gentle
+    compression + **two-pass** EBU-R128 loudness + a true-peak limiter. The stdlib halves run
+    in CI; the ffmpeg pass is best-effort (no-op without ffmpeg / on sub-second clips).
+    > **The Apple seam.** `master_wav(mode='apple')` is reserved for an M3-side **Match-EQ**
+    > pass — spectral-matching every chunk to one reference, the one thing a static ffmpeg
+    > curve can't do — which drops in without touching a caller. The portable ffmpeg chain is
+    > the deterministic baseline that runs on `.75` today.
 
 ## The probabilistic layer, governed — `podcast_script.py` + `rubric_review.py`
 

@@ -3,7 +3,9 @@
 The TTS call (`speak`) is injected, so these run with no network and no ffmpeg
 dependency on the synth side — exactly like the image tests inject the OpenAI client.
 """
+import array
 import io
+import math
 import os
 import wave
 
@@ -115,3 +117,104 @@ def test_resolve_voice_parody_uses_base_dir_and_repo_transcript():
     ref_audio, ref_text = audio.resolve_voice("ronald_dump")
     assert ref_audio == os.path.join(content_cfg.voice_ref_base, "ronald_dump", "ref.wav")
     assert ref_text and len(ref_text) > 10              # transcript ships in voice_refs/
+
+
+# --------------------------------------------------------------------------- #
+# Mastering chain: per-chunk leveling, seam crossfades, the ffmpeg master pass
+# --------------------------------------------------------------------------- #
+def _sine_wav(amp, seconds=0.3, fr=24000, freq=220.0):
+    """A mono 16-bit tone — a non-silent fixture for level/peak assertions."""
+    n = int(fr * seconds)
+    data = array.array("h", (int(amp * math.sin(2 * math.pi * freq * i / fr)) for i in range(n)))
+    buf = io.BytesIO()
+    w = wave.open(buf, "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(fr)
+    w.writeframes(data.tobytes())
+    w.close()
+    return buf.getvalue()
+
+
+def _samples(wav_bytes):
+    w = wave.open(io.BytesIO(wav_bytes), "rb")
+    data = array.array("h")
+    data.frombytes(w.readframes(w.getnframes()))
+    w.close()
+    return data
+
+
+def _rms_of(wav_bytes):
+    d = _samples(wav_bytes)
+    return (sum(s * s for s in d) / len(d)) ** 0.5 if d else 0.0
+
+
+def _peak_of(wav_bytes):
+    return max((abs(s) for s in _samples(wav_bytes)), default=0)
+
+
+def _frames(wav_bytes):
+    w = wave.open(io.BytesIO(wav_bytes), "rb")
+    n = w.getnframes()
+    w.close()
+    return n
+
+
+def test_rms_normalize_balances_quiet_and_loud_to_a_common_level():
+    # A quiet chunk and a loud chunk are pulled to the SAME band — this is what stops
+    # one voice (or one boxy chunk) dominating the next when the clip is stitched.
+    quiet = audio._rms_normalize(_sine_wav(2000))
+    loud = audio._rms_normalize(_sine_wav(8000))
+    rq, rl = _rms_of(quiet), _rms_of(loud)
+    assert abs(rq - rl) / max(rq, rl) < 0.1
+    ceiling = 32768 * 10 ** (-1.0 / 20)                 # the -1 dBFS peak ceiling
+    assert _peak_of(quiet) <= ceiling + 1
+    assert _peak_of(loud) <= ceiling + 1
+
+
+def test_rms_normalize_leaves_silence_untouched():
+    sil = _wav()                                        # all zeros -> no divide-by-zero, no gain
+    assert audio._rms_normalize(sil) == sil
+
+
+def test_crossfade_concat_overlaps_the_seam():
+    a, b = _sine_wav(6000), _sine_wav(6000)
+    out = audio._crossfade_concat([a, b], fade_ms=35)
+    fade = int(24000 * 0.035)
+    assert _frames(out) == _frames(a) + _frames(b) - fade   # the seam overlaps, not butt-joins
+
+
+def test_crossfade_concat_butt_joins_when_chunks_too_short():
+    a, b = _wav(seconds=0.01), _wav(seconds=0.01)       # shorter than the fade window
+    out = audio._crossfade_concat([a, b], fade_ms=35)
+    assert _frames(out) == _frames(a) + _frames(b)      # falls back to a plain concat
+
+
+def test_crossfade_concat_single_chunk_is_identity():
+    a = _sine_wav(6000)
+    assert audio._crossfade_concat([a]) == a
+
+
+def test_master_wav_is_a_noop_on_subsecond_clips():
+    clip = _wav(seconds=0.05)                           # too short to master -> unchanged
+    assert audio.master_wav(clip) == clip               # keeps unit tests offline & deterministic
+
+
+def test_master_wav_disabled_returns_input(monkeypatch):
+    monkeypatch.setattr(content_cfg, "audio_master", "none")
+    clip = _sine_wav(6000, seconds=1.5)
+    assert audio.master_wav(clip) == clip
+
+
+@pytest.mark.skipif(not audio.find_ffmpeg(), reason="needs ffmpeg")
+def test_master_wav_smoke_preserves_format(monkeypatch):
+    monkeypatch.setattr(content_cfg, "audio_master", "ffmpeg")
+    src = _sine_wav(8000, seconds=1.5)
+    out = audio.master_wav(src)
+    wi = wave.open(io.BytesIO(src), "rb")
+    wo = wave.open(io.BytesIO(out), "rb")
+    assert (wo.getframerate(), wo.getnchannels(), wo.getsampwidth()) == \
+           (wi.getframerate(), wi.getnchannels(), wi.getsampwidth())
+    assert wo.getnframes() > 0
+    wi.close()
+    wo.close()
