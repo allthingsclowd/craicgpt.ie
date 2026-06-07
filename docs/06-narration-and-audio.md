@@ -4,9 +4,9 @@ The newest build step turns the finished paper into **sound**: a per-article rea
 accessibility (every piece is listenable), a daily **dad↔son podcast** where Graham and Tom —
 his curious, cheeky 14-year-old — **take turns** reading the articles and banter around them
 as a flowing discussion, and a fast **under-180-second TL;DR** headline bulletin. Both shows
-are topped and tailed by a public-domain **trad jingle** (*Whiskey in the Jar*, rendered in
-code). It runs **after validation**, on a long-running box (the Conductor host `.75` or the
-M3), never the laptop.
+are topped and tailed by our own **80s call-sign jingle** (Apple sampled instruments,
+bounced offline). It runs **after validation**, on a long-running box (the Conductor host
+`.75` or the M3), never the laptop.
 
 It's also the cleanest worked example of this codebase's whole thesis:
 
@@ -19,7 +19,7 @@ A podcast episode is built from three layers — and only one of them is allowed
 
 | Layer | Deterministic? | Who makes it |
 |------|----------------|--------------|
-| **Trad jingle** bookend (*Whiskey in the Jar*, public domain) + the date-stamped "Goooood morning, CraicGPT!" cold-open | ✅ stdlib synth / fixed text | `generate/jingle.py` + `podcast_script.build_signature_intro` |
+| **80s call-sign jingle** bookend (our own composition) + the date-stamped "Goooood morning, CraicGPT!" cold-open | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `podcast_script.build_signature_intro` |
 | Article **readings** — Graham & Tom **alternating** | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
 | Dad↔son **discussion banter** (transitional: hands the read over, links each item to the next) | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
 
@@ -27,20 +27,30 @@ Reading the article *verbatim* matters: the edition rubric already passed that t
 podcast introduces **no new claims and no attribution drift**. The banter is the only new
 probabilistic content — so it is the only thing the gate has to judge.
 
-## The jingle is code, not a music file — `generate/jingle.py`
+## The jingle is ours, not a licence — `generate/jingle.py`
 
-There is no "music model" in the loop. The melody is a **pre-1800 traditional tune**
-(*Whiskey in the Jar* — multi-generational: trad ballad → Thin Lizzy → Metallica), and we
-render OUR OWN arrangement of it in **pure stdlib** with a Karplus–Strong plucked-string synth
-— same notes in, same bytes out, every day, forever: no licence, no royalties, no network,
-nothing to drift. `render_podcast` tops & tails the show with it (fades into the cold-open,
-back under the sign-off; best-effort — it drops gracefully without `ffmpeg`). Same
-deterministic-vs-probabilistic split as everything else: a jingle needs no judgement, so no
-LLM goes near it.
+There is no "music model" in the loop. The hook is **our own composition** — an 80s
+synth-pop call sign (*Am–F–C–G* at 124 BPM: pulsing octave synth bass, gated-style drums,
+synth-brass stabs, a saw lead and a polysynth pad) — voiced through **Apple's built-in
+sampled GM instruments** (the `gs_instruments.dls` bank that ships with macOS / drives
+GarageBand) and **bounced offline** via AVFoundation. Our notes + real sampled instruments =
+recognisable, professional, **zero copyright/royalties**. `render_podcast` tops & tails the
+show with it — the full mix fades into the cold-open, a stripped, resolved tag fades back
+under the sign-off (best-effort — it drops gracefully without `ffmpeg`).
 
-> **On copyright:** this is deliberately *not* a sound-alike of a specific hit. A
-> public-domain trad tune is multi-generational, on-brand, and royalty-free — and it can't be
-> confused with anyone's song.
+Unlike the rest of the pipeline you can't reproduce Apple's DLS samples in stdlib Python, so
+the sting is a **committed WAV asset** (`assets/jingle_80s_{intro,outro}.wav`, 24 kHz mono to
+match the TTS stitch). It stays *owned and reproducible* because the full renderer ships in
+`generate/jingle_src/` (Swift + AVFoundation + the arrangement JSON) — regenerate the bytes
+from scratch on any Mac. The pure-stdlib *Whiskey in the Jar* Karplus–Strong synth is retained
+in `jingle.py` only as a **graceful fallback** if the asset ever goes missing (never silence).
+Same deterministic-vs-probabilistic split as everything else: a jingle needs no judgement, so
+no LLM goes near it.
+
+> **On copyright:** this is deliberately *not* a sound-alike of a specific hit — we ruled out
+> both Stairway *and* the Close Encounters five-note motif (still in copyright). An **original**
+> melody on licence-clean Apple instruments is on-brand, recognisable, and can't be confused
+> with anyone's song.
 
 ## The deterministic TTS harness — `content_pipeline/generate/audio.py`
 
@@ -102,12 +112,17 @@ by the same jingle. It is **fully deterministic** — no LLM, nothing to gate �
 180 seconds** even if the clone reads slowly. It attaches as `paper["podcast_tldr"]` (additive
 / optional, mirroring `podcast`) and gets its own masthead player.
 
-## Parody "character voices" — no new clones
+## Parody voice clones — each persona reads in character
 
-We only have the Graham and Tom voice clones, so a parody item (one written in a roster
-persona) gets a short theatrical **spoken intro** announcing the character — carried by the
-*script*, not a new voice. The body stays verbatim (already written in that persona's
-signature voice). It's the honest maximum without per-persona reference audio.
+Each parody persona now has its **own Qwen3-TTS clone**, trained from a willing
+impressionist's reference (a recording *of the impression*, never the real public figure — so
+the clone is a parody performance, not an identity). When a persona's clone is deployed
+(listed in `CRAICGPT_PARODY_VOICES`), `narrate_paper` reads that item — and its podcast turn —
+**in the cloned voice** (`resolve_voice` finds the reference at `<VOICE_REF_BASE>/<key>/ref.wav`
+plus its transcript in `generate/voice_refs/`). A persona with no deployed clone falls back to
+a short theatrical **spoken intro** announcing the character, carried by the *script* — the
+honest maximum without reference audio. The body always stays verbatim, and the satire
+disclaimer always stands.
 
 ## The publish gate is autonomous — with a human window
 

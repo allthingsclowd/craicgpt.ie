@@ -125,8 +125,8 @@ someone approves it. The graph doesn't care *who* resumes it.
 The live system doesn't keep a process paused for hours, and it no longer needs a separate
 fleet of reviewer agents. Instead the **judgement runs in-pipeline**: as the last build
 step, a LangChain `deepagents` **`RubricMiddleware`** grades the finished edition against an
-explicit publish rubric (harmless / on-brand / attributed) on a local model
-(`qwen3.6-35b` — interim, currently the writer's model; an independent judge is in progress),
+explicit publish rubric (harmless / on-brand / attributed) on an **independent** local model
+(`qwen3-coder-next` — Qwen3-Coder-Next 80B-A3B on the M3, distinct from the writer's qwen3.6),
 writing the result to `verdict-rubric.json`. A
 separate, idempotent **gate** (`cli gate`) then publishes live only on the **rubric
 `APPROVE` + host structural validation + a live link-check**. Same human-in-the-loop
@@ -185,5 +185,7 @@ This is the project's whole observability story — deliberately plain, fully op
 | Observability | Mermaid of the static graph | A live per-run trace of the *actual* plan/tools/models |
 
 > **Next:** after validation, a **narration step** ([06-narration-and-audio.md](06-narration-and-audio.md))
-> reads each article in Graham's cloned voice and builds the rubric-gated dad↔son podcast — the same
-> harness-does-deterministic, rubric-governs-probabilistic pattern, applied to audio.
+> reads each article in Graham & Tom's alternating cloned voices (parody items in their own
+> persona clone) and builds the rubric-gated dad↔son podcast + a <180s TL;DR, bookended by the
+> 80s call-sign jingle — the same harness-does-deterministic, rubric-governs-probabilistic
+> pattern, applied to audio.
