@@ -183,36 +183,60 @@ def select_diverse(
 # Link validation
 # ─────────────────────────────────────────────────────────────────────────────
 def _default_fetch(url: str) -> int:
-    """Return the HTTP status for ``url`` (HEAD, GET fallback). Stdlib only."""
+    """Return the HTTP status for ``url`` (HEAD, GET fallback). Stdlib only.
+
+    Returns the status CODE for HTTP errors (403/404/429/…) instead of raising, so the
+    caller can apply a status policy. Only true network failures (DNS / refused /
+    timeout) raise.
+    """
     import urllib.request
 
     from content_pipeline.content_config import WEB_USER_AGENT
 
-    req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": WEB_USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status
-    except urllib.error.HTTPError as exc:
-        # Some servers reject HEAD; retry once with GET before giving up.
-        if exc.code in (403, 405):
-            get = urllib.request.Request(url, headers={"User-Agent": WEB_USER_AGENT})
-            with urllib.request.urlopen(get, timeout=10) as resp:
+    def _status(method: str) -> int:
+        req = urllib.request.Request(url, method=method, headers={"User-Agent": WEB_USER_AGENT})
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 return resp.status
-        return exc.code
+        except urllib.error.HTTPError as exc:
+            return exc.code
+
+    status = _status("HEAD")
+    # Some servers reject HEAD with 403/405 but serve GET — retry once with GET.
+    if status in (403, 405):
+        status = _status("GET")
+    return status
 
 
-def validate_source_link(url: str, *, fetch: Optional[Callable[[str], int]] = None) -> bool:
-    """True if ``url`` resolves with a 2xx status.
+# A host that EXISTS but blocks/limits the bot (auth, bot-detection, method, rate-limit)
+# answers with these — they do NOT mean "the URL doesn't exist", so they count as reachable.
+# Only 404/410 (invented / removed) are the fabrication signal we must keep failing.
+_UNREACHABLE_STATUS = frozenset({404, 410})
 
-    ``fetch`` is injectable for testing; it maps a URL to an HTTP status code
-    and may raise on network failure (treated as invalid).
+
+def validate_source_link(url: str, *, fetch: Optional[Callable[[str], int]] = None,
+                         attempts: int = 2) -> bool:
+    """True if ``url`` is REACHABLE — i.e. the source genuinely exists.
+
+    Reachable = the host answered with anything other than 404/410 (a 2xx/3xx, or a
+    bot-block / rate-limit / auth / server-error — the host is real, just hostile to a
+    bot). Unreachable = 404/410 (invented or removed), or a persistent network failure
+    (DNS / refused / timeout) across ``attempts``. A one-off transient error is retried,
+    so the gate's ~18-link burst can't falsely HOLD a valid edition on a single 429/timeout
+    (the 2026-06-07 cybersecuritydive false-hold). NOT an allowlist: an invented URL still
+    404s and fails. The SAME function backs generation and the publish gate, so they agree.
+
+    ``fetch`` is injectable for tests (maps a URL → status code, may raise to simulate a
+    network failure).
     """
     fetcher = fetch if fetch is not None else _default_fetch
-    try:
-        status = fetcher(url)
-    except Exception:  # noqa: BLE001 — any fetch failure means "don't publish it"
-        return False
-    return 200 <= status < 300
+    for _ in range(max(1, attempts)):
+        try:
+            status = fetcher(url)
+        except Exception:  # noqa: BLE001 — network failure: retry, then treat as unreachable
+            continue
+        return status not in _UNREACHABLE_STATUS
+    return False  # every attempt hit a network error → genuinely unreachable
 
 
 # ─────────────────────────────────────────────────────────────────────────────
