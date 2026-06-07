@@ -168,7 +168,8 @@ def notify_once(event: str, date_iso: str, text: str, *,
 def notify_generated(date_iso: str, draft_url: str, *, vid: Optional[str] = None,
                      s3: Any | None = None) -> dict:
     text = (f"📰 <b>CraicGPT draft generated</b> — {date_iso}\n"
-            f"Awaiting openclaw + hermes review.\n{draft_url}")
+            f"Judged in-pipeline by the rubric; the publish gate auto-promotes it live on "
+            f"APPROVE — I'll only ping you if it's held.\n{draft_url}")
     return notify_once("generated", date_iso, text, vid=vid, s3=s3)
 
 
