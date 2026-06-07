@@ -82,3 +82,27 @@ def test_render_jingle_writes_a_file(tmp_path):
     assert os.path.exists(path)
     assert name == "whiskey-in-the-jar"
     assert path.lower().endswith((".mp3", ".wav"))
+
+
+# --- the live 80s call-sign assets (intro full mix + stripped outro tag) -------
+def test_intro_and_outro_assets_are_valid_24k_mono_wavs():
+    # The committed stings load and are mono 24 kHz (the TTS stitch format).
+    for getter in (jingle.intro_jingle, jingle.outro_jingle):
+        info = _read_wav(getter())
+        assert info["nchannels"] == 1
+        assert info["framerate"] == 24000
+        seconds = info["nframes"] / info["framerate"]
+        assert 2.0 < seconds < 8.0          # a sting, not a song
+
+
+def test_intro_is_the_full_mix_and_longer_than_the_outro_tag():
+    intro = _read_wav(jingle.intro_jingle())["nframes"]
+    outro = _read_wav(jingle.outro_jingle())["nframes"]
+    assert intro > outro                     # full open vs stripped sign-off
+
+
+def test_missing_asset_falls_back_to_the_trad_synth(monkeypatch):
+    # If the bounced asset ever vanishes, the show degrades to the trad pluck —
+    # never silence.
+    monkeypatch.setattr(jingle, "INTRO_ASSET", "/no/such/file.wav")
+    assert jingle.intro_jingle() == jingle.synth_melody()

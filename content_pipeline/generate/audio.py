@@ -332,9 +332,15 @@ _PCM = {1: "pcm_u8", 2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"}
 
 
 def _default_jingle() -> bytes:
-    """The show's jingle WAV. Lazy import dodges an audio↔jingle import cycle."""
+    """The show-open sting WAV (80s full mix). Lazy import dodges an audio↔jingle cycle."""
     from content_pipeline.generate import jingle
-    return jingle.synth_melody()
+    return jingle.intro_jingle()
+
+
+def _default_outro_jingle() -> bytes:
+    """The sign-off sting WAV (stripped 80s tag). Lazy import dodges the import cycle."""
+    from content_pipeline.generate import jingle
+    return jingle.outro_jingle()
 
 
 def _conform_and_fade(wav_bytes: bytes, target: bytes, *, fade_in: float = 0.0,
@@ -387,13 +393,16 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
                    speak: Optional[Speak] = None, base_url: Optional[str] = None,
                    model: Optional[str] = None, gap_sec: float = DEF_GAP_SEC,
                    max_chars: int = DEF_MAX_CHARS, add_jingle: bool = True,
-                   jingle_wav: Optional[bytes] = None) -> tuple[str, str]:
+                   jingle_wav: Optional[bytes] = None,
+                   outro_wav: Optional[bytes] = None) -> tuple[str, str]:
     """Render speaker turns ``[(voice, text), …]`` → one stitched MP3.
 
     Each turn is synthesised in its speaker's voice (unknown speaker → graham), with a
-    short silence gap between turns. When ``add_jingle`` (the default) the trad jingle
-    tops and tails the show — fading out into the cold-open and back in under the
-    sign-off. Returns ``(local_path, model_used)``.
+    short silence gap between turns. When ``add_jingle`` (the default) the 80s call-sign
+    sting tops and tails the show — the full mix fades out into the cold-open, and a
+    stripped, resolved tag fades back in under the sign-off. ``jingle_wav``/``outro_wav``
+    override the intro/outro stings (a single ``jingle_wav`` is used for both if
+    ``outro_wav`` is omitted). Returns ``(local_path, model_used)``.
     """
     spk = speak or _default_speak(base_url, model)
     segments: list[bytes] = []
@@ -414,9 +423,11 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
 
     final = segments
     if add_jingle:  # best-effort: a format mismatch / missing ffmpeg just drops it
-        jw = jingle_wav if jingle_wav is not None else _default_jingle()
-        intro = _conform_and_fade(jw, segments[0], fade_out=1.2)
-        outro = _conform_and_fade(jw, segments[0], fade_in=0.8, fade_out=1.5)
+        jw_in = jingle_wav if jingle_wav is not None else _default_jingle()
+        jw_out = outro_wav if outro_wav is not None else (
+            jingle_wav if jingle_wav is not None else _default_outro_jingle())
+        intro = _conform_and_fade(jw_in, segments[0], fade_out=1.2)
+        outro = _conform_and_fade(jw_out, segments[0], fade_in=0.6, fade_out=1.3)
         final = ([intro] if intro else []) + segments + ([outro] if outro else [])
 
     out_dir = out_dir or content_cfg.audio_dir

@@ -1,26 +1,33 @@
 """
 content_pipeline/generate/jingle.py
 ===================================
-The show's **audio branding**: a few bars of *Whiskey in the Jar* (Irish trad,
-**public domain**) rendered as a short instrumental — the jingle that tops and
-tails every podcast (fades out into Graham's cold-open; returns under the
-"back to craicgpt.ie tomorrow" sign-off).
+The show's **audio branding**: our **original 80s synth-pop call sign** — the
+sting that tops and tails every podcast (the full mix fades out into Graham's
+cold-open; a stripped, resolved tag returns under the "back to craicgpt.ie
+tomorrow" sign-off).
 
-TUTORIAL: deterministic vs probabilistic — *and* legally clean
---------------------------------------------------------------
-There is no "music model" in the loop. The melody is a **pre-1800 traditional
-tune** (public domain — *Whiskey in the Jar* is multi-generational: trad ballad
-→ Thin Lizzy → Metallica), and we render OUR OWN arrangement of it in **pure
-stdlib** with a plucked-string (Karplus–Strong) synth. Same notes in → same
-bytes out, every day, forever — no licence, no royalties, no network, nothing to
-drift. This is the same CraicGPT split as everything else: mechanical, reproducible
-work belongs in code; only judgement belongs to an LLM (and a jingle needs none).
+TUTORIAL: owning your brand — composed, sampled, licence-free
+-------------------------------------------------------------
+There is no "music model" in the loop. The hook is **our own composition**
+(*Am–F–C–G at 124 BPM* — pulsing octave synth bass, gated-style drums,
+synth-brass stabs, a saw lead and a polysynth pad), voiced through **Apple's
+built-in sampled GM instruments** (the `gs_instruments.dls` bank that ships with
+macOS / drives GarageBand). Real sampled instruments + our own notes =
+recognisable, professional, and **zero copyright/royalties**. The bounce is
+deterministic too: same arrangement in → same bytes out.
 
-Why Karplus–Strong: a 4-line feedback filter over a seeded noise burst gives a
-banjo/guitar-ish *pluck* — exactly the trad-session texture we want — for a few
-lines of stdlib, no soundfont and no `fluidsynth` dependency. ffmpeg (already a
-soft dependency for narration) is used only for the MP3 + fade convenience
-wrapper; the core synth is stdlib-only so it runs anywhere the tests do.
+Why a committed asset (not pure stdlib like the rest of the pipeline): you can't
+reproduce Apple's DLS samples in Python, so the sting is a **bounced WAV**
+(`assets/jingle_80s_{intro,outro}.wav`, 24 kHz mono to match the TTS stitch). We
+keep it *owned and reproducible* by shipping the full renderer in `jingle_src/`
+(Swift + AVFoundation + the arrangement JSON) — `jingle_src/README.md` regenerates
+the bytes from scratch on any Mac.
+
+**Fallback (still in this module):** the original pure-stdlib *Whiskey in the Jar*
+Karplus–Strong synth below. If the asset is ever missing the show degrades to a
+clean public-domain trad pluck — **never silence**. ffmpeg (already a soft
+narration dependency) is used only for the MP3 + fade convenience wrapper; the
+fallback synth is stdlib-only so it runs anywhere the tests do.
 """
 
 from __future__ import annotations
@@ -38,8 +45,33 @@ from typing import Optional
 from content_pipeline.content_config import content_cfg
 from content_pipeline.generate.audio import find_ffmpeg
 
+# ── The 80s call-sign assets (the live sting) ─────────────────────────────────
+_ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
+INTRO_ASSET = os.path.join(_ASSET_DIR, "jingle_80s_intro.wav")   # full mix → tops the show
+OUTRO_ASSET = os.path.join(_ASSET_DIR, "jingle_80s_outro.wav")   # stripped resolve → signs off
+
+
+def _load_asset(path: str) -> Optional[bytes]:
+    """Read a committed sting WAV, or ``None`` if it's missing (→ synth fallback)."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def intro_jingle() -> bytes:
+    """The show-open sting bytes: the 80s full mix, else the trad-synth fallback."""
+    return _load_asset(INTRO_ASSET) or synth_melody()
+
+
+def outro_jingle() -> bytes:
+    """The sign-off sting bytes: the stripped 80s tag, else the trad-synth fallback."""
+    return _load_asset(OUTRO_ASSET) or synth_melody()
+
+
 DEF_SAMPLE_RATE = 24000  # matches the M3 mlx-audio TTS output, so clips stitch directly
-DEF_BPM = 126            # a sprightly trad-session lilt
+DEF_BPM = 126            # a sprightly trad-session lilt (fallback synth)
 _AMP = 0.72              # headroom so plucks never clip int16
 
 Note = tuple  # (name, beats); name "R" is a rest
