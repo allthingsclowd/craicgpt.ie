@@ -53,11 +53,20 @@ def test_script_is_topped_and_tailed_with_the_signature():
     assert "god bless" in turns[-1][1].lower()
 
 
-def test_article_bodies_are_read_verbatim_in_grahams_voice():
+def test_article_bodies_are_read_verbatim_with_alternating_voices():
     res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
-    graham_text = " ".join(t for who, t in res["turns"] if who == "graham")
-    assert "It can hold a book." in graham_text           # headliner body, verbatim
-    assert "A second story about chips." in graham_text    # subarticle body, verbatim
+    all_text = " ".join(t for _, t in res["turns"])
+    assert "It can hold a book." in all_text            # headliner body, verbatim
+    assert "A second story about chips." in all_text     # subarticle body, verbatim
+    # the hosts take turns: the headliner is read by Graham, the next article by Tom.
+    reader = {}
+    for who, t in res["turns"]:
+        if "It can hold a book." in t:
+            reader["headliner"] = who
+        if "A second story about chips." in t:
+            reader["sub"] = who
+    assert reader["headliner"] == "graham"
+    assert reader["sub"] == "tom"
 
 
 def test_banter_turns_are_present_and_voiced_to_the_right_speaker():
@@ -102,3 +111,19 @@ def test_signature_intro_folds_in_the_edition_date():
 
 def test_date_phrase_handles_a_bad_date_gracefully():
     assert ps._date_phrase("not-a-date") == "today"
+
+
+def test_outro_sends_listeners_back_to_the_site():
+    res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
+    outro = " ".join(t for _, t in res["turns"][-3:]).lower()
+    assert "craicgpt.ie" in outro
+    assert "tomorrow" in outro
+
+
+def test_digest_tells_the_banter_who_reads_each_article():
+    # the prompt digest carries reader + position so the model can write hand-offs.
+    pairs = [("ai.headliner", SAMPLE["ai"]["headliner"]),
+             ("ai.subarticles.0", SAMPLE["ai"]["subarticles"][0])]
+    digest = ps._digest(pairs)
+    assert "read by GRAHAM" in digest and "read by TOM" in digest
+    assert "first" in digest

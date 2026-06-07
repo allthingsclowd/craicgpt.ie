@@ -81,3 +81,21 @@ def test_render_podcast_uses_each_speakers_voice_and_writes_one_file(tmp_path):
         content_cfg.graham_ref_audio,
         content_cfg.tom_ref_audio,
     ]
+
+
+def test_render_podcast_tops_and_tails_with_the_jingle(tmp_path):
+    # The same speech rendered WITH the jingle is materially longer than without it
+    # (the trad bookend adds ~10s of audio around the speech). Separate out_dirs so the
+    # content-addressed filenames don't collide and overwrite each other.
+    turns = [("graham", "Welcome to the show.")]
+    with_jingle, _ = audio.render_podcast(turns, out_dir=str(tmp_path / "a"), speak=_fake_speak([]))
+    without_jingle, _ = audio.render_podcast(
+        turns, out_dir=str(tmp_path / "b"), speak=_fake_speak([]), add_jingle=False)
+    assert os.path.exists(with_jingle)
+    assert os.path.getsize(with_jingle) > os.path.getsize(without_jingle)
+
+
+def test_craicgpt_ie_is_pronounced_as_a_spoken_url():
+    spoken = audio._phonetic("Come back to craicgpt.ie tomorrow")
+    assert "Crack Gee Pee Tee dot Eye Ee" in spoken
+    assert "craicgpt.ie" not in spoken.lower()

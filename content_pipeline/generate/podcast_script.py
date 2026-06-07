@@ -1,17 +1,17 @@
 """
 content_pipeline/generate/podcast_script.py
 ===========================================
-Build the script for the daily **dad↔son podcast**: Graham reads each article, with
-Tom (his curious, cheeky 14-year-old) and Graham bantering before and after — topped
-and tailed by the fixed "Craic of Dawn" signature.
+Build the script for the daily **dad↔son podcast**: Graham and Tom TAKE TURNS reading
+the articles aloud and banter before and after each one, so it plays as a flowing
+two-handed discussion — topped and tailed by the trad jingle + "Craic of Dawn" signature.
 
 TUTORIAL: deterministic frame, probabilistic filling
 ----------------------------------------------------
 Two of the three layers are DETERMINISTIC and never touch an LLM:
   1. the signature intro/outro (fixed audio branding), and
-  2. the article READINGS — Graham reads each article's *verbatim* body, the exact
-     text the edition rubric already approved (no paraphrase → no new claims, no
-     attribution drift).
+  2. the article READINGS — Graham and Tom take turns reading each article's *verbatim*
+     body, the exact text the edition rubric already approved (no paraphrase → no new
+     claims, no attribution drift).
 Only the BANTER is PROBABILISTIC — a single ``write_model`` call drafts every
 before/after exchange at once (Tom's character stays consistent). Because it's the only
 generated content, it is the only thing the deepagents rubric has to gate before a word
@@ -31,6 +31,14 @@ logger = logging.getLogger(__name__)
 
 Generate = Callable[[str], dict]
 Turn = tuple[str, str]  # (voice, text)
+
+# The two hosts TAKE TURNS reading the articles — Graham (dad) opens, then they
+# alternate so the show plays as a two-handed discussion, not a monologue.
+_PODCAST_READERS: tuple[str, str] = ("graham", "tom")
+
+
+def _reader_for(index: int) -> str:
+    return _PODCAST_READERS[index % len(_PODCAST_READERS)]
 
 # ── Fixed signature (the "Craic of Dawn" audio branding; same every day) ──────
 # NB: "Craic" is left spelled correctly here (this is also the on-screen transcript);
@@ -66,27 +74,32 @@ def build_signature_intro(date_iso: str) -> list[Turn]:
 
 
 SIGNATURE_OUTRO: list[Turn] = [
-    ("graham", "And sure look, that's enough craic for one day. We'll do it all again tomorrow."),
+    ("graham", "And sure look, that's enough craic for one day. Come back to us tomorrow "
+               "at craicgpt.ie for another podcast."),
     ("tom", "See yiz!"),
     ("graham", "God bless."),
 ]
 
 _BANTER_PROMPT = (
-    "You are scripting a warm, witty Irish podcast: GRAHAM (the dad — patient, funny, "
-    "gently cynical, teaching-minded, 'the Scripting Paddy') explains today's news to "
-    "TOM, his loveable, cheeky, curious 14-year-old son. Graham reads each article aloud "
-    "himself; you write only the SHORT banter around each one.\n"
-    "For EACH article below write:\n"
-    "  • before: 1-2 short turns to tee it up — usually Tom asking a naive or cheeky "
-    "question, Graham setting it up in a line.\n"
-    "  • after: 1-2 short turns — Tom's quick reaction or a daft follow-up, Graham landing "
-    "a one-line takeaway.\n"
-    "One sentence per turn. Kind, funny, doom-free, PG — Tom is cheeky but never cruel or "
-    "disrespectful; nothing grim. Refer to the article by what it's about, don't read it.\n"
+    "You are scripting a warm, witty Irish podcast that should feel like one flowing "
+    "CONVERSATION between GRAHAM (the dad — patient, funny, gently cynical, teaching-"
+    "minded, 'the Scripting Paddy') and TOM, his loveable, cheeky, curious 14-year-old "
+    "son. They TAKE TURNS reading the articles aloud — each article below says who reads "
+    "it — and you write only the SHORT banter that links them into a discussion.\n"
+    "For EACH article write:\n"
+    "  • before: 1-2 short turns that tee it up — the host who is NOT reading it hands "
+    "over to the one who is (a natural 'go on, you take this one' invite), ideally "
+    "nodding back to what they were just talking about so it flows on.\n"
+    "  • after: 1-2 short turns — a quick reaction or daft follow-up, then a one-line "
+    "takeaway that leads into the NEXT topic.\n"
+    "Make it continuous: each item connects to the one before and the one after, not a "
+    "list of standalone bits. One sentence per turn. Kind, funny, doom-free, PG — Tom is "
+    "cheeky but never cruel; nothing grim. Refer to the article by what it's about; do "
+    "NOT read it (the hosts read the body themselves).\n"
     "Output ONLY compact JSON (no markdown), exactly:\n"
     '{{"items":[{{"ref":"<the ref>","before":[{{"who":"tom|graham","text":"..."}}],'
     '"after":[{{"who":"tom|graham","text":"..."}}]}}]}}\n\n'
-    "Articles:\n{digest}"
+    "Articles in reading order:\n{digest}"
 )
 
 
@@ -127,11 +140,15 @@ def _reading(item: dict) -> str:
 
 
 def _digest(pairs: list[tuple[str, dict]]) -> str:
-    """A compact, token-light digest of the articles for the banter prompt."""
+    """A compact, token-light digest of the articles — with each one's reader and
+    position — so the banter prompt can write hand-offs and flowing transitions."""
     lines = []
-    for ref, item in pairs:
+    n = len(pairs)
+    for i, (ref, item) in enumerate(pairs):
+        pos = "first" if i == 0 else ("last" if i == n - 1 else f"#{i + 1}")
         snippet = (item.get("standfirst") or item.get("body") or "")[:160]
-        lines.append(f"[{ref}] {item.get('title', '')} — {snippet}")
+        lines.append(f"[{ref} | {pos} | read by {_reader_for(i).upper()}] "
+                     f"{item.get('title', '')} — {snippet}")
     return "\n".join(lines)[:6000]
 
 
@@ -183,13 +200,14 @@ def build_podcast_script(paper: dict, *, generate: Optional[Generate] = None,
 
     turns: list[Turn] = list(build_signature_intro(paper.get("date") or ""))
     banter_turns: list[Turn] = []
-    for ref, item in pairs:
+    for i, (ref, item) in enumerate(pairs):
+        reader = _reader_for(i)                     # alternate who reads each article
         b = banter_by_ref.get(ref, {})
         before = _turns_from_banter(b.get("before"))
         after = _turns_from_banter(b.get("after"))
         banter_turns += before + after
         turns += before
-        turns.append(("graham", _reading(item)))   # verbatim reading, in Graham's voice
+        turns.append((reader, _reading(item)))      # verbatim reading, alternating voice
         turns += after
     turns += SIGNATURE_OUTRO
 

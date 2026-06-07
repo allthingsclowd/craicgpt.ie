@@ -4,8 +4,9 @@ content_pipeline/generate/narration.py
 The **narration step** — runs after the edition is written/validated and enriches it
 with audio:
 
-  1. a per-article **reading** in Graham's voice (accessibility: every piece is
-     listenable), setting ``audio_url`` on each item; and
+  1. a per-article **reading** (accessibility: every piece is listenable) — the Editor's
+     own sections in Graham's voice, the desk articles ALTERNATING Graham/Tom — setting
+     ``audio_url`` on each item; and
   2. the daily **dad↔son podcast** — built by :mod:`podcast_script`, its banter gated by
      :func:`rubric_review.grade_podcast_script`, rendered by :func:`audio.render_podcast`.
 
@@ -80,11 +81,20 @@ def narrate_paper(
     targets = _article_targets(paper)
     if limit is not None:
         targets = targets[:limit]
+    # Cast the reads: the Editor's own sections (Brief, About) stay in Graham's voice;
+    # the desk articles ALTERNATE Graham/Tom so the paper is read as a two-hander.
+    editor_ids = {id(paper.get("editors_brief")), id(paper.get("about"))}
+    desk_i = 0
     for item in targets:
+        if id(item) in editor_ids:
+            v = voice                                   # the editor reads his own sections
+        else:
+            v = "graham" if desk_i % 2 == 0 else "tom"  # desk articles alternate
+            desk_i += 1
         try:
-            path, model = narrate_article(item, voice=voice)
+            path, model = narrate_article(item, voice=v)
             item["audio_url"] = path
-            item["_audio_voice"] = voice
+            item["_audio_voice"] = v
             item["_audio_model"] = model
         except Exception as exc:  # noqa: BLE001 — a per-item TTS failure is soft
             logger.warning("[narrate] reading failed for %r: %s", item.get("title"), exc)
