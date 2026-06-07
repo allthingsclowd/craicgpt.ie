@@ -27,14 +27,24 @@ logger = logging.getLogger(__name__)
 
 
 def _article_targets(paper: dict) -> list[dict]:
-    """Every item that should get its own reading, in a stable order."""
+    """Every item that should get its own reading, in a stable order.
+
+    Includes the Editor-in-Chief sections — the Editor's Brief (the day's opener) and
+    the About-the-Editor page — so they're listenable too, not just the desk articles.
+    """
     ai = paper.get("ai") or {}
     targets: list[dict] = []
+    brief = paper.get("editors_brief")
+    if isinstance(brief, dict) and brief.get("body"):
+        targets.append(brief)
     if isinstance(ai.get("headliner"), dict):
         targets.append(ai["headliner"])
     targets += [s for s in (ai.get("subarticles") or []) if isinstance(s, dict)]
     targets += [s for s in (ai.get("shorts") or []) if isinstance(s, dict)]
     targets += [f for f in (paper.get("fun") or []) if isinstance(f, dict)]
+    about = paper.get("about")
+    if isinstance(about, dict) and about.get("body"):
+        targets.append(about)
     return targets
 
 
