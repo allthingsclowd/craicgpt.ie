@@ -362,15 +362,14 @@ function playArticle(url, title) {
   audio.play().catch(() => { /* autoplay blocked → the visible controls still work */ });
 }
 
-/** The daily dad↔son podcast player in the masthead, plus a screen-reader transcript. */
-function renderPodcast(data) {
-  const bar = el('podcast-bar');
+/** Render ONE podcast player (full show or TL;DR) into its masthead bar + a transcript. */
+function renderPodcastInto(barId, pod, label) {
+  const bar = el(barId);
   if (!bar) return;
   bar.innerHTML = '';
-  const pod = data && data.podcast;
   if (!pod || !pod.audio_url) { bar.hidden = true; return; }
   bar.hidden = false;
-  bar.append(node('span', 'podcast-label', '🎙️ Daily Podcast — Graham & Tom explain the AI news'));
+  bar.append(node('span', 'podcast-label', label));
   const audio = document.createElement('audio');
   audio.className = 'podcast-audio'; audio.controls = true; audio.preload = 'none';
   const src = document.createElement('source');
@@ -384,6 +383,14 @@ function renderPodcast(data) {
     det.append(node('pre', 'transcript-text', pod.transcript));
     bar.append(det);
   }
+}
+
+/** The masthead audio: the full dad↔son podcast and the under-3-minute TL;DR bulletin. */
+function renderPodcast(data) {
+  renderPodcastInto('podcast-bar', data && data.podcast,
+    '🎙️ Daily Podcast — Graham & Tom explain the AI news');
+  renderPodcastInto('podcast-tldr-bar', data && data.podcast_tldr,
+    '⏱️ Headlines in under 3 minutes — Graham & Tom');
 }
 
 // ── Under the Hood: deep-agent visualiser ──────────────────────────────────

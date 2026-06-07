@@ -142,9 +142,10 @@ so each stage is independently retriable and the gate is idempotent.
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
-| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clone (Graham/Tom registry), chunk→synth→stitch, `_phonetic` (craic→"crack"), EBU-R128 `normalize_loudness`, per-article + multi-voice podcast |
-| `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script: date-stamped "Craic of Dawn" signature + verbatim readings + LLM banter (`build_signature_intro`, `build_podcast_script`) |
-| `content_pipeline/generate/narration.py` | `narrate_paper` — the narration step: per-article audio (best-effort) + the rubric-gated podcast + trace events |
+| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clone (Graham/Tom registry), chunk→synth→stitch, `_phonetic` (craic→"crack", craicgpt.ie→spoken URL), EBU-R128 `normalize_loudness`, multi-voice podcast + trad-jingle bookend (`render_podcast`) |
+| `content_pipeline/generate/jingle.py` | Deterministic stdlib synth of the (public-domain) *Whiskey in the Jar* jingle (Karplus-Strong pluck) — the show's audio branding, owned & reproducible, no music model or licence |
+| `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script: "Craic of Dawn" signature + ALTERNATING verbatim readings (Graham/Tom) + transitional discussion banter (`build_podcast_script`); plus the deterministic **<180s** `build_tldr_script` headline bulletin |
+| `content_pipeline/generate/narration.py` | `narrate_paper` — the narration step: per-article audio (best-effort, alternating voices) + the rubric-gated podcast + the deterministic TL;DR bulletin + trace events |
 | `content_pipeline/generate/personas.py` | Parody-journalist personas + satire disclaimer (legacy/fallback fun only) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
 | `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest (AI feeds; Irish-creator YouTube feeds) |
@@ -175,13 +176,16 @@ so each stage is independently retriable and the gate is idempotent.
   "fun": [ { "title": "", "body": "", "source_url": "", "source": "<creator credit>", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "" } ],
   "about": { "title": "", "body": "" },
   "podcast": { "audio_url": "", "transcript": "", "_voices": ["graham","tom"], "_text_model": "", "_tts_model": "", "rubric": {} },
+  "podcast_tldr": { "audio_url": "", "transcript": "", "_voices": ["graham","tom"], "_kind": "tldr", "_tts_model": "" },
   "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0", "..."],
   "context": { "agent_trace": [ { "kind": "", "name": "", "detail": {} } ], "files": ["..."] }
 }
 ```
 
-`audio_url` (per item) and `podcast` are **additive and optional** — the narration step adds
-them after validation; an edition without audio still validates and renders.
+`audio_url` (per item), `podcast` and `podcast_tldr` are **additive and optional** — the narration
+step adds them after validation; an edition without audio still validates and renders. The full
+show and the TL;DR both top & tail with a public-domain trad jingle (*Whiskey in the Jar*, rendered
+in code); `podcast_tldr` is a deterministic, word-budgeted **<180s** two-voice headline bulletin.
 
 Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **5 fun**. Each
 fun item is **either credited** (`source` = creator name, no disclaimer) **or parody**
