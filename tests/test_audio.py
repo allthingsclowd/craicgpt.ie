@@ -42,7 +42,7 @@ def test_resolve_voice_graham_points_at_locked_reference():
 def test_resolve_voice_tom_points_at_his_reference():
     ref_audio, ref_text = audio.resolve_voice("tom")
     assert ref_audio == content_cfg.tom_ref_audio
-    assert "Afghanistan" in ref_text
+    assert "Shropshire" in ref_text   # the retuned, upbeat Tom ref (was the sombre war story)
 
 
 def test_resolve_voice_unknown_raises():
