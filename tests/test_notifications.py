@@ -117,6 +117,11 @@ def test_lifecycle_helpers_send_expected_text(monkeypatch):
 
     assert "draft generated" in captured["generated"].lower()
     assert "preview" in captured["generated"]
+    # the two-agent (openclaw + hermes) review is RETIRED — the generated alert must not
+    # claim it's awaiting them; the rubric judges in-pipeline and the gate auto-publishes.
+    g = captured["generated"].lower()
+    assert "openclaw" not in g and "hermes" not in g
+    assert "rubric" in g and "publish gate" in g
     assert "published live" in captured["published"].lower()
     assert "HELD" in captured["held"] and "off-brand short" in captured["held"]
 
@@ -126,10 +131,10 @@ def test_notify_published_carries_validation_receipts(monkeypatch):
     monkeypatch.setattr(notifications, "notify_once",
                         lambda event, date_iso, text, **kw: captured.update(text=text) or {"sent": True})
     notifications.notify_published("2026-06-04", "https://craicgpt.ie/content/x.json",
-                                   approvers=["openclaw", "hermes"], link_count=18,
+                                   approvers=["rubric"], link_count=18,
                                    version="v2 · 17:30")
     t = captured["text"]
-    assert "approved by openclaw ✓ + hermes ✓" in t   # who validated it
+    assert "approved by rubric ✓" in t                # who validated it (the in-pipeline judge)
     assert "18 source links verified" in t            # the link-check receipt
     assert "v2 · 17:30" in t                           # which version
     assert "published live" in t.lower()
