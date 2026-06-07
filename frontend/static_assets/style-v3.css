@@ -223,3 +223,56 @@
   cursor: pointer;
 }
 .version-select:hover { color: var(--ink); border-color: var(--ink); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   AUDIO — per-article "Listen" + the daily dad↔son podcast (accessibility)
+   ════════════════════════════════════════════════════════════════════════════ */
+/* Subtle per-article listen control; sits in the .card-meta footer beside source. */
+.audio-btn {
+  font: 700 .72rem/1 var(--font-ui);
+  text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ink-soft); background: none; border: none; padding: 0;
+  cursor: pointer; transition: color .15s ease;
+}
+.audio-btn:hover { color: var(--accent); }
+.audio-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+/* Masthead daily-podcast band (a fourth masthead row, only shown when audio exists). */
+.masthead-podcast-bar {
+  max-width: 1180px; margin: .4rem auto 0; padding: .6rem 1rem;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem;
+  border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+  background: var(--paper-2);
+}
+.podcast-label {
+  font: 800 .8rem/1.2 var(--font-ui); text-transform: uppercase;
+  letter-spacing: .03em; color: var(--ink);
+}
+.podcast-audio { height: 34px; flex: 1 1 260px; max-width: 520px; }
+.podcast-transcript { flex-basis: 100%; font: 400 .85rem/1.5 var(--font-body); color: var(--ink-soft); }
+.podcast-transcript summary { cursor: pointer; font-family: var(--font-ui); font-weight: 700; }
+.transcript-text {
+  white-space: pre-wrap; margin: .5rem 0 0; max-height: 320px; overflow: auto;
+  padding: .6rem .8rem; background: var(--white);
+  border: 1px solid var(--hairline); border-radius: var(--radius);
+}
+
+/* One shared sticky player drives every per-article reading (only one at a time). */
+.sticky-player {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem; z-index: 50;
+  display: flex; align-items: center; gap: .7rem;
+  max-width: min(680px, 94vw); width: max-content;
+  padding: .55rem .7rem; background: var(--ink); color: var(--white);
+  border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
+}
+.sticky-player .np-label {
+  font: 700 .82rem/1.2 var(--font-ui);
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sticky-player audio { height: 34px; }
+.sticky-player .np-close {
+  background: none; border: none; color: var(--white);
+  font-size: 1rem; cursor: pointer; opacity: .8;
+}
+.sticky-player .np-close:hover { opacity: 1; }
+@media (max-width: 520px) { .sticky-player .np-label { max-width: 30vw; } }

@@ -49,6 +49,10 @@ python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 # The publish gate: publish live on the rubric APPROVE verdict + host validation + link-check
 python -m content_pipeline.agent.cli gate --publish --date 2026-06-05
 
+# Narrate a validated edition: per-article audio + the rubric-gated dad↔son podcast,
+# uploaded to S3 (preview/ unless --live). Runs on .75 or the M3 (calls the M3 TTS), NOT the laptop.
+python -m content_pipeline.agent.cli narrate --date 2026-06-05 --prefix content --publish
+
 # Other CLI verbs: verdict / consensus / announce / override / remediate / directive / syndicate / message
 python -m content_pipeline.agent.cli --help
 ```
@@ -102,6 +106,11 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
           verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
           old decoupled two-VM openclaw+hermes review.)
    ▼
+Narrate (AFTER validation) — cli narrate (Conductor task craicgpt_narrate, wiring pending):
+   per-article readings in Graham's voice + the dad↔son podcast (deterministic readings +
+   LLM banter GATED by the same deepagents rubric). Adds audio_url per item + paper["podcast"].
+   Runs on .75 or the M3 (calls the M3 mlx-audio TTS clone), never the laptop.
+   ▼
 Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli gate:
    the single rubric APPROVE verdict + host structural validation + MANDATORY browser-UA
    link-check → promote to content/ live + CloudFront invalidation + frontend sync.
@@ -129,10 +138,13 @@ so each stage is independently retriable and the gate is idempotent.
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
 | `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge) |
-| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on a local model (`qwen3.6-35b` — interim; independent judge pending — a 12B gemma can't drive the loop; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus |
+| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on a local model (`qwen3.6-35b` — interim; independent judge pending — a 12B gemma can't drive the loop; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
+| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clone (Graham/Tom registry), chunk→synth→stitch, `_phonetic` (craic→"crack"), EBU-R128 `normalize_loudness`, per-article + multi-voice podcast |
+| `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script: date-stamped "Craic of Dawn" signature + verbatim readings + LLM banter (`build_signature_intro`, `build_podcast_script`) |
+| `content_pipeline/generate/narration.py` | `narrate_paper` — the narration step: per-article audio (best-effort) + the rubric-gated podcast + trace events |
 | `content_pipeline/generate/personas.py` | Parody-journalist personas + satire disclaimer (legacy/fallback fun only) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
 | `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest (AI feeds; Irish-creator YouTube feeds) |
@@ -156,16 +168,20 @@ so each stage is independently retriable and the gate is idempotent.
   "edition": { "approved_by": null, "approved_at": null },
   "editors_brief": { "title": "", "body": "" },
   "ai": {
-    "headliner":    { "title": "", "standfirst": "", "body": "", "source_url": "", "image_url": "", "_text_model": "", "_image_model": "" },
-    "subarticles":  [ { "title": "", "body": "", "source_url": "", "image_url": "", "_text_model": "" } ],
-    "shorts":       [ { "title": "", "body": "", "source_url": "", "_text_model": "" } ]
+    "headliner":    { "title": "", "standfirst": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_audio_model": "" },
+    "subarticles":  [ { "title": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "" } ],
+    "shorts":       [ { "title": "", "body": "", "source_url": "", "audio_url": "", "_text_model": "" } ]
   },
-  "fun": [ { "title": "", "body": "", "source_url": "", "source": "<creator credit>", "image_url": "", "_text_model": "", "_image_model": "" } ],
+  "fun": [ { "title": "", "body": "", "source_url": "", "source": "<creator credit>", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "" } ],
   "about": { "title": "", "body": "" },
+  "podcast": { "audio_url": "", "transcript": "", "_voices": ["graham","tom"], "_text_model": "", "_tts_model": "", "rubric": {} },
   "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0", "..."],
   "context": { "agent_trace": [ { "kind": "", "name": "", "detail": {} } ], "files": ["..."] }
 }
 ```
+
+`audio_url` (per item) and `podcast` are **additive and optional** — the narration step adds
+them after validation; an edition without audio still validates and renders.
 
 Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **5 fun**. Each
 fun item is **either credited** (`source` = creator name, no disclaimer) **or parody**
@@ -222,6 +238,10 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `WRITE_MODEL` (prose) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
 | `JUDGE_MODEL` (rubric judge) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
 | `IMAGE_MODEL` | No | `m3/mlx/hidream-o1-image-dev` |
+| `AUDIO_TTS_BASE_URL` (narration; M3 mlx-audio direct) | No | `http://192.168.50.206:8081/v1` |
+| `AUDIO_TTS_MODEL` (voice clone) | No | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` |
+| `GRAHAM_REF_AUDIO` / `TOM_REF_AUDIO` (M3-side ref WAVs) | No | `/Users/graz/ai-models/voice-ref/{graham,tom}/ref.wav` |
+| `ENABLE_NARRATION` | No | `true` |
 | `FALLBACK_TEXT_MODEL` (local cross-box) | No | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 | `SERPER_API_KEY` | Yes (web_search) | — |
 | `MIN_AI_SOURCES` / `MIN_FUN_SOURCES` | No | `11` / `4` |

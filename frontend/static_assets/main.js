@@ -23,10 +23,14 @@
 // Content is served from the SAME origin as the page (the CDN in production, a
 // preview server locally / on the LAN), so always fetch it origin-relative —
 // this avoids the CORS errors you'd hit pointing at an absolute host.
-const CONTENT_PATH = (y, m, d) => `/content/${y}/${m}/${d}/paper_content.json`;
+// Read live content/ by default, or the preview/ draft when ?edition=preview is in the
+// URL — lets Graham review an un-published, audio-enriched edition from his phone.
+const EDITION_PREFIX =
+  new URLSearchParams(location.search).get('edition') === 'preview' ? 'preview' : 'content';
+const CONTENT_PATH = (y, m, d) => `/${EDITION_PREFIX}/${y}/${m}/${d}/paper_content.json`;
 // Edition versioning: the manifest of the day's versions, and a specific snapshot.
-const VERSIONS_PATH = (y, m, d) => `/content/${y}/${m}/${d}/versions.json`;
-const VERSION_PATH = (y, m, d, id) => `/content/${y}/${m}/${d}/versions/${id}.json`;
+const VERSIONS_PATH = (y, m, d) => `/${EDITION_PREFIX}/${y}/${m}/${d}/versions.json`;
+const VERSION_PATH = (y, m, d, id) => `/${EDITION_PREFIX}/${y}/${m}/${d}/versions/${id}.json`;
 const MAX_FALLBACK_DAYS = 14;
 
 let currentPaperData = null;
@@ -176,6 +180,7 @@ function renderPaper(data) {
     (data.fun || []).forEach(item => item && funRegion.append(funCard(item)));
   }
 
+  renderPodcast(data);
   renderAttribution(data);
   renderHood(data);
 }
@@ -291,6 +296,15 @@ function body(text) {
 function meta(item, isFun) {
   const wrap = document.createElement('div');
   wrap.className = 'card-meta';
+  // Accessibility: a subtle "Listen" button plays this article's narration in the one
+  // shared sticky player (so only one reading plays at a time).
+  if (item.audio_url) {
+    const btn = node('button', 'audio-btn', '🔊 Listen');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', `Listen to a narration of: ${item.title || 'this article'}`);
+    btn.addEventListener('click', () => playArticle(item.audio_url, item.title || 'this article'));
+    wrap.append(btn);
+  }
   if (item.source_url) {
     const a = document.createElement('a');
     a.className = 'source-link';
@@ -299,6 +313,9 @@ function meta(item, isFun) {
     a.rel = 'noopener';
     // Credit the creator by name on the link back to their own video/page.
     a.textContent = (isFun && item.source) ? `↗ watch on ${item.source}` : '↗ source';
+    a.setAttribute('aria-label', (isFun && item.source)
+      ? `Watch on ${item.source} (opens in a new tab)`
+      : 'Read the original source (opens in a new tab)');
     wrap.append(a);
   }
   const models = [item._text_model, item._image_model].filter(Boolean).join(' · ');
@@ -315,10 +332,65 @@ function renderAttribution(data) {
   }
 }
 
+// ── Audio: per-article narration + the daily podcast (accessibility) ─────────
+// One shared sticky player drives every per-article "Listen" button, so only one
+// reading plays at a time. The daily dad↔son podcast gets its own player in the masthead.
+function stickyPlayer() {
+  let bar = el('sticky-player');
+  if (!bar) {
+    bar = node('div'); bar.id = 'sticky-player'; bar.className = 'sticky-player'; bar.hidden = true;
+    bar.setAttribute('role', 'region');
+    bar.setAttribute('aria-label', 'Article audio player');
+    const label = node('span', 'np-label'); label.id = 'np-label';
+    const audio = document.createElement('audio'); audio.id = 'np-audio';
+    audio.controls = true; audio.preload = 'none';
+    const close = node('button', 'np-close', '✕'); close.type = 'button';
+    close.setAttribute('aria-label', 'Close the audio player');
+    close.addEventListener('click', () => { audio.pause(); bar.hidden = true; });
+    bar.append(label, audio, close);
+    document.body.append(bar);
+  }
+  return bar;
+}
+
+function playArticle(url, title) {
+  stickyPlayer();
+  el('np-label').textContent = '🔊 ' + title;
+  const audio = el('np-audio');
+  audio.src = url;
+  el('sticky-player').hidden = false;
+  audio.play().catch(() => { /* autoplay blocked → the visible controls still work */ });
+}
+
+/** The daily dad↔son podcast player in the masthead, plus a screen-reader transcript. */
+function renderPodcast(data) {
+  const bar = el('podcast-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  const pod = data && data.podcast;
+  if (!pod || !pod.audio_url) { bar.hidden = true; return; }
+  bar.hidden = false;
+  bar.append(node('span', 'podcast-label', '🎙️ Daily Podcast — Graham & Tom explain the AI news'));
+  const audio = document.createElement('audio');
+  audio.className = 'podcast-audio'; audio.controls = true; audio.preload = 'none';
+  const src = document.createElement('source');
+  src.src = pod.audio_url;
+  src.type = pod.audio_url.toLowerCase().endsWith('.wav') ? 'audio/wav' : 'audio/mpeg';
+  audio.append(src, document.createTextNode('Your browser does not support audio playback.'));
+  bar.append(audio);
+  if (pod.transcript) {   // pairs the audio with text — for deaf/blind readers and skimmers
+    const det = document.createElement('details'); det.className = 'podcast-transcript';
+    det.append(node('summary', '', 'Transcript'));
+    det.append(node('pre', 'transcript-text', pod.transcript));
+    bar.append(det);
+  }
+}
+
 // ── Under the Hood: deep-agent visualiser ──────────────────────────────────
 const TRACE_ICON = {
   plan: '🗒️', subagent: '🤝', tool: '🔧', vfs: '🗂️',
-  structured: '📦', model: '🧠', fallback: '↩️', rubric: '⚖️', note: '•',
+  structured: '📦', model: '🧠', fallback: '↩️', rubric: '⚖️',
+  audio: '🎧', podcast: '🎙️', note: '•',
 };
 // One line per LangChain primitive — the "what am I looking at?" teaching note.
 const TRACE_BLURB = {
@@ -330,6 +402,8 @@ const TRACE_BLURB = {
   model: 'LiteLLM routes each model name to the right fleet box — no engine URLs in code.',
   fallback: 'A resilient fallback from the local model to a frontier safety net.',
   rubric: 'deepagents Rubrics: a separate judge model grades the finished edition against a checklist before it can publish.',
+  audio: 'Deterministic narration — each article is chunked, synthesised on the M3 voice clone, stitched and uploaded. No LLM in this leg.',
+  podcast: 'The dad↔son show: verbatim readings (deterministic) wrapped in LLM-written banter that a deepagents rubric must pass before it is ever voiced.',
   note: 'A milestone the harness recorded.',
 };
 
@@ -374,6 +448,8 @@ function renderHood(data) {
       stat('🗂️', counts.vfs, 'file ops'),
       stat('↩️', counts.fallback, 'fallbacks'),
       stat('⚖️', counts.rubric, 'rubric review'),
+      stat('🎧', counts.audio, 'audio'),
+      stat('🎙️', counts.podcast, 'podcast'),
     ].join('');
   }
 }

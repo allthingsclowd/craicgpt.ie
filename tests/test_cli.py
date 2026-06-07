@@ -79,6 +79,50 @@ def test_message_requires_text():
         build_parser().parse_args(["message", "--to", "both"])
 
 
+def test_narrate_subcommand_parses_with_defaults():
+    a = build_parser().parse_args(["narrate", "--date", "2026-06-06"])
+    assert a.command == "narrate"
+    assert a.prefix == "preview"
+    assert a.publish is False
+    assert a.live is False
+    assert a.limit is None
+
+
+def test_narrate_accepts_prefix_limit_publish_live():
+    a = build_parser().parse_args(
+        ["narrate", "--date", "2026-06-06", "--prefix", "content",
+         "--limit", "3", "--publish", "--live"])
+    assert a.prefix == "content" and a.limit == 3 and a.publish is True and a.live is True
+
+
+def test_narrate_requires_date():
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["narrate"])
+
+
+def test_cmd_narrate_enriches_and_reports(monkeypatch, capsys):
+    import json as _json
+
+    from content_pipeline.agent import cli
+
+    enriched = {
+        "ai": {"headliner": {"title": "H", "audio_url": "u"}, "subarticles": [], "shorts": []},
+        "fun": [], "podcast": {"audio_url": "p"}, "edition": {},
+    }
+    monkeypatch.setattr(
+        cli, "_load_edition",
+        lambda date, source, prefix="content": {
+            "ai": {"headliner": {"title": "H"}, "subarticles": [], "shorts": []}, "fun": []})
+    monkeypatch.setattr("content_pipeline.generate.narration.narrate_paper",
+                        lambda paper, **kw: enriched)
+    args = build_parser().parse_args(["narrate", "--date", "2026-06-06"])
+    rc = cli.cmd_narrate(args)
+    assert rc == 0
+    report = _json.loads(capsys.readouterr().out)
+    assert report["articles_narrated"] == 1
+    assert report["podcast"] is True
+
+
 # --- content-aware already-live (versioning idempotency) --------------------
 def test_already_live_is_content_aware(monkeypatch):
     """The gate republishes when the draft differs from what's live (incl. a stale

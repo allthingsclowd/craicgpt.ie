@@ -205,6 +205,42 @@ class ContentConfig:
         default_factory=lambda: os.getenv("CRAICGPT_IMAGE_DIR", "/tmp/craicgpt-images")
     )
 
+    # ── Narration / audio (per-article readings + the daily dad↔son podcast) ──
+    # TTS runs on the M3 mlx-audio server (Qwen3-TTS-12Hz Base, Full-ICL voice clone).
+    # NB: this is a CUSTOM contract (ref_audio + ref_text), NOT the OpenAI /audio/speech
+    # shape — so we POST directly to the M3 rather than naming a route through the LiteLLM
+    # proxy. The reference WAVs live on the M3 (read by path); the matching transcripts
+    # ship in generate/voice_refs/. Production narration runs on .75 (calls the M3 over
+    # the LAN) or on the M3 itself — never the laptop.
+    audio_tts_base_url: str = field(
+        default_factory=lambda: os.getenv("AUDIO_TTS_BASE_URL", "http://192.168.50.206:8081/v1")
+    )
+    audio_tts_model: str = field(
+        default_factory=lambda: os.getenv(
+            "AUDIO_TTS_MODEL", "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16"
+        )
+    )
+    # M3-side reference WAVs (the server reads them by path). Graham = narrator + dad;
+    # Tom = his 14-yo son, the podcast co-host. Both approved 2026-06-06.
+    graham_ref_audio: str = field(
+        default_factory=lambda: os.getenv(
+            "GRAHAM_REF_AUDIO", "/Users/graz/ai-models/voice-ref/graham/ref.wav"
+        )
+    )
+    tom_ref_audio: str = field(
+        default_factory=lambda: os.getenv(
+            "TOM_REF_AUDIO", "/Users/graz/ai-models/voice-ref/tom/ref.wav"
+        )
+    )
+    # Local scratch dir for generated audio before publish uploads it to S3.
+    audio_dir: str = field(
+        default_factory=lambda: os.getenv("CRAICGPT_AUDIO_DIR", "/tmp/craicgpt-audio")
+    )
+    # Master switch for the narration step (per-article audio + the podcast).
+    enable_narration: bool = field(
+        default_factory=lambda: os.getenv("ENABLE_NARRATION", "true").lower() == "true"
+    )
+
     # ── Operator notifications (Telegram) ─────────────────────────────────────
     # The .75 engine fans edition-lifecycle alerts (generated / published / held)
     # out to BOTH agents' channels so a silent HOLD can never go unseen again.

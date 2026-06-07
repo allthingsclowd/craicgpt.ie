@@ -186,25 +186,31 @@ def _verdict_from_evaluation(ev: Optional[dict]) -> dict:
     return {"verdict": "HOLD", "result": result, "reasons": reasons, "explanation": explanation}
 
 
-def _grade_once(model_name: str, view: str) -> Optional[dict]:
+def _grade_once(model_name: str, view: str, *, rubric: str = EDITION_RUBRIC,
+                task: str = _REVIEW_TASK, reviewer_prompt: str = _REVIEWER_PROMPT
+                ) -> Optional[dict]:
     """Run ONE rubric grading pass on ``model_name``; return the RubricEvaluation
-    dict (or None on failure). Builds a minimal reviewer deep agent whose only job
-    is to receive the edition so the grader can score the transcript."""
+    dict (or None on failure). Builds a minimal reviewer deep agent whose only job is
+    to receive the content so the grader can score the transcript against ``rubric``.
+
+    The rubric/task/prompt are parameters so the same one-shot deepagents machinery
+    grades both the edition (:data:`EDITION_RUBRIC`) and the podcast banter
+    (:data:`PODCAST_RUBRIC`) — one judge, two checklists."""
     from deepagents import RubricMiddleware, create_deep_agent
 
     captured: list[dict] = []
     llm = get_litellm_llm(model_name, temperature=0)
     middleware = RubricMiddleware(
         model=llm,
-        max_iterations=1,  # one-shot judge: the harness already wrote the edition
+        max_iterations=1,  # one-shot judge: the harness already wrote the content
         on_evaluation=lambda e: captured.append(dict(e)),
     )
     reviewer = create_deep_agent(
-        model=llm, system_prompt=_REVIEWER_PROMPT, middleware=[middleware],
+        model=llm, system_prompt=reviewer_prompt, middleware=[middleware],
     )
     reviewer.invoke({
-        "messages": [{"role": "user", "content": _REVIEW_TASK + view}],
-        "rubric": EDITION_RUBRIC,
+        "messages": [{"role": "user", "content": task + view}],
+        "rubric": rubric,
     })
     return captured[-1] if captured else None
 
@@ -244,5 +250,73 @@ def grade_edition(paper: dict, *, judge_model: Optional[str] = None,
     verdict = _verdict_from_evaluation(ev)
     verdict["judge_model"] = used
     logger.info("[rubric] verdict=%s (result=%s, judge=%s) reasons=%s",
+                verdict["verdict"], verdict["result"], used, verdict["reasons"])
+    return verdict
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Podcast banter gate — the SAME deepagents rubric machinery, a different checklist
+# ─────────────────────────────────────────────────────────────────────────────
+# The dad↔son banter is the only LLM-written part of the podcast (the article readings
+# are verbatim and already passed EDITION_RUBRIC; the signature is fixed). So it gets its
+# own gate before a word is voiced. The reading content is NOT re-judged here.
+PODCAST_RUBRIC = (
+    "- Harmless and kind: nothing hateful, grim, gory, sexual, frightening or genuinely "
+    "cruel. A warm family show. Tom is cheeky but never disrespectful, mean or crude.\n"
+    "- Age-appropriate: suitable for a 14-year-old and a family audience — no profanity, "
+    "no adult themes, doom-free.\n"
+    "- No defamation: any real person or company is referred to fairly; no false factual "
+    "claim is asserted about a real, named person as if true.\n"
+    "- On-brand dad↔son banter: it reads as Graham explaining the day's AI/tech news to his "
+    "son — informative, witty, gently cynical. (Plain or simple lines are FINE — do not "
+    "fail for tone alone.)\n"
+)
+
+_PODCAST_REVIEWER_PROMPT = (
+    "You are CraicGPT's duty producer. You are handed the BANTER from today's dad-and-son "
+    "podcast — Graham and his 14-year-old son Tom chatting around the news. Read it and "
+    "reply in ONE short sentence on whether it's fit to air. Do not call any tools."
+)
+_PODCAST_REVIEW_TASK = (
+    "Here is the dad-and-son podcast banter for review. Judge whether it is fit to air.\n\n"
+)
+
+
+def grade_podcast_script(banter_text: str, *, judge_model: Optional[str] = None,
+                         fallback_model: Optional[str] = None) -> dict:
+    """Grade the LLM-written podcast banter against :data:`PODCAST_RUBRIC`.
+
+    Same shape and fallback behaviour as :func:`grade_edition` — ``APPROVE`` lets the
+    podcast render; ``HOLD`` (with reasons) skips it and alerts. If neither the judge nor
+    the frontier fallback can read it, it HOLDs (we never voice ungraded banter).
+    """
+    judge = judge_model or content_cfg.judge_model
+    fallback = fallback_model or content_cfg.fallback_text_model
+    view = " ".join((banter_text or "").split())
+    if len(view) > 3500:
+        view = view[:3499] + "…"
+
+    kw = dict(rubric=PODCAST_RUBRIC, task=_PODCAST_REVIEW_TASK,
+              reviewer_prompt=_PODCAST_REVIEWER_PROMPT)
+    used = judge
+    try:
+        ev = _grade_once(judge, view, **kw)
+    except Exception as exc:  # noqa: BLE001 — any grader failure → try the fallback
+        logger.warning("[rubric] podcast judge %s raised: %s", judge, exc)
+        ev = None
+
+    if ev is None or ev.get("result") == "grader_error":
+        logger.warning("[rubric] podcast judge %s gave no usable verdict; retrying on %s",
+                       judge, fallback)
+        used = fallback
+        try:
+            ev = _grade_once(fallback, view, **kw)
+        except Exception as exc:  # noqa: BLE001 — fallback failed too → HOLD
+            logger.error("[rubric] podcast fallback judge %s also raised: %s", fallback, exc)
+            ev = None
+
+    verdict = _verdict_from_evaluation(ev)
+    verdict["judge_model"] = used
+    logger.info("[rubric] podcast verdict=%s (result=%s, judge=%s) reasons=%s",
                 verdict["verdict"], verdict["result"], used, verdict["reasons"])
     return verdict

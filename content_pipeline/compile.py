@@ -74,6 +74,7 @@ def build_paper(
     editors_brief: Optional[dict[str, Any]] = None,
     about: Optional[dict[str, Any]] = None,
     context: Optional[dict[str, Any]] = None,
+    podcast: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Assemble the schema-v3 paper.
 
@@ -110,6 +111,9 @@ def build_paper(
         },
         "fun": fun,
         "about": about or {},
+        # The daily podcast (audio_url + transcript) — filled by the narration step that
+        # runs after validation; None until then so the schema key is always present.
+        "podcast": podcast,
         "layout": build_layout(len(subarticles), len(shorts), len(fun)),
         "context": context or {},
     }

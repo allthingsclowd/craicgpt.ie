@@ -26,6 +26,9 @@ one LiteLLM proxy, with a frontier model as fallback).
    grazlab fleet (DGX Spark + M3 Ultra), routing models by name, and per-model quirks.
 5. **[05-tools-and-agents.md](05-tools-and-agents.md)** — The `@tool` decorator, deepagents
    **`SubAgent` delegation**, the deterministic-vs-LLM split, and the in-pipeline rubric judge.
+6. **[06-narration-and-audio.md](06-narration-and-audio.md)** — The narration step: the
+   deterministic TTS harness (voice clones, chunk→synth→stitch), the dad↔son podcast, and the
+   **deepagents rubric gate** over the LLM banter — deterministic vs probabilistic, made concrete.
 
 ---
 

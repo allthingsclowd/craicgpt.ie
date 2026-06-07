@@ -183,3 +183,7 @@ This is the project's whole observability story — deliberately plain, fully op
 | Reliability of output | Trusted the model end-to-end | Agent researches; **harness** writes deterministically |
 | Fabrication risk | Possible (model filled gaps) | HOLD below the integrity floor; URLs snapped to real sources |
 | Observability | Mermaid of the static graph | A live per-run trace of the *actual* plan/tools/models |
+
+> **Next:** after validation, a **narration step** ([06-narration-and-audio.md](06-narration-and-audio.md))
+> reads each article in Graham's cloned voice and builds the rubric-gated dad↔son podcast — the same
+> harness-does-deterministic, rubric-governs-probabilistic pattern, applied to audio.
