@@ -19,9 +19,9 @@ A podcast episode is built from three layers — and only one of them is allowed
 
 | Layer | Deterministic? | Who makes it |
 |------|----------------|--------------|
-| **80s call-sign jingle** bookend (our own composition) + the date-stamped "Goooood morning, CraicGPT!" cold-open | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `podcast_script.build_signature_intro` |
-| Article **readings** — Graham & Tom **alternating** | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
-| Dad↔son **discussion banter** (transitional: hands the read over, links each item to the next) | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
+| **80s call-sign jingle** bookend (our own composition) + a clean date-stamped cold-open — Graham introduces himself + the date, Tom breaks in to introduce himself | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `podcast_script.build_signature_intro` |
+| Article **readings** — Graham & Tom **alternating** (a deployed parody guest reads its own) | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
+| Dad↔son **discussion banter** — transitional glue + **parody hand-offs** (the host introduces each guest by seniority — Tom the younger figures, Graham the older) + Tom's **minimal, timeless slang** | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
 
 Reading the article *verbatim* matters: the edition rubric already passed that text, so the
 podcast introduces **no new claims and no attribution drift**. The banter is the only new
@@ -129,11 +129,20 @@ Each parody persona now has its **own Qwen3-TTS clone**, trained from a willing
 impressionist's reference (a recording *of the impression*, never the real public figure — so
 the clone is a parody performance, not an identity). When a persona's clone is deployed
 (listed in `CRAICGPT_PARODY_VOICES`), `narrate_paper` reads that item — and its podcast turn —
-**in the cloned voice** (`resolve_voice` finds the reference at `<VOICE_REF_BASE>/<key>/ref.wav`
-plus its transcript in `generate/voice_refs/`). A persona with no deployed clone falls back to
-a short theatrical **spoken intro** announcing the character, carried by the *script* — the
-honest maximum without reference audio. The body always stays verbatim, and the satire
-disclaimer always stands.
+**in the cloned voice** (`render_podcast` voices any *usable* clone via `has_clone`, not just
+graham/tom; `resolve_voice` finds the reference at `<VOICE_REF_BASE>/<key>/ref.wav` plus its
+transcript in `generate/voice_refs/`). A persona with no deployed clone falls back to a short
+theatrical **spoken intro** announcing the character, carried by the *script* — the honest
+maximum without reference audio. The body always stays verbatim, and the satire disclaimer
+always stands.
+
+**Conversational hand-offs.** On the podcast each guest is *introduced* before they read,
+generationally: `personas.introducer_for` sends the **younger** figures to **Tom** and the
+**older** ones to **Graham** (`PERSONA_SENIORITY`), and `personas.real_name` decodes the punny
+byline so the host can say who they really are. When the banter introduces a guest we skip the
+deterministic "in the style of X" framing (no double-announce); and a guest **whose clone is
+deployed** may speak **one** in-character banter line in their own voice — gated by the rubric
+like all banter, while the verbatim reading stays ungated.
 
 ## The publish gate is autonomous — with a human window
 

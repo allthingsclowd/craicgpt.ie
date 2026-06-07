@@ -70,3 +70,25 @@ def test_persona_voice_key_normalises():
 
 def test_keira_knightleigh_added_to_roster():
     assert "Keira Knightleigh" in ROSTER   # the 11th parody persona (new)
+
+
+# --- podcast hand-offs: seniority, introducer, real-name decode ---------------
+def test_seniority_classifies_every_roster_member():
+    from content_pipeline.generate.personas import PERSONA_SENIORITY
+    assert set(PERSONA_SENIORITY) == set(ROSTER)              # nobody left unclassified
+    assert set(PERSONA_SENIORITY.values()) <= {"younger", "older"}
+
+
+def test_introducer_splits_younger_to_tom_older_to_graham():
+    from content_pipeline.generate.personas import introducer_for
+    assert introducer_for("Saoirse Ronaround") == "tom"      # younger -> Tom intros
+    assert introducer_for("Bonio") == "graham"               # older   -> Graham intros
+    assert introducer_for("Nobody At All") == "graham"       # safe default
+
+
+def test_real_name_decodes_the_parody_byline():
+    from content_pipeline.generate.personas import real_name
+    assert real_name("Ronald Dump") == "Donald Trump"
+    assert real_name("Saoirse Ronaround") == "Saoirse Ronan"
+    assert real_name("A-Dell") == "Adele"
+    assert real_name("Rogue Williams") == "Vogue Williams"

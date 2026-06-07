@@ -609,7 +609,10 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
     segments: list[bytes] = []
     last: Optional[bytes] = None
     for who, text in turns:
-        voice = who if (who or "").strip().lower() in _VOICES else "graham"
+        # Voice any USABLE clone — graham/tom OR a deployed parody guest — in its own
+        # voice; only an unknown/undeployed speaker falls back to graham. (Without this a
+        # parody key was silently read in Graham's voice within the podcast.)
+        voice = who if has_clone(who) else "graham"
         ref_audio, ref_text = resolve_voice(voice)
         wavs = [spk(c, ref_audio, ref_text) for c in chunk_text(strip_markdown(text), max_chars)]
         if not wavs:
