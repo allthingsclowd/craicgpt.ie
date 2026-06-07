@@ -184,3 +184,18 @@ def test_non_parody_items_have_no_character_framing():
     # credited-creator fun (no persona) is read straight — no theatrical intro.
     res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
     assert "unmistakable style of" not in " ".join(t for _, t in res["turns"])
+
+
+def test_parody_item_with_a_deployed_clone_reads_in_its_own_voice(monkeypatch):
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump")
+    paper = {
+        "date": "2026-05-12", "layout": ["fun.0"],
+        "ai": {"headliner": {}, "subarticles": [], "shorts": []},
+        "fun": [{"title": "Tremendous", "body": "The best AI, believe me.",
+                 "source": "Some Clip", "persona": "Ronald Dump", "satire_disclaimer": "Parody."}],
+    }
+    res = ps.build_podcast_script(paper, generate=lambda p: {"items": []})
+    reads = [(w, t) for w, t in res["turns"] if "The best AI, believe me." in t]
+    assert reads and reads[0][0] == "ronald_dump"          # read in the cloned parody voice
+    assert "unmistakable style of" not in " ".join(t for _, t in res["turns"])  # no text framing

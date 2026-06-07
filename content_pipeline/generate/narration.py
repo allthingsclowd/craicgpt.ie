@@ -84,13 +84,20 @@ def narrate_paper(
     targets = _article_targets(paper)
     if limit is not None:
         targets = targets[:limit]
-    # Cast the reads: the Editor's own sections (Brief, About) stay in Graham's voice;
-    # the desk articles ALTERNATE Graham/Tom so the paper is read as a two-hander.
+    # Cast the reads: the Editor's own sections (Brief, About) stay in Graham's voice; a
+    # parody item with a DEPLOYED voice clone is read in that voice; the rest of the desk
+    # ALTERNATES Graham/Tom so the paper is read as a two-hander.
+    from content_pipeline.generate.audio import has_clone
+    from content_pipeline.generate.personas import persona_voice_key
     editor_ids = {id(paper.get("editors_brief")), id(paper.get("about"))}
     desk_i = 0
     for item in targets:
+        persona = item.get("persona")
+        vk = persona_voice_key(persona) if persona else None
         if id(item) in editor_ids:
             v = voice                                   # the editor reads his own sections
+        elif vk and has_clone(vk):
+            v = vk                                      # parody item in its own cloned voice
         else:
             v = "graham" if desk_i % 2 == 0 else "tom"  # desk articles alternate
             desk_i += 1

@@ -42,11 +42,32 @@ logger = logging.getLogger(__name__)
 
 _VOICE_REFS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice_refs")
 
-# Voice key → (content_cfg attribute holding the M3-side ref WAV path, transcript file).
+# Core voices: key → (content_cfg attribute for the M3-side ref WAV, transcript file).
 _VOICES = {
     "graham": ("graham_ref_audio", "graham.txt"),
     "tom": ("tom_ref_audio", "tom.txt"),
 }
+
+# Parody-persona voice clones: ref WAV at <voice_ref_base>/<key>/ref.wav (M3-side),
+# transcript at voice_refs/<key>.txt. They render in their cloned voice ONLY when the ref
+# is actually deployed (content_cfg.available_parody_voices); otherwise the pipeline falls
+# back to a graham/tom read with the text "character" framing (personas.character_read_intro).
+_PARODY_VOICES = {
+    "jack_blarney", "roy_mean", "ronald_dump", "saoirse_ronaround", "jessie_buckled",
+    "rogue_williams", "sharon_horrigan", "bonio", "jeremy_clarkscone", "keira_knightleigh",
+    "a_dell",
+}
+
+
+def _available_parody() -> set[str]:
+    return {v.strip() for v in (content_cfg.available_parody_voices or "").split(",") if v.strip()}
+
+
+def has_clone(name: str) -> bool:
+    """True if ``name`` is a usable clone NOW: a core voice, or a parody voice whose ref is
+    deployed on the M3 (per ``content_cfg.available_parody_voices``)."""
+    key = (name or "").strip().lower()
+    return key in _VOICES or (key in _PARODY_VOICES and key in _available_parody())
 
 DEF_MAX_CHARS = 600
 DEF_GAP_SEC = 0.4
@@ -58,12 +79,20 @@ Speak = Callable[[str, str, str], bytes]  # (text, ref_audio, ref_text) -> WAV b
 # Voice registry
 # --------------------------------------------------------------------------- #
 def resolve_voice(name: str) -> tuple[str, str]:
-    """Return ``(ref_audio_path, ref_text)`` for a voice. Raises KeyError if unknown."""
+    """Return ``(ref_audio_path, ref_text)`` for a voice. Raises KeyError if unknown.
+
+    Core voices read their ref path from ``content_cfg``; parody clones live at
+    ``<voice_ref_base>/<key>/ref.wav`` with the transcript in ``voice_refs/<key>.txt``."""
     key = (name or "").strip().lower()
-    if key not in _VOICES:
-        raise KeyError(f"unknown voice {name!r}; known: {', '.join(sorted(_VOICES))}")
-    attr, fname = _VOICES[key]
-    ref_audio = getattr(content_cfg, attr)
+    if key in _VOICES:
+        attr, fname = _VOICES[key]
+        ref_audio = getattr(content_cfg, attr)
+    elif key in _PARODY_VOICES:
+        ref_audio = os.path.join(content_cfg.voice_ref_base, key, "ref.wav")
+        fname = f"{key}.txt"
+    else:
+        known = sorted(set(_VOICES) | _PARODY_VOICES)
+        raise KeyError(f"unknown voice {name!r}; known: {', '.join(known)}")
     with open(os.path.join(_VOICE_REFS_DIR, fname)) as fh:
         ref_text = fh.read().strip()
     return ref_audio, ref_text

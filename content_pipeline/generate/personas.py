@@ -22,6 +22,7 @@ visibly with every persona-written piece.
 from __future__ import annotations
 
 import hashlib
+import re
 
 # ─────────────────────────────────────────────────────────────────────────────
 # The roster: parody-journalist name → voice brief (real figure's style + phrases)
@@ -96,6 +97,12 @@ ROSTER: dict[str, str] = {
         "'spicy', 'let me tell you a tale', a sudden whisper then a SCREAM, 'kablam'. "
         "Big, silly, gloriously over-committed."
     ),
+    "Keira Knightleigh": (
+        "In the style of Keira Knightley: poised, articulate RP English; thoughtful and "
+        "self-deprecating, period-drama gravitas undercut by dry, slightly breathless "
+        "humour. Phrases: 'honestly', 'it's so funny', 'I mean, God', 'completely', "
+        "'a nightmare, but a lovely one'. Earnest, quick to laugh at herself, precise."
+    ),
 }
 
 SATIRE_DISCLAIMER: str = (
@@ -154,3 +161,9 @@ def character_read_intro(character: str) -> str:
     """
     character = (character or "").strip()
     return f"And now — in the unmistakable style of {character}!" if character else ""
+
+
+def persona_voice_key(character: str) -> str:
+    """Normalise a parody byline to its voice-registry key — e.g.
+    ``"Jack Blarney" → "jack_blarney"``, ``"A-Dell" → "a_dell"``."""
+    return re.sub(r"[^a-z0-9]+", "_", (character or "").lower()).strip("_")
