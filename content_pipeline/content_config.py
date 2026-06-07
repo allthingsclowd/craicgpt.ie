@@ -128,24 +128,20 @@ class ContentConfig:
     # consensus. The grader needs STRUCTURED TOOL-CALLING *and* a model strong enough to
     # drive the RubricMiddleware reviewer-agent loop to a clean stop.
     #
-    # INTERIM (June 2026): the judge is the WRITER's qwen3.6 on the DGX (vLLM) — local +
-    # reliable (it drives the agent loop and terminates), but NOT independent (the author
-    # marks its own homework). An independent local judge is the goal; it is paused on a
-    # model problem:
-    #   • gemma-4-12b-it-nothink (a *different* family → would be independent) tool-calls
-    #     cleanly and fast PER CALL, but a 12B does NOT terminate the deepagents reviewer
-    #     loop — on a real edition one grade_edition invoke made 490+ LLM calls with no
-    #     verdict, which would also hang the autonomous run. Being fixed offline (repro +
-    #     validation test in rubric_review.py "Switching the judge").
-    #   • Path back to independent: the gemma fix, OR a capable non-writer LOCAL route
-    #     (~30B+ that drives the agent loop). NB the proxy has NO frontier route.
+    # LIVE (2026-06-07): an INDEPENDENT local judge — qwen3-coder-next (Qwen3-Coder-Next
+    # 80B-A3B, 4-bit) on the M3 (:8087), a DIFFERENT family from the writer's qwen3.6, so it
+    # is a genuine second opinion (not the author marking its own homework). Validated by
+    # TERMINATION on a real edition (~2 calls / ~7s; discriminates a broken edition → HOLD).
+    # The earlier 12B gemma path is DEAD — a 12B can't terminate the deepagents reviewer loop
+    # (one grade_edition invoke made 490+ LLM calls with no verdict). Don't cap max_tokens;
+    # validate ANY new judge by termination on a REAL edition.
     #
     # TO CHANGE IT (no code edit needed): set the JUDGE_MODEL env var (on the host, in
     #   /etc/craicgpt.env) to another route that (a) emits real tool_calls and (b)
     #   TERMINATES the grader loop in a handful of calls (not hundreds) — see
     #   rubric_review.py "Switching the judge".
     judge_model: str = field(
-        default_factory=lambda: os.getenv("JUDGE_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8")
+        default_factory=lambda: os.getenv("JUDGE_MODEL", "m3/mlx/qwen3-coder-next-4bit")
     )
 
     # ── Generation parameters ─────────────────────────────────────────────────

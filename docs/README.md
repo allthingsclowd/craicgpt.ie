@@ -38,11 +38,12 @@ one LiteLLM proxy, with a frontier model as fallback).
 Conductor @05:00 UTC ─▶ run_edition
    deep agent (research only) ─▶ research/{ai,fun}_candidates.json
    harness: curate → HOLD-or-write → snap URLs → images → compile (schema v3)
-   rubric judge (in-pipeline: deepagents RubricMiddleware on qwen3.6-35b — interim)
+   rubric judge (in-pipeline: deepagents RubricMiddleware on qwen3-coder-next — independent)
                           │
                           ▼  draft + verdict-rubric.json → S3 preview/
+   narrate: per-article reads (Graham⇄Tom + parody clones) + rubric-gated podcast + <180s TL;DR + 80s jingle
                           ▼  gate @06–08 UTC: rubric APPROVE + structural + link-check
-                     content/ (live, versioned) ─▶ CloudFront ─▶ craicgpt.ie
+                     content/ (live, versioned, +audio) ─▶ CloudFront ─▶ craicgpt.ie
 ```
 
 Key principles you'll see throughout:

@@ -35,8 +35,8 @@ different model? Change the string. That's the whole multi-provider story.
 
 | Box | Role | Example routes |
 |-----|------|----------------|
-| **DGX Spark** | Research brain + prose + rubric judge (reliable tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| **M3 Ultra (Mac Studio)** | Images (+ qwen3.6 as the cross-box fallback) | `m3/mlx/hidream-o1-image-dev`, `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
+| **DGX Spark** | Research brain + prose (reliable tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
+| **M3 Ultra (Mac Studio)** | Images + **independent rubric judge** + **TTS voice clones** (+ qwen3.6 cross-box fallback) | `m3/mlx/hidream-o1-image-dev`, `m3/mlx/qwen3-coder-next-4bit`, `Qwen3-TTS` (mlx-audio) |
 | **Fallback** | Local cross-box (the proxy has **no** frontier route) | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 
 Route names come from the fleet catalog (`grazlab-llm-fleet` repo, `catalog/models.yaml`).

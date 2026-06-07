@@ -53,7 +53,7 @@ site is both a working newspaper and a live deep-agents tutorial.
   Narrate (after validation, Conductor task craicgpt_narrate) — generate/narration.py:
   per-article readings (Graham & Tom ALTERNATING) + the dad↔son podcast (verbatim reads +
   rubric-gated "discussion" banter) + a deterministic <180s TL;DR bulletin, all topped &
-  tailed by a public-domain trad jingle (generate/jingle.py). Enriches the draft with
+  tailed by our own 80s call-sign jingle (Apple sampled instruments; generate/jingle.py). Enriches the draft with
   audio_url + podcast + podcast_tldr; the gate uploads the audio when it promotes live.
         ▼
   Publish gate (Conductor cron @ 06–08 UTC → cli gate): the single rubric APPROVE
@@ -108,7 +108,7 @@ craicgpt.ie/
 │   │   ├── trace.py               ← TraceRecorder → "Under the Hood" payload
 │   │   ├── cli.py                 ← run / gate / validate / verdict / consensus / …
 │   │   ├── review.py              ← validate_paper, verdict exchange, gate consensus
-│   │   ├── rubric_review.py       ← in-pipeline RubricMiddleware judge (qwen3.6, interim) → verdict-rubric.json
+│   │   ├── rubric_review.py       ← in-pipeline RubricMiddleware judge (qwen3-coder-next, independent) → verdict-rubric.json
 │   │   └── publish.py             ← S3 publish + versioning + CloudFront invalidation
 │   ├── generate/                  ← deterministic writers + images
 │   │   ├── writer.py              ← AI section, fun story, editor's brief, About page

@@ -101,7 +101,7 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │
    └─ 6. JUDGE (in-pipeline, rubric_review.grade_edition) — a deepagents
           RubricMiddleware grades the FINISHED edition (harmless/on-brand/attributed)
-          on a local model (qwen3.6-35b — INTERIM, the writer's model; frontier fallback).
+          on an INDEPENDENT local model (qwen3-coder-next, M3 :8087 — distinct from the writer; frontier fallback).
           Verdict → paper["edition"]["rubric"]; cli publishes the draft + images +
           verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
           old decoupled two-VM openclaw+hermes review.)
@@ -109,9 +109,9 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
 Narrate (AFTER validation) — cli narrate (Conductor task craicgpt_narrate, LIVE in the v2
    daily workflow): per-article readings with Graham & Tom ALTERNATING + the dad↔son podcast
    (verbatim readings + transitional "discussion" banter GATED by the deepagents rubric) + a
-   deterministic <180s TL;DR headline bulletin — all topped & tailed by a public-domain trad
-   jingle (Whiskey in the Jar, rendered in code; generate/jingle.py). Parody items get a
-   spoken character intro (no new clones). Adds audio_url per item + paper["podcast"] +
+   deterministic <180s TL;DR headline bulletin — all topped & tailed by our own 80s call-sign
+   jingle (Apple sampled instruments, bounced offline; generate/jingle.py). Parody items read
+   in their OWN voice clone when deployed (else a spoken character intro). Adds audio_url per item + paper["podcast"] +
    paper["podcast_tldr"]. Runs on .75 or the M3 (M3 mlx-audio TTS clone), never the laptop.
    ▼
 Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli gate:
@@ -144,15 +144,15 @@ so each stage is independently retriable and the gate is idempotent.
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
 | `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge); the HITL **passive-approval** (escalate → auto-publish after `CRAICGPT_HITL_PASSIVE_MINUTES`, fenced by structural validity) + the `force-publish`/`remove-and-publish`/`hold` directives |
-| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on a local model (`qwen3.6-35b` — interim; independent judge pending — a 12B gemma can't drive the loop; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
+| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on an **independent** local model (`qwen3-coder-next`, M3 :8087 — Qwen3-Coder-Next 80B-A3B, distinct from the writer; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
-| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clone (Graham/Tom registry), chunk→synth→stitch, `_phonetic` (craic→"crack", craicgpt.ie→spoken URL), EBU-R128 `normalize_loudness`, multi-voice podcast + trad-jingle bookend (`render_podcast`) |
-| `content_pipeline/generate/jingle.py` | Deterministic stdlib synth of the (public-domain) *Whiskey in the Jar* jingle (Karplus-Strong pluck) — the show's audio branding, owned & reproducible, no music model or licence |
+| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, `_phonetic` (craic→"crack", craicgpt.ie→spoken URL), EBU-R128 `normalize_loudness`, multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
+| `content_pipeline/generate/jingle.py` | The show's **80s call-sign** sting — our own Am–F–C–G hook voiced through Apple's sampled GM instruments, bounced offline to `assets/jingle_80s_{intro,outro}.wav` (renderer in `jingle_src/`); owned, zero-copyright. The stdlib *Whiskey in the Jar* Karplus-Strong synth remains as a graceful fallback |
 | `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script: "Craic of Dawn" signature + ALTERNATING verbatim readings (Graham/Tom) + transitional discussion banter (`build_podcast_script`); plus the deterministic **<180s** `build_tldr_script` headline bulletin |
 | `content_pipeline/generate/narration.py` | `narrate_paper` — the narration step: per-article audio (best-effort, alternating voices) + the rubric-gated podcast + the deterministic TL;DR bulletin + trace events |
-| `content_pipeline/generate/personas.py` | Parody-journalist personas + satire disclaimer (legacy/fallback fun only) |
+| `content_pipeline/generate/personas.py` | Parody-journalist roster (assigned day-stable to each fun item) + satire disclaimer + `persona_voice_key` (persona → voice-clone key the narrator resolves) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
 | `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest (AI feeds; Irish-creator YouTube feeds) |
 | `content_pipeline/research/recency.py` | Exclude stories from the last few live editions |
@@ -190,8 +190,8 @@ so each stage is independently retriable and the gate is idempotent.
 
 `audio_url` (per item), `podcast` and `podcast_tldr` are **additive and optional** — the narration
 step adds them after validation; an edition without audio still validates and renders. The full
-show and the TL;DR both top & tail with a public-domain trad jingle (*Whiskey in the Jar*, rendered
-in code); `podcast_tldr` is a deterministic, word-budgeted **<180s** two-voice headline bulletin.
+show and the TL;DR both top & tail with our own **80s call-sign jingle** (Apple sampled
+instruments, bounced offline); `podcast_tldr` is a deterministic, word-budgeted **<180s** two-voice headline bulletin.
 
 Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **5 fun**. Each
 fun item is **either credited** (`source` = creator name, no disclaimer) **or parody**
@@ -246,7 +246,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `LITELLM_API_KEY` | No | `sk-no-key-required` |
 | `BRAIN_MODEL` (research) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
 | `WRITE_MODEL` (prose) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| `JUDGE_MODEL` (rubric judge) | No | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
+| `JUDGE_MODEL` (rubric judge) | No | `m3/mlx/qwen3-coder-next-4bit` (independent of the writer) |
 | `IMAGE_MODEL` | No | `m3/mlx/hidream-o1-image-dev` |
 | `AUDIO_TTS_BASE_URL` (narration; M3 mlx-audio direct) | No | `http://192.168.50.206:8081/v1` |
 | `AUDIO_TTS_MODEL` (voice clone) | No | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` |
