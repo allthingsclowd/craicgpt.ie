@@ -104,3 +104,36 @@ def test_validate_source_link_accepts_2xx_rejects_others():
         raise OSError("dns failure")
 
     assert validate_source_link("https://broken", fetch=boom) is False
+
+
+def test_validate_source_link_treats_bot_block_and_ratelimit_as_reachable():
+    # 401/403/405/429 = the host EXISTS but blocks/limits the bot — NOT a fabrication.
+    # (cybersecuritydive 429'd under the gate's 18-link burst → was falsely HELD.)
+    for code in (401, 403, 405, 429):
+        assert validate_source_link("https://blocked", fetch=lambda url, c=code: c) is True
+
+
+def test_validate_source_link_rejects_404_and_410_as_invented_or_gone():
+    # The fabrication signal we MUST keep: an invented/removed URL 404s/410s.
+    assert validate_source_link("https://gone", fetch=lambda url: 404) is False
+    assert validate_source_link("https://gone", fetch=lambda url: 410) is False
+
+
+def test_validate_source_link_retries_a_transient_error_then_succeeds():
+    calls = {"n": 0}
+
+    def flaky(url):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("burst timeout")
+        return 200
+
+    assert validate_source_link("https://slow", fetch=flaky) is True
+    assert calls["n"] == 2
+
+
+def test_validate_source_link_persistent_network_failure_is_unreachable():
+    def boom(url):
+        raise OSError("dns failure")
+
+    assert validate_source_link("https://nope", fetch=boom) is False
