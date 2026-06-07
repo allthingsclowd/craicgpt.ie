@@ -218,3 +218,22 @@ def test_master_wav_smoke_preserves_format(monkeypatch):
     assert wo.getnframes() > 0
     wi.close()
     wo.close()
+
+
+def test_render_podcast_voices_a_deployed_parody_clone(tmp_path, monkeypatch):
+    # A deployed parody guest must read in ITS OWN voice in the podcast, not Graham's.
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump")
+    calls = []
+    turns = [("graham", "Welcome."), ("ronald_dump", "The best, believe me."), ("tom", "Mad.")]
+    audio.render_podcast(turns, out_dir=str(tmp_path), speak=_fake_speak(calls))
+    refs = [c["ref_audio"] for c in calls]
+    assert os.path.join(content_cfg.voice_ref_base, "ronald_dump", "ref.wav") in refs
+    assert content_cfg.graham_ref_audio in refs and content_cfg.tom_ref_audio in refs
+
+
+def test_render_podcast_unknown_or_undeployed_voice_falls_back_to_graham(tmp_path, monkeypatch):
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "")   # ronald NOT deployed
+    calls = []
+    audio.render_podcast([("ronald_dump", "Believe me.")], out_dir=str(tmp_path),
+                         speak=_fake_speak(calls))
+    assert calls[0]["ref_audio"] == content_cfg.graham_ref_audio      # safe fallback

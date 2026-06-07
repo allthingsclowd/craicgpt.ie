@@ -167,3 +167,41 @@ def persona_voice_key(character: str) -> str:
     """Normalise a parody byline to its voice-registry key — e.g.
     ``"Jack Blarney" → "jack_blarney"``, ``"A-Dell" → "a_dell"``."""
     return re.sub(r"[^a-z0-9]+", "_", (character or "").lower()).strip("_")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Podcast hand-offs: who introduces whom, and who the figure really is
+# ─────────────────────────────────────────────────────────────────────────────
+# On the dad↔son podcast each parody guest is INTRODUCED before they read. The
+# split is generational: the YOUNGER / more contemporary figures are introduced by
+# TOM (the 14-year-old — they're "his" celebrities), the OLDER / legacy figures by
+# GRAHAM (the dad). It's a judgment call per persona, kept explicit here so it's
+# trivial to retune; every ROSTER member must appear (a test enforces it).
+PERSONA_SENIORITY: dict[str, str] = {
+    "Saoirse Ronaround": "younger",
+    "Jessie Buckled": "younger",
+    "Keira Knightleigh": "younger",
+    "Rogue Williams": "younger",
+    "A-Dell": "younger",
+    "Sharon Horrigan": "older",
+    "Roy Mean": "older",
+    "Bonio": "older",
+    "Jeremy Clarkscone": "older",
+    "Jack Blarney": "older",
+    "Ronald Dump": "older",
+}
+
+
+def introducer_for(character: str) -> str:
+    """Which host introduces this parody guest on the podcast: ``"tom"`` for the
+    younger/contemporary figures, ``"graham"`` for the older/legacy ones (and as a
+    safe default for anyone unclassified)."""
+    return "tom" if PERSONA_SENIORITY.get(character) == "younger" else "graham"
+
+
+def real_name(character: str) -> str:
+    """The real public figure a persona riffs on, read out of the voice brief
+    (``"In the style of X: …"``). Lets a host decode the punny byline when they
+    introduce the guest. Falls back to the persona's own name."""
+    m = re.search(r"[Ii]n the style of ([^:.,(]+)", ROSTER.get(character, ""))
+    return m.group(1).strip() if m else character

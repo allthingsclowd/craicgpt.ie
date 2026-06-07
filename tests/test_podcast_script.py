@@ -48,7 +48,7 @@ def test_script_is_topped_and_tailed_with_the_signature():
     res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
     turns = res["turns"]
     assert turns[0][0] == "graham"
-    assert "craicgpt" in turns[0][1].lower()  # the "Goooood morning, CraicGPT!" cold-open
+    assert "craicgpt" in turns[0][1].lower()  # the clean "welcome to CraicGPT" cold-open
     assert turns[-1][0] == "graham"
     assert "god bless" in turns[-1][1].lower()
 
@@ -199,3 +199,82 @@ def test_parody_item_with_a_deployed_clone_reads_in_its_own_voice(monkeypatch):
     reads = [(w, t) for w, t in res["turns"] if "The best AI, believe me." in t]
     assert reads and reads[0][0] == "ronald_dump"          # read in the cloned parody voice
     assert "unmistakable style of" not in " ".join(t for _, t in res["turns"])  # no text framing
+
+
+# --- the reworked intro + conversational parody hand-offs --------------------
+def test_intro_is_clean_self_intros_not_a_shout():
+    intro = ps.build_signature_intro("2026-05-12")
+    assert intro[0][0] == "graham" and "I'm Graham" in intro[0][1]   # Graham introduces himself
+    assert intro[1][0] == "tom" and "I'm Tom" in intro[1][1]         # Tom breaks in, introduces himself
+    assert "moooor" not in intro[0][1].lower()                       # no elongated shout
+
+
+PARODY_SAMPLE = {
+    "date": "2026-05-12",
+    "layout": ["fun.0", "fun.1"],
+    "ai": {"headliner": {}, "subarticles": [], "shorts": []},
+    "fun": [
+        {"title": "Tremendous", "body": "The best AI, believe me.",
+         "source": "Clip", "persona": "Ronald Dump", "satire_disclaimer": "Parody."},
+        {"title": "Gorgeous", "body": "A wild, lovely thing.",
+         "source": "Clip", "persona": "Saoirse Ronaround", "satire_disclaimer": "Parody."},
+    ],
+}
+
+
+def _intro_generate(prompt):
+    return {"items": [
+        {"ref": "fun.0", "after": [],
+         "before": [{"who": "graham", "text": "Now here's a fella who needs no introduction — Ronald Dump."}]},
+        {"ref": "fun.1", "after": [],
+         "before": [{"who": "tom", "text": "Da, you'll love this one — it's Saoirse Ronaround."}]},
+    ]}
+
+
+def test_parody_guest_is_introduced_by_the_seniority_host():
+    flat = ps.build_podcast_script(PARODY_SAMPLE, generate=_intro_generate)["turns"]
+    di = next(i for i, (w, t) in enumerate(flat) if "The best AI, believe me." in t)
+    assert flat[di - 1][0] == "graham" and "Ronald Dump" in flat[di - 1][1]   # older -> Graham
+    si = next(i for i, (w, t) in enumerate(flat) if "A wild, lovely thing." in t)
+    assert flat[si - 1][0] == "tom" and "Saoirse" in flat[si - 1][1]           # younger -> Tom
+
+
+def test_banter_prompt_carries_decoded_identity_and_introducer():
+    captured = {}
+
+    def _cap(prompt):
+        captured["p"] = prompt
+        return {"items": []}
+
+    ps.build_podcast_script(PARODY_SAMPLE, generate=_cap)
+    p = captured["p"]
+    assert "Donald Trump" in p and "Saoirse Ronan" in p          # punny bylines decoded
+    assert "introduced by GRAHAM" in p and "introduced by TOM" in p
+
+
+def test_deployed_guest_may_speak_one_in_character_banter_line(monkeypatch):
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump")
+
+    def _gen(prompt):
+        return {"items": [{"ref": "fun.0", "before": [], "after": [
+            {"who": "ronald_dump", "text": "Nobody reads AI better than me, believe me."}]}]}
+
+    res = ps.build_podcast_script(PARODY_SAMPLE, generate=_gen)
+    voiced = [t for w, t in res["turns"] if w == "ronald_dump"]
+    assert any("The best AI, believe me." in t for t in voiced)      # verbatim reading, in voice
+    assert any("Nobody reads AI better" in t for t in voiced)        # the in-character banter line
+    assert "Nobody reads AI better" in res["banter_text"]            # and it's gated
+    assert "The best AI, believe me." not in res["banter_text"]      # the reading is NOT gated
+
+
+def test_undeployed_guest_cannot_speak_banter_falls_back_to_host(monkeypatch):
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "")
+
+    def _gen(prompt):
+        return {"items": [{"ref": "fun.0", "before": [], "after": [
+            {"who": "ronald_dump", "text": "Believe me."}]}]}
+
+    res = ps.build_podcast_script(PARODY_SAMPLE, generate=_gen)
+    assert not any(w == "ronald_dump" for w, _ in res["turns"])      # no clone -> guest is silent
