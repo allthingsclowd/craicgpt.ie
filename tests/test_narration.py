@@ -51,6 +51,16 @@ def test_sets_audio_url_on_every_article():
     assert paper["ai"]["headliner"]["_audio_voice"] == "graham"
 
 
+def test_desk_reads_alternate_while_editor_sections_stay_graham():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["ai"]["headliner"]["_audio_voice"] == "graham"      # desk item 0
+    assert paper["ai"]["subarticles"][0]["_audio_voice"] == "tom"    # desk item 1
+    assert paper["editors_brief"]["_audio_voice"] == "graham"        # editor's own
+    assert paper["about"]["_audio_voice"] == "graham"                # editor's own
+
+
 def test_attaches_podcast_when_banter_passes_the_gate():
     paper = narration.narrate_paper(
         _sample(), narrate_article=_fake_article, build_script=_fake_build,
@@ -58,6 +68,15 @@ def test_attaches_podcast_when_banter_passes_the_gate():
     assert paper["podcast"]["audio_url"] == "/tmp/podcast.mp3"
     assert "GRAHAM: Welcome." in paper["podcast"]["transcript"]
     assert paper["podcast"]["rubric"]["verdict"] == "APPROVE"
+
+
+def test_attaches_tldr_headline_bulletin():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["podcast_tldr"]["audio_url"] == "/tmp/podcast.mp3"
+    assert paper["podcast_tldr"]["_kind"] == "tldr"
+    assert "GRAHAM:" in paper["podcast_tldr"]["transcript"]   # the bulletin transcript
 
 
 def test_holds_podcast_when_banter_fails_the_gate():
@@ -74,7 +93,8 @@ def test_holds_podcast_when_banter_fails_the_gate():
         _sample(), narrate_article=_fake_article, build_script=_fake_build,
         grade=_hold, render_podcast=_render_spy)
     assert paper["podcast"] is None
-    assert rendered == []  # never rendered the audio for held banter
+    # the held main-podcast banter is never voiced; the independent TL;DR still renders
+    assert all(not any("Welcome." in t for _, t in turns) for turns in rendered)
     assert "too cruel" in paper["edition"]["podcast_hold"]
 
 

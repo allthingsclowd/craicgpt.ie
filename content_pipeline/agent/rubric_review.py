@@ -83,17 +83,27 @@ logger = logging.getLogger(__name__)
 # desk), NOT for stylistic imperfections like dry prose. Voice/wit is a generation
 # nicety the writer owns; gating on it would block the paper from ever auto-publishing.
 EDITION_RUBRIC = (
+    "HOW TO JUDGE (read first). This is a PUBLISH-SAFETY gate, not a fact-check and not "
+    "a style review. Judge ONLY what is visibly present in the edition below. You cannot "
+    "browse the web or verify external facts, sources, or whether a credited creator is "
+    "genuine — so NEVER fail an item because you 'cannot verify' a claim, a source or "
+    "comedic intent. Fail a criterion ONLY for a clear, on-its-face violation; when in "
+    "doubt, PASS. (The truth of claims and the reachability of links are checked "
+    "separately by code — not by you.)\n"
     "- Harmless: nothing hateful, grim, gory, sexual or genuinely cruel. A fun paper. "
     "Political topics appear only as light, even-handed satire, never partisan "
     "campaigning. (Dry or plain prose is FINE — do not fail an item for tone alone.)\n"
-    "- No defamation: parody impressions of public figures are clearly comedic and do "
-    "not assert false factual claims about a real, named person as if true.\n"
-    "- Every fun item is attributed: it credits a real creator (a `credit=` line) "
-    "and/or is marked as parody (`disclaimer=yes`). None is an unattributed, unmarked "
-    "impersonation of a real person.\n"
-    "- The AI desk is substantive, not empty: the headliner and subarticles each say "
-    "what actually happened and cite a real source (rather than being blank or pure "
-    "vague hype).\n"
+    "- No defamation: parody of public figures — including comic look-alike names like "
+    "'Ronald Dump' — is allowed and counts as clearly comedic. Fail ONLY if the text "
+    "asserts a specific false factual claim about a real, named person as if it were "
+    "true.\n"
+    "- Every fun item is attributed: PASS if it shows a creator credit (`credit=` a "
+    "name) OR is marked parody (`disclaimer=yes`). Fail ONLY when BOTH are absent "
+    "(`credit=—` AND `disclaimer=no`) — an unattributed, unmarked impersonation. Do not "
+    "try to verify the credit; its presence is sufficient.\n"
+    "- The AI desk is substantive, not empty: PASS if the headliner and subarticles each "
+    "have a title and some body text. Fail ONLY if they are blank/placeholder or carry "
+    "no source at all — NOT because you cannot confirm a story is true.\n"
 )
 
 # The reviewer agent's own instructions. It only needs to *receive* the edition so
@@ -261,6 +271,9 @@ def grade_edition(paper: dict, *, judge_model: Optional[str] = None,
 # are verbatim and already passed EDITION_RUBRIC; the signature is fixed). So it gets its
 # own gate before a word is voiced. The reading content is NOT re-judged here.
 PODCAST_RUBRIC = (
+    "HOW TO JUDGE (read first). Judge ONLY the banter text shown; you are not a "
+    "fact-checker and cannot verify external facts. Fail a criterion ONLY for a clear, "
+    "on-its-face violation; when in doubt, PASS.\n"
     "- Harmless and kind: nothing hateful, grim, gory, sexual, frightening or genuinely "
     "cruel. A warm family show. Tom is cheeky but never disrespectful, mean or crude.\n"
     "- Age-appropriate: suitable for a 14-year-old and a family audience — no profanity, "

@@ -105,6 +105,9 @@ def chunk_text(text: str, max_chars: int = DEF_MAX_CHARS) -> list[str]:
 # spelling). Irish "craic" is pronounced "crack"; the brand "CraicGPT" → "Crack Gee Pee
 # Tee". Word-boundary, case-insensitive. CraicGPT MUST come before craic (longer match).
 PRONUNCIATIONS = {
+    # The sign-off sends listeners to the site; spell the URL so it reads naturally.
+    # Longer match first (craicgpt.ie before craicgpt before craic).
+    r"\bcraicgpt\.ie\b": "Crack Gee Pee Tee dot Eye Ee",
     r"\bcraicgpt\b": "Crack Gee Pee Tee",
     r"\bcraic\b": "crack",
 }
@@ -293,14 +296,75 @@ def narrate_article(item: dict[str, Any], *, voice: str = "graham",
     return path, (model or content_cfg.audio_tts_model)
 
 
+# --------------------------------------------------------------------------- #
+# Jingle bookending — the trad audio branding tops & tails the show
+# --------------------------------------------------------------------------- #
+_PCM = {1: "pcm_u8", 2: "pcm_s16le", 3: "pcm_s24le", 4: "pcm_s32le"}
+
+
+def _default_jingle() -> bytes:
+    """The show's jingle WAV. Lazy import dodges an audio↔jingle import cycle."""
+    from content_pipeline.generate import jingle
+    return jingle.synth_melody()
+
+
+def _conform_and_fade(wav_bytes: bytes, target: bytes, *, fade_in: float = 0.0,
+                      fade_out: float = 0.0) -> Optional[bytes]:
+    """Conform ``wav_bytes`` to ``target``'s rate/channels/width (+ optional fades).
+
+    The jingle is synthesised at the TTS sample rate, but the live voice clone may
+    differ — so when ffmpeg is present we resample/refmt (and fade) the jingle to match
+    the speech exactly. Without ffmpeg we return it unchanged IFF it already matches,
+    else ``None`` so the caller simply drops the jingle rather than corrupt the mix.
+    """
+    try:
+        with wave.open(io.BytesIO(target), "rb") as t:
+            tr, tc, tw = t.getframerate(), t.getnchannels(), t.getsampwidth()
+        with wave.open(io.BytesIO(wav_bytes), "rb") as j:
+            jr, jc, jw, jn = j.getframerate(), j.getnchannels(), j.getsampwidth(), j.getnframes()
+    except Exception:
+        return None
+    ff = find_ffmpeg()
+    if not ff:
+        return wav_bytes if (jr, jc, jw) == (tr, tc, tw) else None
+    af = []
+    if fade_in > 0:
+        af.append(f"afade=t=in:st=0:d={fade_in}")
+    if fade_out > 0:
+        af.append(f"afade=t=out:st={max(0.0, jn / float(jr) - fade_out):.3f}:d={fade_out}")
+    in_path = out_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fin:
+            fin.write(wav_bytes)
+            in_path = fin.name
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fout:
+            out_path = fout.name
+        cmd = [ff, "-y", "-i", in_path]
+        if af:
+            cmd += ["-af", ",".join(af)]
+        cmd += ["-ar", str(tr), "-ac", str(tc), "-c:a", _PCM.get(tw, "pcm_s16le"), out_path]
+        subprocess.run(cmd, check=True, capture_output=True)
+        with open(out_path, "rb") as fh:
+            return fh.read()
+    except Exception:
+        return wav_bytes if (jr, jc, jw) == (tr, tc, tw) else None
+    finally:
+        for p in (in_path, out_path):
+            if p and os.path.exists(p):
+                os.remove(p)
+
+
 def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = None,
                    speak: Optional[Speak] = None, base_url: Optional[str] = None,
                    model: Optional[str] = None, gap_sec: float = DEF_GAP_SEC,
-                   max_chars: int = DEF_MAX_CHARS) -> tuple[str, str]:
+                   max_chars: int = DEF_MAX_CHARS, add_jingle: bool = True,
+                   jingle_wav: Optional[bytes] = None) -> tuple[str, str]:
     """Render speaker turns ``[(voice, text), …]`` → one stitched MP3.
 
     Each turn is synthesised in its speaker's voice (unknown speaker → graham), with a
-    short silence gap between turns. Returns ``(local_path, model_used)``.
+    short silence gap between turns. When ``add_jingle`` (the default) the trad jingle
+    tops and tails the show — fading out into the cold-open and back in under the
+    sign-off. Returns ``(local_path, model_used)``.
     """
     spk = speak or _default_speak(base_url, model)
     segments: list[bytes] = []
@@ -318,9 +382,17 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
         last = turn_wav
     if not segments:
         raise ValueError("no podcast turns produced audio")
+
+    final = segments
+    if add_jingle:  # best-effort: a format mismatch / missing ffmpeg just drops it
+        jw = jingle_wav if jingle_wav is not None else _default_jingle()
+        intro = _conform_and_fade(jw, segments[0], fade_out=1.2)
+        outro = _conform_and_fade(jw, segments[0], fade_in=0.8, fade_out=1.5)
+        final = ([intro] if intro else []) + segments + ([outro] if outro else [])
+
     out_dir = out_dir or content_cfg.audio_dir
     os.makedirs(out_dir, exist_ok=True)
     digest = hashlib.sha256(
         "|".join(f"{w}:{t}" for w, t in turns).encode("utf-8")).hexdigest()[:16]
-    path = to_mp3_or_wav(segments, os.path.join(out_dir, f"podcast-{digest}.mp3"))
+    path = to_mp3_or_wav(final, os.path.join(out_dir, f"podcast-{digest}.mp3"))
     return path, (model or content_cfg.audio_tts_model)

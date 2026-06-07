@@ -142,3 +142,15 @@ def voice_brief(character: str) -> str:
 def persona_byline(character: str) -> str:
     """The byline for a persona-written piece."""
     return f"As told to The Craic Gazette by {character}"
+
+
+def character_read_intro(character: str) -> str:
+    """A short spoken 'character voice' framing for a parody piece.
+
+    We only have the Graham/Tom voice clones (no per-persona clone), so the character
+    is carried by the SCRIPT, not a new voice: a theatrical announcement, then the body —
+    which is already written in that persona's signature voice. The reader (Graham or
+    Tom) performs it. Deterministic; the body itself stays verbatim.
+    """
+    character = (character or "").strip()
+    return f"And now — in the unmistakable style of {character}!" if character else ""

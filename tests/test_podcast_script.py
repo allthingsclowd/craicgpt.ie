@@ -53,11 +53,20 @@ def test_script_is_topped_and_tailed_with_the_signature():
     assert "god bless" in turns[-1][1].lower()
 
 
-def test_article_bodies_are_read_verbatim_in_grahams_voice():
+def test_article_bodies_are_read_verbatim_with_alternating_voices():
     res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
-    graham_text = " ".join(t for who, t in res["turns"] if who == "graham")
-    assert "It can hold a book." in graham_text           # headliner body, verbatim
-    assert "A second story about chips." in graham_text    # subarticle body, verbatim
+    all_text = " ".join(t for _, t in res["turns"])
+    assert "It can hold a book." in all_text            # headliner body, verbatim
+    assert "A second story about chips." in all_text     # subarticle body, verbatim
+    # the hosts take turns: the headliner is read by Graham, the next article by Tom.
+    reader = {}
+    for who, t in res["turns"]:
+        if "It can hold a book." in t:
+            reader["headliner"] = who
+        if "A second story about chips." in t:
+            reader["sub"] = who
+    assert reader["headliner"] == "graham"
+    assert reader["sub"] == "tom"
 
 
 def test_banter_turns_are_present_and_voiced_to_the_right_speaker():
@@ -102,3 +111,76 @@ def test_signature_intro_folds_in_the_edition_date():
 
 def test_date_phrase_handles_a_bad_date_gracefully():
     assert ps._date_phrase("not-a-date") == "today"
+
+
+def test_outro_sends_listeners_back_to_the_site():
+    res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
+    outro = " ".join(t for _, t in res["turns"][-3:]).lower()
+    assert "craicgpt.ie" in outro
+    assert "tomorrow" in outro
+
+
+def test_digest_tells_the_banter_who_reads_each_article():
+    # the prompt digest carries reader + position so the model can write hand-offs.
+    pairs = [("ai.headliner", SAMPLE["ai"]["headliner"]),
+             ("ai.subarticles.0", SAMPLE["ai"]["subarticles"][0])]
+    digest = ps._digest(pairs)
+    assert "read by GRAHAM" in digest and "read by TOM" in digest
+    assert "first" in digest
+
+
+# --- TL;DR headline bulletin ------------------------------------------------
+def test_tldr_is_topped_tailed_and_alternates_voices():
+    res = ps.build_tldr_script(SAMPLE)
+    turns = res["turns"]
+    assert "headline" in turns[0][1].lower()                      # intro hook
+    assert "craicgpt.ie" in " ".join(t for _, t in turns[-2:]).lower()  # outro → the site
+    assert res["banter_text"] == ""                               # deterministic, no gate
+    n_intro = len(ps.build_tldr_intro(SAMPLE["date"]))
+    beats = turns[n_intro: len(turns) - len(ps.TLDR_OUTRO)]
+    assert [w for w, _ in beats][:2] == ["graham", "tom"]         # alternating anchors
+    assert "Long Context" in " ".join(t for _, t in beats)        # the edition's own title
+
+
+def test_tldr_stays_within_its_word_budget():
+    big = {
+        "date": "2026-05-12",
+        "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0"],
+        "ai": {
+            "headliner": {"title": "Head " * 40, "standfirst": "s " * 80, "body": "b " * 200,
+                          "source_url": "x"},
+            "subarticles": [{"title": "Sub", "standfirst": "d " * 80, "body": "b " * 80,
+                             "source_url": "y"}],
+            "shorts": [{"title": "Short", "body": "b " * 80, "source_url": "z"}],
+        },
+        "fun": [{"title": "Fun", "body": "b " * 80, "source": "X"}],
+    }
+    res = ps.build_tldr_script(big, max_seconds=180)
+    assert sum(len(t.split()) for _, t in res["turns"]) <= 360    # trimmed under budget
+
+
+def test_tldr_keeps_at_least_one_headline_even_if_huge():
+    one = {"date": "2026-05-12", "layout": ["ai.headliner"],
+           "ai": {"headliner": {"title": "Big", "body": "word " * 500, "source_url": "x"}}}
+    res = ps.build_tldr_script(one, max_seconds=180)
+    assert res["refs"] == ["ai.headliner"]                        # never drops the only story
+
+
+# --- parody character voices (no clones) ------------------------------------
+def test_parody_items_get_a_character_voice_framing():
+    paper = {
+        "date": "2026-05-12", "layout": ["fun.0"],
+        "ai": {"headliner": {}, "subarticles": [], "shorts": []},
+        "fun": [{"title": "Tremendous", "body": "The best AI, believe me.",
+                 "source": "Some Clip", "persona": "Ronald Dump", "satire_disclaimer": "Parody."}],
+    }
+    res = ps.build_podcast_script(paper, generate=lambda p: {"items": []})
+    reading = " ".join(t for _, t in res["turns"])
+    assert "in the unmistakable style of Ronald Dump" in reading   # character framing
+    assert "The best AI, believe me." in reading                   # body stays verbatim
+
+
+def test_non_parody_items_have_no_character_framing():
+    # credited-creator fun (no persona) is read straight — no theatrical intro.
+    res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
+    assert "unmistakable style of" not in " ".join(t for _, t in res["turns"])
