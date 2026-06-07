@@ -135,9 +135,22 @@ def _ordered_refs(paper: dict) -> list[str]:
 
 
 def _reading(item: dict) -> str:
-    """The verbatim text Graham reads for an article: headline, standfirst, then body."""
+    """The verbatim text read for an article: headline, standfirst, then body.
+
+    For a PARODY item (one written in a roster persona) we prepend a short spoken
+    'character' framing — our no-clone way to flag a character bit — while the body
+    stays verbatim (it's already written in that persona's voice). See
+    :func:`personas.character_read_intro`.
+    """
     parts = [item.get("title", ""), item.get("standfirst", ""), item.get("body", "")]
-    return "\n\n".join(p.strip() for p in parts if p and p.strip())
+    body = "\n\n".join(p.strip() for p in parts if p and p.strip())
+    persona = item.get("persona")
+    if persona:
+        from content_pipeline.generate.personas import character_read_intro
+        intro = character_read_intro(persona)
+        if intro:
+            return f"{intro}\n\n{body}"
+    return body
 
 
 def _digest(pairs: list[tuple[str, dict]]) -> str:

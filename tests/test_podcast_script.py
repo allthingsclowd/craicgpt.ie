@@ -164,3 +164,23 @@ def test_tldr_keeps_at_least_one_headline_even_if_huge():
            "ai": {"headliner": {"title": "Big", "body": "word " * 500, "source_url": "x"}}}
     res = ps.build_tldr_script(one, max_seconds=180)
     assert res["refs"] == ["ai.headliner"]                        # never drops the only story
+
+
+# --- parody character voices (no clones) ------------------------------------
+def test_parody_items_get_a_character_voice_framing():
+    paper = {
+        "date": "2026-05-12", "layout": ["fun.0"],
+        "ai": {"headliner": {}, "subarticles": [], "shorts": []},
+        "fun": [{"title": "Tremendous", "body": "The best AI, believe me.",
+                 "source": "Some Clip", "persona": "Ronald Dump", "satire_disclaimer": "Parody."}],
+    }
+    res = ps.build_podcast_script(paper, generate=lambda p: {"items": []})
+    reading = " ".join(t for _, t in res["turns"])
+    assert "in the unmistakable style of Ronald Dump" in reading   # character framing
+    assert "The best AI, believe me." in reading                   # body stays verbatim
+
+
+def test_non_parody_items_have_no_character_framing():
+    # credited-creator fun (no persona) is read straight — no theatrical intro.
+    res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
+    assert "unmistakable style of" not in " ".join(t for _, t in res["turns"])
