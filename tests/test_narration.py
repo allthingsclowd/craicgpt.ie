@@ -16,6 +16,8 @@ def _sample():
         },
         "fun": [{"title": "Foil Arms", "body": "A sketch.", "source": "Foil Arms and Hog",
                  "source_url": "http://yt"}],
+        "editors_brief": {"title": "The Brief", "body": "Today's edition in a nutshell."},
+        "about": {"title": "About the Editor", "body": "Father Ted introduces Graham."},
         "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0"],
     }
 
@@ -124,3 +126,11 @@ def test_held_podcast_is_traced_as_held():
         grade=_hold, render_podcast=_fake_render)
     pod = [e for e in paper["context"]["agent_trace"] if e["kind"] == "podcast"]
     assert pod and "held" in pod[0]["name"].lower()
+
+
+def test_narrates_the_editor_in_chief_sections():
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["editors_brief"]["audio_url"]   # the Editor's Brief is listenable
+    assert paper["about"]["audio_url"]            # the About page is listenable
