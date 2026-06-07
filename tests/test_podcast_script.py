@@ -32,15 +32,13 @@ SAMPLE = {
 
 
 def _fake_generate(prompt):
+    # the new "one clip per article" shape: each host-read article gets a one-line pre/post
     return {"items": [
-        {"ref": "ai.headliner",
-         "before": [{"who": "tom", "text": "What's a context window, Da?"}],
-         "after": [{"who": "graham", "text": "So now you know."}]},
-        {"ref": "ai.subarticles.0",
-         "before": [{"who": "tom", "text": "Chips like crisps?"}], "after": []},
-        {"ref": "ai.shorts.0", "before": [], "after": [{"who": "tom", "text": "Mad."}]},
-        {"ref": "fun.0",
-         "before": [{"who": "tom", "text": "This one's gas."}], "after": []},
+        {"ref": "ai.headliner", "pre": "Right, let's open with the big one.",
+         "post": "So now you know — over to you, Tom."},
+        {"ref": "ai.subarticles.0", "pre": "Chips like crisps, Da?", "post": "Mad stuff, that."},
+        {"ref": "ai.shorts.0", "pre": "", "post": "Quick one there."},
+        {"ref": "fun.0", "pre": "This one's gas.", "post": "Back to you, Graham."},
     ]}
 
 
@@ -69,23 +67,24 @@ def test_article_bodies_are_read_verbatim_with_alternating_voices():
     assert reader["sub"] == "tom"
 
 
-def test_banter_turns_are_present_and_voiced_to_the_right_speaker():
+def test_links_are_woven_into_the_readers_clip_and_only_links_are_gated():
     res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
-    tom_text = " ".join(t for who, t in res["turns"] if who == "tom")
-    assert "What's a context window" in tom_text
-    # banter_text is the model-written turns only — what the rubric gate will judge.
-    assert "context window" in res["banter_text"].lower()
-    assert "It can hold a book." not in res["banter_text"]  # verbatim article NOT in the gated text
+    # the headliner reader (Graham) opens with his pre and the verbatim reading is in the
+    # SAME clip — one piece per article, not a separate banter turn.
+    graham_text = " ".join(t for who, t in res["turns"] if who == "graham")
+    assert "Right, let's open with the big one." in graham_text   # the reader's pre link
+    assert "It can hold a book." in graham_text                   # ...same clip as the reading
+    # banter_text is ONLY the model-written links — the verbatim reading is NOT in it.
+    assert "Right, let's open with the big one." in res["banter_text"]
+    assert "It can hold a book." not in res["banter_text"]
 
 
-def test_before_banter_precedes_the_reading_which_precedes_after_banter():
+def test_pre_precedes_reading_precedes_post_within_one_clip():
     res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
-    flat = res["turns"]
-    # find the headliner reading turn
-    read_idx = next(i for i, (w, t) in enumerate(flat) if "It can hold a book." in t)
-    before_idx = next(i for i, (w, t) in enumerate(flat) if "context window" in t.lower())
-    after_idx = next(i for i, (w, t) in enumerate(flat) if t == "So now you know.")
-    assert before_idx < read_idx < after_idx
+    # all three live in ONE consolidated clip, in order: pre → verbatim reading → post.
+    clip = next(t for w, t in res["turns"] if "It can hold a book." in t)
+    assert clip.index("let's open with the big one") < clip.index("It can hold a book.") \
+        < clip.index("over to you, Tom")
 
 
 def test_script_text_is_speaker_tagged_for_the_transcript():
@@ -120,13 +119,13 @@ def test_outro_sends_listeners_back_to_the_site():
     assert "tomorrow" in outro
 
 
-def test_digest_tells_the_banter_who_reads_each_article():
-    # the prompt digest carries reader + position so the model can write hand-offs.
-    pairs = [("ai.headliner", SAMPLE["ai"]["headliner"]),
-             ("ai.subarticles.0", SAMPLE["ai"]["subarticles"][0])]
-    digest = ps._digest(pairs)
+def test_digest_tells_the_model_who_reads_each_article():
+    # the prompt digest carries reader + position so the model can write flowing links.
+    plan = ps._plan([("ai.headliner", SAMPLE["ai"]["headliner"]),
+                     ("ai.subarticles.0", SAMPLE["ai"]["subarticles"][0])])
+    digest = ps._digest(plan)
     assert "read by GRAHAM" in digest and "read by TOM" in digest
-    assert "first" in digest
+    assert "FIRST" in digest
 
 
 # --- TL;DR headline bulletin ------------------------------------------------
@@ -211,8 +210,9 @@ def test_intro_is_clean_self_intros_not_a_shout():
 
 PARODY_SAMPLE = {
     "date": "2026-05-12",
-    "layout": ["fun.0", "fun.1"],
-    "ai": {"headliner": {}, "subarticles": [], "shorts": []},
+    "layout": ["ai.headliner", "fun.0", "fun.1"],
+    "ai": {"headliner": {"title": "Long Context", "body": "It can hold a book.",
+                         "source_url": "x"}, "subarticles": [], "shorts": []},
     "fun": [
         {"title": "Tremendous", "body": "The best AI, believe me.",
          "source": "Clip", "persona": "Ronald Dump", "satire_disclaimer": "Parody."},
@@ -222,50 +222,47 @@ PARODY_SAMPLE = {
 }
 
 
-def _intro_generate(prompt):
-    return {"items": [
-        {"ref": "fun.0", "after": [],
-         "before": [{"who": "graham", "text": "Now here's a fella who needs no introduction — Ronald Dump."}]},
-        {"ref": "fun.1", "after": [],
-         "before": [{"who": "tom", "text": "Da, you'll love this one — it's Saoirse Ronaround."}]},
-    ]}
-
-
-def test_parody_guest_is_introduced_by_the_seniority_host():
-    flat = ps.build_podcast_script(PARODY_SAMPLE, generate=_intro_generate)["turns"]
+def test_parody_guest_gets_a_simple_seniority_host_welcome(monkeypatch):
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump,saoirse_ronaround")
+    flat = ps.build_podcast_script(PARODY_SAMPLE, generate=lambda p: {"items": []})["turns"]
+    # Ronald Dump (older) → welcomed by Graham, then reads in HIS OWN voice
     di = next(i for i, (w, t) in enumerate(flat) if "The best AI, believe me." in t)
-    assert flat[di - 1][0] == "graham" and "Ronald Dump" in flat[di - 1][1]   # older -> Graham
+    assert flat[di][0] == "ronald_dump"                                       # reads in his own voice
+    assert flat[di - 1][0] == "graham" and "Ronald Dump" in flat[di - 1][1]    # older -> Graham welcome
+    assert "thanks for having me" in flat[di][1].lower()                      # the guest's fixed ack
+    # Saoirse (younger) → welcomed by Tom
     si = next(i for i, (w, t) in enumerate(flat) if "A wild, lovely thing." in t)
-    assert flat[si - 1][0] == "tom" and "Saoirse" in flat[si - 1][1]           # younger -> Tom
+    assert flat[si][0] == "saoirse_ronaround"
+    assert flat[si - 1][0] == "tom" and "Saoirse" in flat[si - 1][1]           # younger -> Tom welcome
 
 
-def test_banter_prompt_carries_decoded_identity_and_introducer():
+def test_banter_prompt_marks_guests_and_tells_the_model_to_skip_them(monkeypatch):
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump,saoirse_ronaround")
     captured = {}
 
     def _cap(prompt):
         captured["p"] = prompt
         return {"items": []}
 
-    ps.build_podcast_script(PARODY_SAMPLE, generate=_cap)
+    ps.build_podcast_script(PARODY_SAMPLE, generate=_cap)   # the host headliner triggers the call
     p = captured["p"]
-    assert "Donald Trump" in p and "Saoirse Ronan" in p          # punny bylines decoded
-    assert "introduced by GRAHAM" in p and "introduced by TOM" in p
+    assert "GUEST 'Ronald Dump'" in p and "GUEST 'Saoirse Ronaround'" in p
+    assert "welcomed by GRAHAM" in p and "welcomed by TOM" in p
+    assert "write NO item" in p                                  # told to skip the guests
 
 
-def test_deployed_guest_may_speak_one_in_character_banter_line(monkeypatch):
+def test_guest_clip_is_ack_plus_reading_plus_signoff_and_is_not_gated(monkeypatch):
     from content_pipeline.content_config import content_cfg
     monkeypatch.setattr(content_cfg, "available_parody_voices", "ronald_dump")
-
-    def _gen(prompt):
-        return {"items": [{"ref": "fun.0", "before": [], "after": [
-            {"who": "ronald_dump", "text": "Nobody reads AI better than me, believe me."}]}]}
-
-    res = ps.build_podcast_script(PARODY_SAMPLE, generate=_gen)
-    voiced = [t for w, t in res["turns"] if w == "ronald_dump"]
-    assert any("The best AI, believe me." in t for t in voiced)      # verbatim reading, in voice
-    assert any("Nobody reads AI better" in t for t in voiced)        # the in-character banter line
-    assert "Nobody reads AI better" in res["banter_text"]            # and it's gated
-    assert "The best AI, believe me." not in res["banter_text"]      # the reading is NOT gated
+    res = ps.build_podcast_script(PARODY_SAMPLE, generate=lambda p: {"items": []})
+    clip = next(t for w, t in res["turns"] if w == "ronald_dump")
+    assert "thanks for having me" in clip.lower()               # fixed ack template
+    assert "The best AI, believe me." in clip                   # verbatim reading, in his own voice
+    assert "back to you, lads" in clip.lower()                  # fixed sign-off template
+    # the fixed guest framing is deterministic, so it's NOT in the gated banter text
+    assert "thanks for having me" not in res["banter_text"].lower()
 
 
 def test_undeployed_guest_cannot_speak_banter_falls_back_to_host(monkeypatch):

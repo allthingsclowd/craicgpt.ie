@@ -19,13 +19,18 @@ A podcast episode is built from three layers — and only one of them is allowed
 
 | Layer | Deterministic? | Who makes it |
 |------|----------------|--------------|
-| **80s call-sign jingle** bookend (our own composition) + a clean date-stamped cold-open — Graham introduces himself + the date, Tom breaks in to introduce himself | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `podcast_script.build_signature_intro` |
+| **80s call-sign jingle** bookend + a clean date-stamped cold-open (Graham + date, Tom breaks in) + the **fixed guest welcome / thanks / sign-off** templates | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `build_signature_intro` + `GUEST_*` |
 | Article **readings** — Graham & Tom **alternating** (a deployed parody guest reads its own) | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
-| Dad↔son **discussion banter** — transitional glue + **parody hand-offs** (the host introduces each guest by seniority — Tom the younger figures, Graham the older) + Tom's **minimal, timeless slang** | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
+| Host **links** — ONE short *pre* (react to the previous bit) + *post* (wrap + hand to the next BY NAME), **woven into each host reader's single clip**; Tom's minimal, timeless slang | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
+
+**One clip per article.** Every short back-and-forth turn used to be its own TTS clip, and
+the *seams between clips* were where the clone degraded. So each article is now recorded as
+**ONE clip** — the reader's `pre` link + the verbatim reading + their `post` hand-off, in one
+voice — and a parody guest reads in their **own** voice between a fixed welcome and sign-off.
+Far fewer seams; only the host links are LLM-written, so they're still all the gate has to judge.
 
 Reading the article *verbatim* matters: the edition rubric already passed that text, so the
-podcast introduces **no new claims and no attribution drift**. The banter is the only new
-probabilistic content — so it is the only thing the gate has to judge.
+podcast introduces **no new claims and no attribution drift**.
 
 ## The jingle is ours, not a licence — `generate/jingle.py`
 
@@ -93,14 +98,17 @@ path, model = audio.render_podcast([("graham", "…"), ("tom", "…")])  # multi
 
 ## The probabilistic layer, governed — `podcast_script.py` + `rubric_review.py`
 
-`build_podcast_script(paper)` assembles the turns: signature intro → for each article
-*[banter before] → verbatim reading (alternating Graham/Tom) → [banter after]* → signature
-outro. The banter is one `write_model` call written as **transitional glue** — the host who
-*isn't* reading hands the next one over ("go on, you take this one") and links each item to
-the last and the next, so it plays as one conversation rather than read-banter-read blocks
-(Tom's character stays consistent). The readings are spliced in by code, still **verbatim**.
+`build_podcast_script(paper)` assembles the turns as **one clip per article**: signature
+intro → for each article a single reader clip *[pre link → verbatim reading → post hand-off]*
+→ signature outro. One `write_model` call drafts just the host **links** (a one-line `pre`
+that reacts to the bit before + a one-line `post` that wraps and hands to the next reader BY
+NAME); the harness then concatenates `pre + reading + post` into one clip in the reader's
+voice. Recording each reader's whole segment as ONE piece (rather than read-banter-read as
+three) is what removes the transition seams the clone struggled with. A deployed parody guest
+is framed by **fixed templates** (`GUEST_WELCOME` by the seniority host, then `GUEST_ACK` +
+verbatim reading + `GUEST_SIGNOFF` in the guest's own voice) — no LLM, nothing to gate there.
 
-The banter then passes the **same `deepagents` `RubricMiddleware`** the edition uses — a
+Only the host links pass the **same `deepagents` `RubricMiddleware`** the edition uses — a
 separate judge model scores it against `PODCAST_RUBRIC` (harmless, kind, age-appropriate for
 a 14-year-old, no defamation, on-brand) before a single word is voiced:
 

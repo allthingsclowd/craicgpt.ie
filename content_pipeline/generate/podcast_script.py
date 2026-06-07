@@ -1,22 +1,27 @@
 """
 content_pipeline/generate/podcast_script.py
 ===========================================
-Build the script for the daily **dad↔son podcast**: Graham and Tom TAKE TURNS reading
-the articles aloud and banter before and after each one, so it plays as a flowing
-two-handed discussion — topped and tailed by the trad jingle + "Craic of Dawn" signature.
+Build the script for the daily **dad↔son podcast**: Graham and Tom take turns reading the
+articles aloud, with short linking banter, so it plays as a flowing two-handed discussion
+— topped and tailed by the 80s call-sign jingle + signature.
 
-TUTORIAL: deterministic frame, probabilistic filling
-----------------------------------------------------
+TUTORIAL: deterministic frame, probabilistic filling — ONE clip per article
+---------------------------------------------------------------------------
+The audio is built from FEW, LONG clips, not many short ones: every short back-and-forth
+turn used to be a separate TTS synthesis, and the SEAMS between clips are where the clone
+degrades. So each article is now ONE clip — the reader's opening link + the *verbatim*
+reading + their closing hand-off, all in one voice — and a parody guest reads in their own
+voice between a fixed welcome and sign-off.
+
 Two of the three layers are DETERMINISTIC and never touch an LLM:
-  1. the signature intro/outro (fixed audio branding), and
-  2. the article READINGS — Graham and Tom take turns reading each article's *verbatim*
-     body, the exact text the edition rubric already approved (no paraphrase → no new
-     claims, no attribution drift).
-Only the BANTER is PROBABILISTIC — a single ``write_model`` call drafts every
-before/after exchange at once (Tom's character stays consistent). Because it's the only
-generated content, it is the only thing the deepagents rubric has to gate before a word
-is voiced (see ``rubric_review.grade_podcast_script``). Same split as the rest of the
-paper: code does the mechanics, the rubric judges the judgement.
+  1. the signature intro/outro + the fixed guest welcome/ack/sign-off, and
+  2. the article READINGS — the exact text the edition rubric already approved (no
+     paraphrase → no new claims, no attribution drift).
+Only the host LINKS (the one-line pre/post around each host read) are PROBABILISTIC — a
+single ``write_model`` call drafts them all at once (Tom's character stays consistent).
+They are the ONLY generated content, so they are the only thing the deepagents rubric has
+to gate before a word is voiced (see ``rubric_review.grade_podcast_script``). Same split
+as the rest of the paper: code does the mechanics, the rubric judges the judgement.
 """
 
 from __future__ import annotations
@@ -83,35 +88,47 @@ SIGNATURE_OUTRO: list[Turn] = [
     ("graham", "God bless."),
 ]
 
+# Deterministic guest framing — kept SIMPLE (Graham's call): a one-line host welcome,
+# the guest's one-line thanks, and a one-line sign-off. No LLM, so nothing to gate. The
+# guest reads in their OWN cloned voice between the thanks and the sign-off, so the whole
+# guest segment is ONE clip (thanks + verbatim reading + sign-off) — no seams mid-guest.
+GUEST_WELCOME = ("And now we have a guest presenter, {persona}, to lighten the mood. "
+                 "Hi {persona}, welcome to CraicGPT — we're delighted to have you with us today.")
+GUEST_ACK = "Tom, Graham — thanks for having me."
+GUEST_SIGNOFF = "And that's me — back to you, lads."
+
+# The banter prompt. CHANGED to the "one clip per article" model: every short back-and-
+# forth turn used to be its own TTS clip, and the SEAMS between clips are where the clone's
+# quality fell apart. So each reader's whole segment is now recorded as ONE piece — their
+# opening link + the verbatim reading + their closing hand-off — and the LLM writes only
+# those two short links per host-read article (the readings + the guest framing are not its
+# job). Far fewer seams; the links are still the only thing the rubric gate has to judge.
 _BANTER_PROMPT = (
-    "You are scripting a warm, witty Irish podcast that should feel like one flowing "
-    "CONVERSATION between GRAHAM (the dad — patient, funny, gently cynical, teaching-"
-    "minded, 'the Scripting Paddy') and TOM, his loveable, cheeky, curious 14-year-old "
-    "son. Tom is quick and funny but talks like a NORMAL bright teenager: keep his slang "
-    "MINIMAL and timeless (an occasional 'gas', 'deadly', 'no way' is plenty) — do NOT "
-    "pile on trendy meme-speak, it dates badly and tries too hard. Everything stays clean "
-    "and PG; Tom is cheeky, never cruel; nothing grim.\n"
-    "They TAKE TURNS reading the articles aloud — each line below says who reads it — and "
-    "you write only the SHORT banter that links them into a discussion.\n"
-    "For EACH article write:\n"
-    "  • before: 1-2 short turns that tee it up — the host who is NOT reading it hands "
-    "over to the one who is (a natural 'go on, you take this one' invite), ideally "
-    "nodding back to what they were just talking about so it flows on.\n"
-    "  • after: 1-2 short turns — a quick reaction or daft follow-up, then a one-line "
-    "takeaway that leads into the NEXT topic.\n"
-    "PARODY GUEST lines are special. The NAMED introducer (TOM for the younger guests, "
-    "GRAHAM for the older ones) must use the BEFORE turns to introduce the guest warmly "
-    "and briefly — say who they REALLY are (decode the punny name) and why they're gas — "
-    "then hand over to them. If the line says the guest can speak, the AFTER may include "
-    "ONE short, clearly-comic in-character line from the guest (set who to their key) "
-    "followed by a host button; otherwise only the hosts speak. Keep every impression "
-    "kind and obviously a joke.\n"
-    "Make it continuous: each item connects to the one before and the one after, not a "
-    "list of standalone bits. One sentence per turn. Refer to an article by what it's "
-    "about; do NOT read it (the hosts and guests read the body themselves).\n"
+    "You are scripting a warm, witty Irish podcast — one FLOWING conversation between "
+    "GRAHAM (the dad: patient, funny, gently cynical, teaching-minded, 'the Scripting "
+    "Paddy') and his cheeky, curious 14-year-old son TOM. Tom is quick and funny but "
+    "talks like a NORMAL bright teenager: keep his slang MINIMAL and timeless (an "
+    "occasional 'gas', 'deadly', 'no way') — never trendy meme-speak, it dates badly. "
+    "Clean and PG throughout; cheeky, never cruel; nothing grim.\n"
+    "The hosts TAKE TURNS reading the articles aloud (each line below says who reads it). "
+    "To keep the audio smooth we record each reader's whole segment as ONE piece, so for "
+    "EACH article READ BY A HOST you write just two short links:\n"
+    "  • \"pre\": how that reader OPENS — ONE warm sentence reacting to the bit just before "
+    "(the previous reader's story, or the guest who just spoke), then easing into THIS "
+    "article. Do NOT hand over to anyone in the pre (handing over is the PREVIOUS reader's "
+    "job) — just react and lead in. Leave it EMPTY (\"\") for the FIRST article — it follows "
+    "the intro.\n"
+    "  • \"post\": how that reader CLOSES — ONE sentence: a quick take on THIS article, then "
+    "hand over to the NEXT speaker BY NAME (e.g. 'over to you, Tom'). For the LAST article, "
+    "wind down toward the sign-off instead of handing over.\n"
+    "GUEST articles are read by a parody guest in their OWN voice and are topped by a FIXED "
+    "welcome — that is NOT yours to write, so DO NOT emit an item for a guest. But the host "
+    "article RIGHT AFTER a guest should have its \"pre\" react to that guest.\n"
+    "Never summarise or read an article — the reader reads the body itself. ONE sentence "
+    "per field, plain and natural, so it flows straight into (and out of) the reading.\n"
     "Output ONLY compact JSON (no markdown), exactly:\n"
-    '{{"items":[{{"ref":"<the ref>","before":[{{"who":"tom|graham|<guest key>","text":"..."}}],'
-    '"after":[{{"who":"tom|graham|<guest key>","text":"..."}}]}}]}}\n\n'
+    '{{"items":[{{"ref":"<the ref>","pre":"...","post":"..."}}]}}\n'
+    "Include an item ONLY for host-read articles.\n\n"
     "Articles in reading order:\n{digest}"
 )
 
@@ -153,8 +170,8 @@ def _reading(item: dict) -> str:
 
 
 def _guest_voice(item: dict) -> Optional[str]:
-    """The parody guest's voice key IFF their clone is deployed — so they may speak one
-    in-character banter line in their own voice. ``None`` for non-parody / undeployed."""
+    """The parody guest's voice key IFF their clone is deployed — so they read their own
+    article in their own cloned voice. ``None`` for non-parody / undeployed."""
     persona = item.get("persona")
     if not persona:
         return None
@@ -164,71 +181,35 @@ def _guest_voice(item: dict) -> Optional[str]:
     return vk if has_clone(vk) else None
 
 
-def _reading_turn(item: dict, host_voice: str, *, has_intro: bool = False) -> Turn:
-    """Build the (voice, text) reading turn for an article.
-
-    A PARODY item (written in a roster persona) whose voice clone is DEPLOYED is read in
-    that cloned voice — the voice itself IS the character, so no text intro is needed.
-    Without a deployed clone the host reads it; a short spoken "in the style of X" framing
-    is prepended ONLY when the banter didn't already introduce the guest (``has_intro``),
-    so the character is never announced twice.
-    """
-    from content_pipeline.generate.audio import has_clone
-    from content_pipeline.generate.personas import character_read_intro, persona_voice_key
-    body = _reading(item)
-    persona = item.get("persona")
-    if persona:
-        vk = persona_voice_key(persona)
-        if has_clone(vk):
-            return (vk, body)
-        if not has_intro:
-            intro = character_read_intro(persona)
-            if intro:
-                return (host_voice, f"{intro}\n\n{body}")
-    return (host_voice, body)
-
-
-def _digest(pairs: list[tuple[str, dict]]) -> str:
-    """A compact, token-light digest of the articles — each one's position and either its
-    host reader or, for a parody guest, who they really are + which host introduces them +
-    whether the guest may speak — so the banter prompt can write hand-offs and intros."""
-    from content_pipeline.generate.audio import has_clone
-    from content_pipeline.generate.personas import introducer_for, persona_voice_key, real_name
+def _digest(plan: list[dict]) -> str:
+    """A compact, token-light digest of the articles in reading order — each one's position,
+    who voices it (a host, or a parody GUEST who reads in their OWN voice + which host
+    welcomes them), and a snippet — so the LLM can write host links that flow and react to
+    the guests."""
     lines = []
-    n = len(pairs)
-    for i, (ref, item) in enumerate(pairs):
-        pos = "first" if i == 0 else ("last" if i == n - 1 else f"#{i + 1}")
-        snippet = (item.get("standfirst") or item.get("body") or "")[:160]
-        persona = item.get("persona")
-        if persona:
-            speaks = has_clone(persona_voice_key(persona))
-            tag = (f"PARODY guest '{persona}' (a parody of {real_name(persona)}), "
-                   f"introduced by {introducer_for(persona).upper()}; "
-                   + (f"the guest CAN say one in-character line, who='{persona_voice_key(persona)}'"
-                      if speaks else "the guest does NOT speak in banter"))
+    n = len(plan)
+    for j, p in enumerate(plan):
+        pos = "FIRST" if j == 0 else ("LAST" if j == n - 1 else f"#{j + 1}")
+        snippet = (p["item"].get("standfirst") or p["item"].get("body") or "")[:150]
+        if p["role"] == "guest":
+            role = (f"GUEST '{p['persona']}' reads this in their OWN voice (welcomed by "
+                    f"{p['introducer'].upper()} via a FIXED line — write NO item for this one)")
         else:
-            tag = f"read by {_reader_for(i).upper()}"
-        lines.append(f"[{ref} | {pos} | {tag}] {item.get('title', '')} — {snippet}")
+            role = f"read by {p['voice'].upper()}"
+        lines.append(f"[{p['ref']} | {pos} | {role}] {p['item'].get('title', '')} — {snippet}")
     return "\n".join(lines)[:6000]
 
 
-def _turns_from_banter(entries: Any, *, allow_voice: Optional[str] = None) -> list[Turn]:
-    """Coerce a list of ``{who, text}`` into ``(voice, text)`` turns.
-
-    ``who`` is normally a host (graham/tom). For a parody article whose clone is DEPLOYED,
-    that guest's own voice key (``allow_voice``) is also permitted — for the single optional
-    in-character banter line. Anything else falls back to graham."""
-    allowed = {"graham", "tom"} | ({allow_voice} if allow_voice else set())
-    out: list[Turn] = []
-    for e in entries or []:
-        if not isinstance(e, dict):
-            continue
-        who = str(e.get("who", "graham")).strip().lower()
-        who = who if who in allowed else "graham"
-        text = str(e.get("text", "")).strip()
-        if text:
-            out.append((who, text))
-    return out
+def _text_field(value: Any) -> str:
+    """Coerce one LLM link field to a clean one-line string — tolerant of a plain string
+    or a list of ``{text}``/strings from an older/looser shape (local models wander)."""
+    if isinstance(value, str):
+        return " ".join(value.split())
+    if isinstance(value, list):
+        parts = [(_text_field(e.get("text")) if isinstance(e, dict) else _text_field(e))
+                 for e in value]
+        return " ".join(p for p in parts if p)
+    return ""
 
 
 def _script_text(turns: list[Turn]) -> str:
@@ -236,53 +217,89 @@ def _script_text(turns: list[Turn]) -> str:
     return "\n".join(f"{who.upper()}: {text}" for who, text in turns)
 
 
+def _plan(pairs: list[tuple[str, dict]]) -> list[dict]:
+    """Decide who voices each article. A parody item whose clone is DEPLOYED is a ``guest``
+    (reads in their OWN voice, welcomed by the seniority host); everything else is a
+    ``host`` read that alternates Graham/Tom. Guests don't consume a host-alternation slot,
+    so consecutive host reads still ping-pong. Returns one plan dict per article."""
+    from content_pipeline.generate.personas import introducer_for
+    plan: list[dict] = []
+    host_i = 0
+    for ref, item in pairs:
+        gv = _guest_voice(item)
+        persona = item.get("persona")
+        if persona and gv:
+            plan.append({"ref": ref, "item": item, "role": "guest", "voice": gv,
+                         "persona": persona, "introducer": introducer_for(persona)})
+        else:
+            plan.append({"ref": ref, "item": item, "role": "host",
+                         "voice": _reader_for(host_i), "persona": persona})
+            host_i += 1
+    return plan
+
+
 def build_podcast_script(paper: dict, *, generate: Optional[Generate] = None,
                          limit: Optional[int] = None) -> dict:
-    """Assemble the dad↔son podcast script for ``paper``.
+    """Assemble the dad↔son podcast script for ``paper`` — the "one clip per article" model.
+
+    Each article becomes ONE rendered clip: the reader's opening link + the VERBATIM
+    reading + their closing hand-off, all in the reader's single voice. That's far fewer
+    seams than the old before/read/after split (every extra turn was a separate TTS clip,
+    and the seams between clips were where the clone degraded). A parody guest with a
+    deployed clone gets a FIXED host welcome (one clip) then reads in their OWN voice (one
+    clip: thanks + verbatim reading + sign-off).
 
     Returns ``{turns, script_text, banter_text, refs}``:
-      * ``turns`` — ``[(voice, text), …]`` ready for :func:`audio.render_podcast`.
+      * ``turns`` — ``[(voice, text), …]`` for :func:`audio.render_podcast` (1 clip each).
       * ``script_text`` — the full speaker-tagged transcript (publishable alongside audio).
-      * ``banter_text`` — ONLY the model-written banter (what the rubric gate judges).
+      * ``banter_text`` — ONLY the model-written links (what the rubric gate judges); the
+        fixed welcomes/acks and the verbatim readings are NOT in it.
       * ``refs`` — the article refs included, in order.
     """
+    from content_pipeline.generate.personas import character_read_intro
     pairs = [(ref, _resolve_ref(paper, ref)) for ref in _ordered_refs(paper)]
     pairs = [(ref, item) for ref, item in pairs if item]
     if limit is not None:
         pairs = pairs[:limit]
+    plan = _plan(pairs)
 
-    # One LLM call drafts banter for every article (keeps Tom's character consistent).
+    # ONE LLM call drafts the host links (pre/post) for every HOST-read article (keeps Tom's
+    # character consistent). Guests are framed by fixed templates, so the LLM skips them.
     banter_by_ref: dict[str, dict] = {}
-    if pairs:
+    if any(p["role"] == "host" for p in plan):
         gen = generate or _default_generate
         try:
-            data = gen(_BANTER_PROMPT.format(digest=_digest(pairs)))
+            data = gen(_BANTER_PROMPT.format(digest=_digest(plan)))
             for entry in (data.get("items") or []):
                 if isinstance(entry, dict) and entry.get("ref"):
                     banter_by_ref[str(entry["ref"])] = entry
-        except Exception as exc:  # noqa: BLE001 — banter is best-effort; readings still play
+        except Exception as exc:  # noqa: BLE001 — links are best-effort; readings still play
             logger.warning("[podcast] banter generation failed (%s); readings only", exc)
 
     turns: list[Turn] = list(build_signature_intro(paper.get("date") or ""))
-    banter_turns: list[Turn] = []
-    for i, (ref, item) in enumerate(pairs):
-        reader = _reader_for(i)                     # alternate who reads each article
-        allow = _guest_voice(item)                  # a deployed guest may speak one line
-        b = banter_by_ref.get(ref, {})
-        before = _turns_from_banter(b.get("before"), allow_voice=allow)
-        after = _turns_from_banter(b.get("after"), allow_voice=allow)
-        banter_turns += before + after
-        turns += before
-        # if the banter already introduced a parody guest, don't re-announce them
-        turns.append(_reading_turn(item, reader, has_intro=bool(before)))
-        turns += after
+    banter_snippets: list[str] = []
+    for p in plan:
+        reading = _reading(p["item"])
+        if p["role"] == "guest":
+            # fixed welcome (introducing host) + the guest's own-voice clip (one piece)
+            turns.append((p["introducer"], GUEST_WELCOME.format(persona=p["persona"])))
+            turns.append((p["voice"], "\n\n".join([GUEST_ACK, reading, GUEST_SIGNOFF])))
+        else:
+            b = banter_by_ref.get(p["ref"], {})
+            pre, post = _text_field(b.get("pre")), _text_field(b.get("post"))
+            banter_snippets += [s for s in (pre, post) if s]   # only the LLM text is gated
+            body = reading
+            if p.get("persona"):   # parody item with NO deployed clone → host reads in character
+                intro = character_read_intro(p["persona"])
+                body = f"{intro}\n\n{reading}" if intro else reading
+            turns.append((p["voice"], "\n\n".join(s for s in (pre, body, post) if s)))
     turns += SIGNATURE_OUTRO
 
     return {
         "turns": turns,
         "script_text": _script_text(turns),
-        "banter_text": _script_text(banter_turns),
-        "refs": [ref for ref, _ in pairs],
+        "banter_text": "\n".join(banter_snippets),
+        "refs": [p["ref"] for p in plan],
     }
 
 
