@@ -1,10 +1,12 @@
 # 06 — Narration & Audio: deterministic vs probabilistic, with LangChain
 
 The newest build step turns the finished paper into **sound**: a per-article reading for
-accessibility (every piece is listenable), and a daily **dad↔son podcast** where Graham
-reads each article and Tom — his curious, cheeky 14-year-old — banters around it. It runs
-**after validation**, on a long-running box (the Conductor host `.75` or the M3), never the
-laptop.
+accessibility (every piece is listenable), a daily **dad↔son podcast** where Graham and Tom —
+his curious, cheeky 14-year-old — **take turns** reading the articles and banter around them
+as a flowing discussion, and a fast **under-180-second TL;DR** headline bulletin. Both shows
+are topped and tailed by a public-domain **trad jingle** (*Whiskey in the Jar*, rendered in
+code). It runs **after validation**, on a long-running box (the Conductor host `.75` or the
+M3), never the laptop.
 
 It's also the cleanest worked example of this codebase's whole thesis:
 
@@ -17,13 +19,28 @@ A podcast episode is built from three layers — and only one of them is allowed
 
 | Layer | Deterministic? | Who makes it |
 |------|----------------|--------------|
-| Signature jingle ("Goooood morning, CraicGPT!", date-stamped) | ✅ fixed text | `podcast_script.build_signature_intro` |
-| Article **readings** | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
-| Dad↔son **banter** | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
+| **Trad jingle** bookend (*Whiskey in the Jar*, public domain) + the date-stamped "Goooood morning, CraicGPT!" cold-open | ✅ stdlib synth / fixed text | `generate/jingle.py` + `podcast_script.build_signature_intro` |
+| Article **readings** — Graham & Tom **alternating** | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
+| Dad↔son **discussion banter** (transitional: hands the read over, links each item to the next) | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
 
 Reading the article *verbatim* matters: the edition rubric already passed that text, so the
 podcast introduces **no new claims and no attribution drift**. The banter is the only new
 probabilistic content — so it is the only thing the gate has to judge.
+
+## The jingle is code, not a music file — `generate/jingle.py`
+
+There is no "music model" in the loop. The melody is a **pre-1800 traditional tune**
+(*Whiskey in the Jar* — multi-generational: trad ballad → Thin Lizzy → Metallica), and we
+render OUR OWN arrangement of it in **pure stdlib** with a Karplus–Strong plucked-string synth
+— same notes in, same bytes out, every day, forever: no licence, no royalties, no network,
+nothing to drift. `render_podcast` tops & tails the show with it (fades into the cold-open,
+back under the sign-off; best-effort — it drops gracefully without `ffmpeg`). Same
+deterministic-vs-probabilistic split as everything else: a jingle needs no judgement, so no
+LLM goes near it.
+
+> **On copyright:** this is deliberately *not* a sound-alike of a specific hit. A
+> public-domain trad tune is multi-generational, on-brand, and royalty-free — and it can't be
+> confused with anyone's song.
 
 ## The deterministic TTS harness — `content_pipeline/generate/audio.py`
 
@@ -56,9 +73,11 @@ path, model = audio.render_podcast([("graham", "…"), ("tom", "…")])  # multi
 ## The probabilistic layer, governed — `podcast_script.py` + `rubric_review.py`
 
 `build_podcast_script(paper)` assembles the turns: signature intro → for each article
-*[banter before] → verbatim reading → [banter after]* → signature outro. The banter is one
-`write_model` call (Tom's character stays consistent across the show); the readings are
-spliced in by code.
+*[banter before] → verbatim reading (alternating Graham/Tom) → [banter after]* → signature
+outro. The banter is one `write_model` call written as **transitional glue** — the host who
+*isn't* reading hands the next one over ("go on, you take this one") and links each item to
+the last and the next, so it plays as one conversation rather than read-banter-read blocks
+(Tom's character stays consistent). The readings are spliced in by code, still **verbatim**.
 
 The banter then passes the **same `deepagents` `RubricMiddleware`** the edition uses — a
 separate judge model scores it against `PODCAST_RUBRIC` (harmless, kind, age-appropriate for
@@ -74,6 +93,33 @@ verdict = grade_podcast_script(script["banter_text"])   # {"verdict": "APPROVE"|
 This is the rule from `CLAUDE.md` made concrete: *probabilistic judgement never replaces the
 deterministic guard, and never goes ungoverned either.*
 
+## The TL;DR bulletin — `build_tldr_script` (deterministic)
+
+A second, faster show for skimmers: Graham and Tom **alternate reading the day's headlines**
+(each item's already-approved title + a one-line gloss) like a news bulletin, topped & tailed
+by the same jingle. It is **fully deterministic** — no LLM, nothing to gate — and
+**word-budgeted** to the speaking time left after the jingle, so it reliably lands **under
+180 seconds** even if the clone reads slowly. It attaches as `paper["podcast_tldr"]` (additive
+/ optional, mirroring `podcast`) and gets its own masthead player.
+
+## Parody "character voices" — no new clones
+
+We only have the Graham and Tom voice clones, so a parody item (one written in a roster
+persona) gets a short theatrical **spoken intro** announcing the character — carried by the
+*script*, not a new voice. The body stays verbatim (already written in that persona's
+signature voice). It's the honest maximum without per-persona reference audio.
+
+## The publish gate is autonomous — with a human window
+
+Once narrated, the edition flows to the **idempotent publish gate** (`review.gate`, polled by
+the `craicgpt_publish_gate` workflow). On the rubric's APPROVE + host structural validation +
+a browser-UA link-check it **auto-publishes live** — no human in the loop. A *judgement* HOLD
+(the rubric held, but the page is structurally valid) is **escalated to Graham on Telegram**;
+if no human directive lands within `CRAICGPT_HITL_PASSIVE_MINUTES` (default 60) the gate
+**passively approves** it (`passive-publish`). `cli override` publishes now; `cli hold` pins
+it and suppresses the timer. The fail-open is **fenced by structural validity** — a broken
+page or dead links never auto-publish.
+
 ## Orchestration & integration
 
 - `content_pipeline/generate/narration.py` → `narrate_paper(paper)` ties it together
@@ -82,8 +128,8 @@ deterministic guard, and never goes ungoverned either.*
   loads a validated edition, enriches it, and (with `--publish`) uploads audio + the JSON.
 - `publish.py` uploads local audio to `<prefix>/audio/…` and rewrites to CDN URLs — the same
   pattern as images (shorts have audio even though they have no image; the podcast too).
-- `compile.py` carries a `podcast` key; `audio_url` is **additive and optional**, so editions
-  without audio still validate.
+- `compile.py` carries `podcast` + `podcast_tldr` keys; `audio_url` is **additive and
+  optional**, so editions without audio still validate.
 - The frontend (`main.js`) shows a subtle 🔊 *Listen* on each article (one shared sticky
   player) and a masthead podcast bar with a screen-reader **transcript**; `?edition=preview`
   renders the un-published draft for review.
@@ -100,8 +146,8 @@ nowhere else.**
 ## Verify it
 
 ```bash
-python -m pytest -q tests/test_audio.py tests/test_podcast_script.py \
-  tests/test_podcast_gate.py tests/test_narration.py        # offline, models stubbed
+python -m pytest -q tests/test_jingle.py tests/test_audio.py tests/test_podcast_script.py \
+  tests/test_podcast_gate.py tests/test_narration.py tests/test_gate_passive.py   # offline
 python -m content_pipeline.agent.cli narrate --date <today> --prefix content --limit 3 \
   --publish                                                  # render to preview/ + S3
 # then open  …/?edition=preview  to hear it
