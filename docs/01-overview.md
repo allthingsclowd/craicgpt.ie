@@ -45,13 +45,22 @@ site is both a working newspaper and a live deep-agents tutorial.
         │
         ▼  6. JUDGE (in-pipeline) — rubric_review.grade_edition: a deepagents
            RubricMiddleware grades the finished edition (harmless/on-brand/
-           attributed) on qwen3.6-35b (interim — the writer's model; independent judge pending)
+           attributed) on an INDEPENDENT local judge (qwen3-coder-next, M3 :8087 —
+           distinct from the writer's qwen3.6), frontier fallback
         │
         ▼  draft + images + verdict-rubric.json → S3 preview/ + status.json
         ▼
+  Narrate (after validation, Conductor task craicgpt_narrate) — generate/narration.py:
+  per-article readings (Graham & Tom ALTERNATING) + the dad↔son podcast (verbatim reads +
+  rubric-gated "discussion" banter) + a deterministic <180s TL;DR bulletin, all topped &
+  tailed by a public-domain trad jingle (generate/jingle.py). Enriches the draft with
+  audio_url + podcast + podcast_tldr; the gate uploads the audio when it promotes live.
+        ▼
   Publish gate (Conductor cron @ 06–08 UTC → cli gate): the single rubric APPROVE
   + host structural validation + browser-UA link-check → promote to content/ (live),
-  version it, invalidate CloudFront, sync the frontend
+  version it, invalidate CloudFront, sync the frontend. A judgement HOLD (rubric, but
+  structurally valid) escalates to Graham on Telegram + PASSIVELY auto-publishes after
+  CRAICGPT_HITL_PASSIVE_MINUTES (default 60) if he doesn't respond — never a broken page.
         │
         ▼
   S3 / CloudFront → craicgpt.ie  (static HTML/JS fetches paper_content.json,

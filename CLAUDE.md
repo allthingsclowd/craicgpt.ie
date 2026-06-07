@@ -106,14 +106,20 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
           verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
           old decoupled two-VM openclaw+hermes review.)
    ▼
-Narrate (AFTER validation) — cli narrate (Conductor task craicgpt_narrate, wiring pending):
-   per-article readings in Graham's voice + the dad↔son podcast (deterministic readings +
-   LLM banter GATED by the same deepagents rubric). Adds audio_url per item + paper["podcast"].
-   Runs on .75 or the M3 (calls the M3 mlx-audio TTS clone), never the laptop.
+Narrate (AFTER validation) — cli narrate (Conductor task craicgpt_narrate, LIVE in the v2
+   daily workflow): per-article readings with Graham & Tom ALTERNATING + the dad↔son podcast
+   (verbatim readings + transitional "discussion" banter GATED by the deepagents rubric) + a
+   deterministic <180s TL;DR headline bulletin — all topped & tailed by a public-domain trad
+   jingle (Whiskey in the Jar, rendered in code; generate/jingle.py). Parody items get a
+   spoken character intro (no new clones). Adds audio_url per item + paper["podcast"] +
+   paper["podcast_tldr"]. Runs on .75 or the M3 (M3 mlx-audio TTS clone), never the laptop.
    ▼
 Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli gate:
    the single rubric APPROVE verdict + host structural validation + MANDATORY browser-UA
-   link-check → promote to content/ live + CloudFront invalidation + frontend sync.
+   link-check → promote to content/ live + CloudFront invalidation + frontend sync. A
+   JUDGEMENT hold (rubric HOLD, structurally valid) escalates to Graham on Telegram and, if
+   no human directive lands within CRAICGPT_HITL_PASSIVE_MINUTES (default 60), is PASSIVELY
+   approved (published) — fenced so a structurally-broken edition is never auto-published.
    Editions are VERSIONED: content/<date>/paper_content.json (latest) +
    versions/<vid>.json + versions.json (multi-apply — several editions per day).
    ▼
@@ -137,7 +143,7 @@ so each stage is independently retriable and the gate is idempotent.
 | `content_pipeline/agent/hitl.py` | OSS human-in-the-loop approval graph — LangGraph `interrupt()` + checkpointer |
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
-| `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge) |
+| `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge); the HITL **passive-approval** (escalate → auto-publish after `CRAICGPT_HITL_PASSIVE_MINUTES`, fenced by structural validity) + the `force-publish`/`remove-and-publish`/`hold` directives |
 | `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on a local model (`qwen3.6-35b` — interim; independent judge pending — a 12B gemma can't drive the loop; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
