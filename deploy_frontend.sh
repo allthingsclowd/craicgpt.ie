@@ -37,13 +37,25 @@ if [ -z "${S3_BUCKET:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
   exit 1
 fi
 
+# ── Generate the per-language HTML shells (frontend/<lang>/…) ──────────────────
+# The English page is the template; this writes the de/es/it/ja/fr copies the sync
+# below uploads. Best-effort: a generator hiccup must not block the asset deploy.
+
+info "Generating per-language HTML shells"
+python3 -m content_pipeline.agent.i18n_html "$SCRIPT_DIR/frontend" || \
+  info "localized HTML generation skipped (generator unavailable)"
+
 # ── Sync frontend/ → S3 ───────────────────────────────────────────────────────
-# --exclude "content/*" protects the generated JSON that run_daily.sh uploads.
+# Protect EVERY language's generated JSON/audio/images from --delete: the root
+# English tree (content/, preview/) AND each translation tree (<lang>/content/, …).
 
 info "Syncing frontend/ → s3://$S3_BUCKET/"
 aws s3 sync "$SCRIPT_DIR/frontend/" "s3://$S3_BUCKET/" \
   --delete \
   --exclude "content/*" \
+  --exclude "preview/*" \
+  --exclude "*/content/*" \
+  --exclude "*/preview/*" \
   --exclude "*.md" \
   --exclude ".DS_Store" \
   --region "${AWS_REGION:-eu-west-1}"

@@ -165,3 +165,25 @@ def test_parody_fun_item_reads_in_its_clone_when_deployed(monkeypatch):
         paper, narrate_article=_fake_article, build_script=_fake_build,
         grade=_approve, render_podcast=_fake_render)
     assert out["fun"][0]["_audio_voice"] == "ronald_dump"
+
+
+def test_narrate_paper_threads_the_edition_language():
+    """A translated edition's language flows into the script builder + per-article reads
+    (so the banter is written in-language and the spoken-form fixes match)."""
+    captured = {}
+
+    def _build(paper, **kw):
+        captured["build_lang"] = kw.get("language")
+        return {"turns": [("graham", "x")], "script_text": "GRAHAM: x",
+                "banter_text": "", "refs": []}
+
+    def _article(item, *, voice="graham", **kw):
+        captured["article_lang"] = kw.get("language")
+        return (f"/tmp/{item['title']}.mp3", "m")
+
+    paper = _sample()
+    paper["edition"] = {"language": "de"}
+    narration.narrate_paper(paper, narrate_article=_article, build_script=_build,
+                            grade=_approve, render_podcast=_fake_render)
+    assert captured["build_lang"] == "de"
+    assert captured["article_lang"] == "de"

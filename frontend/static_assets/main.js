@@ -25,17 +25,81 @@
 // this avoids the CORS errors you'd hit pointing at an absolute host.
 // Read live content/ by default, or the preview/ draft when ?edition=preview is in the
 // URL — lets Graham review an un-published, audio-enriched edition from his phone.
+// ── Internationalisation ────────────────────────────────────────────────────
+// The site is served under a language path prefix (/en/, /de/, …). On S3 the English
+// content lives at the ROOT (content/…) and /en/* is a CloudFront alias to it, so the
+// frontend can treat every language uniformly: it always fetches /<lang>/content/… and
+// the CDN maps /en/* → /* for the source language. LANG = the first path segment.
+const KNOWN_LANGS = ['en', 'de', 'es', 'it', 'ja', 'fr'];
+const SOURCE_LANG = 'en';
+const LANG = (() => {
+  const seg = location.pathname.split('/').filter(Boolean)[0];
+  return KNOWN_LANGS.includes(seg) ? seg : SOURCE_LANG;
+})();
+const LOCALES = { en: 'en-IE', de: 'de-DE', es: 'es-ES', it: 'it-IT', ja: 'ja-JP', fr: 'fr-FR' };
+
+// UI-chrome strings per language (English is the fallback). Article CONTENT is translated
+// server-side and arrives in paper_content.json; this table only covers the shell.
+const I18N = {
+  en: { listen: '🎧 Listen', podcast: 'Daily podcast', tldr: '90-sec headlines',
+        transcript: 'transcript', download: 'Download the', latest: 'latest',
+        fetching: "Fetching today's edition…", noEdition: 'No edition found for',
+        dayOff: 'The Craic Gazette was probably on holidays.', changeDate: '📅 change date',
+        translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
+        readOriginal: 'Read the English original ↗' },
+  de: { listen: '🎧 Hören', podcast: 'Täglicher Podcast', tldr: '90-Sek-Schlagzeilen',
+        transcript: 'Transkript', download: 'Herunterladen:', latest: 'aktuell',
+        fetching: 'Heutige Ausgabe wird geladen…', noEdition: 'Keine Ausgabe gefunden für',
+        dayOff: 'Die Craic Gazette macht wohl gerade Urlaub.', changeDate: '📅 Datum ändern',
+        translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
+        readOriginal: 'Zum englischen Original ↗' },
+  es: { listen: '🎧 Escuchar', podcast: 'Podcast diario', tldr: 'Titulares en 90 s',
+        transcript: 'transcripción', download: 'Descargar', latest: 'última',
+        fetching: 'Cargando la edición de hoy…', noEdition: 'No se encontró edición para',
+        dayOff: 'La Craic Gazette estaría de vacaciones.', changeDate: '📅 cambiar fecha',
+        translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
+        readOriginal: 'Leer el original en inglés ↗' },
+  it: { listen: '🎧 Ascolta', podcast: 'Podcast quotidiano', tldr: 'Titoli in 90 s',
+        transcript: 'trascrizione', download: 'Scarica', latest: 'ultima',
+        fetching: "Caricamento dell'edizione di oggi…", noEdition: 'Nessuna edizione trovata per',
+        dayOff: 'La Craic Gazette sarà in vacanza.', changeDate: '📅 cambia data',
+        translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
+        readOriginal: "Leggi l'originale in inglese ↗" },
+  ja: { listen: '🎧 聴く', podcast: 'デイリーポッドキャスト', tldr: '90秒ヘッドライン',
+        transcript: '文字起こし', download: 'ダウンロード', latest: '最新',
+        fetching: '本日のエディションを読み込み中…', noEdition: 'エディションが見つかりません：',
+        dayOff: 'クレイク・ガゼットはお休みのようです。', changeDate: '📅 日付を変更',
+        translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
+        readOriginal: '英語の原文を読む ↗' },
+  fr: { listen: '🎧 Écouter', podcast: 'Podcast quotidien', tldr: 'Titres en 90 s',
+        transcript: 'transcription', download: 'Télécharger', latest: 'récente',
+        fetching: "Chargement de l'édition du jour…", noEdition: 'Aucune édition trouvée pour',
+        dayOff: 'La Craic Gazette est sans doute en vacances.', changeDate: '📅 changer de date',
+        translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
+        readOriginal: "Lire l'original en anglais ↗" },
+};
+const t = (key) => ((I18N[LANG] || I18N.en)[key] ?? I18N.en[key] ?? key);
+
 const EDITION_PREFIX =
   new URLSearchParams(location.search).get('edition') === 'preview' ? 'preview' : 'content';
-const CONTENT_PATH = (y, m, d) => `/${EDITION_PREFIX}/${y}/${m}/${d}/paper_content.json`;
+const CONTENT_PATH = (y, m, d) => `/${LANG}/${EDITION_PREFIX}/${y}/${m}/${d}/paper_content.json`;
 // Edition versioning: the manifest of the day's versions, and a specific snapshot.
-const VERSIONS_PATH = (y, m, d) => `/${EDITION_PREFIX}/${y}/${m}/${d}/versions.json`;
-const VERSION_PATH = (y, m, d, id) => `/${EDITION_PREFIX}/${y}/${m}/${d}/versions/${id}.json`;
+const VERSIONS_PATH = (y, m, d) => `/${LANG}/${EDITION_PREFIX}/${y}/${m}/${d}/versions.json`;
+const VERSION_PATH = (y, m, d, id) => `/${LANG}/${EDITION_PREFIX}/${y}/${m}/${d}/versions/${id}.json`;
 const MAX_FALLBACK_DAYS = 14;
 
 let currentPaperData = null;
 let currentDate = null;        // the edition date currently shown (drives the version picker)
 const el = id => document.getElementById(id);
+
+/** A language link that preserves the current edition date + preview flag, so switching
+ *  language keeps you on the same day's edition. */
+function langHref(lang) {
+  const qs = new URLSearchParams(location.search);
+  if (currentDate) qs.set('date', toISODate(currentDate));
+  const q = qs.toString();
+  return `/${lang}/${q ? '?' + q : ''}`;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // DATA FETCHING
@@ -84,7 +148,7 @@ async function loadEditionForDate(dateStr) {
     updateDateDisplay(date);
     await renderVersions(date);
   } else {
-    alert(`No edition found for ${dateStr}. The Craic Gazette was probably on holidays.`);
+    alert(`${t('noEdition')} ${dateStr}. ${t('dayOff')}`);
   }
 }
 
@@ -110,7 +174,7 @@ async function renderVersions(date) {
   } catch { /* no manifest → single-version day; leave the picker hidden */ }
   if (versions.length < 2) return;          // subtle: only shown when there's a real choice
   versions.forEach((v, i) => {              // manifest is newest-first; [0] is the latest
-    const opt = node('option', '', i === 0 ? `${v.label} (latest)` : v.label);
+    const opt = node('option', '', i === 0 ? `${v.label} (${t('latest')})` : v.label);
     opt.value = v.id;
     sel.append(opt);
   });
@@ -185,6 +249,48 @@ function renderPaper(data) {
   renderPodcast(data);
   renderAttribution(data);
   renderHood(data);
+  renderTranslationNote(data);
+}
+
+/** The subtle, light-hearted 'this page was machine-translated' note at the foot of a
+ *  translated edition, naming the model and linking back to the English original. Shown
+ *  only when the edition's language isn't the source (English shows nothing). */
+function renderTranslationNote(data) {
+  const old = el('translation-note'); if (old) old.remove();
+  const ed = (data && data.edition) || {};
+  const lang = ed.language || SOURCE_LANG;
+  if (lang === SOURCE_LANG) return;
+  const model = ed.translated_by || 'a local model';
+  const note = node('div', 'translation-note'); note.id = 'translation-note';
+  note.append(node('span', '', t('translatedNote').replace('{model}', model) + ' '));
+  const a = document.createElement('a');
+  a.className = 'translation-note-link';
+  a.href = '/en/' + (location.search || '');     // the English original, same query (date/preview)
+  a.textContent = t('readOriginal');
+  note.append(a);
+  const footer = document.querySelector('.site-footer');
+  if (footer && footer.parentNode) footer.parentNode.insertBefore(note, footer);
+  else document.body.append(note);
+}
+
+/** The masthead language switcher — one link per language, preserving the current edition
+ *  date/preview flag, and setting the cg_lang cookie so the edge detector honours the choice. */
+function renderLangSwitcher() {
+  const strip = document.querySelector('.masthead-top-strip');
+  if (!strip || el('lang-switcher')) return;
+  const nav = node('nav', 'lang-switcher'); nav.id = 'lang-switcher';
+  nav.setAttribute('aria-label', 'Language');
+  KNOWN_LANGS.forEach(lang => {
+    if (lang === LANG) { nav.append(node('span', 'lang-current', lang.toUpperCase())); return; }
+    const a = document.createElement('a');
+    a.className = 'lang-link'; a.href = langHref(lang); a.textContent = lang.toUpperCase();
+    a.setAttribute('lang', lang); a.setAttribute('hreflang', lang);
+    a.addEventListener('click', () => {
+      document.cookie = `cg_lang=${lang}; path=/; max-age=31536000; samesite=lax`;
+    });
+    nav.append(a);
+  });
+  strip.append(nav);
 }
 
 /** The full-width Editor's Brief band: portrait byline + Graham's whole-edition synthesis. */
@@ -195,7 +301,7 @@ function briefCard(brief) {
   const head = node('div', 'brief-head');
   const img = document.createElement('img');
   img.className = 'brief-portrait';
-  img.src = 'static_assets/images/GeekwiththePeak.png';
+  img.src = '/static_assets/images/GeekwiththePeak.png';
   img.alt = 'Graham — Editor-in-Chief';
   img.loading = 'lazy';
   head.append(img, node('div', 'brief-byline', 'Graham · Editor-in-Chief'));
@@ -216,7 +322,7 @@ function renderAbout(data) {
   art.append(kicker('MEET THE EDITOR-IN-CHIEF', 'red'));
   const img = document.createElement('img');
   img.className = 'about-portrait';
-  img.src = 'static_assets/images/GeekwiththePeak.png';
+  img.src = '/static_assets/images/GeekwiththePeak.png';
   img.alt = 'Graham — Editor-in-Chief';
   img.loading = 'lazy';
   art.append(img);
@@ -228,6 +334,7 @@ function renderAbout(data) {
     art.append(body('The editor is still writing his memoirs — check back after the next edition.'));
   }
   root.append(art);
+  renderTranslationNote(data);
 }
 
 function defaultLayout(data) {
@@ -373,12 +480,12 @@ function renderPodcast(data) {
   strip.innerHTML = '';
   const date = (data && data.date) || '';
   const shows = [
-    { pod: data && data.podcast, label: 'Daily podcast', dl: 'craicgpt-podcast' },
-    { pod: data && data.podcast_tldr, label: '90-sec headlines', dl: 'craicgpt-tldr' },
+    { pod: data && data.podcast, label: t('podcast'), dl: 'craicgpt-podcast' },
+    { pod: data && data.podcast_tldr, label: t('tldr'), dl: 'craicgpt-tldr' },
   ].filter(s => s.pod && s.pod.audio_url);
   if (!shows.length) { strip.hidden = true; return; }   // no audio (e.g. an older version)
   strip.hidden = false;
-  strip.append(node('span', 'ps-lead', '🎧 Listen'));
+  strip.append(node('span', 'ps-lead', t('listen')));
   shows.forEach((s, i) => {
     if (i) strip.append(node('span', 'ps-sep', '·'));
     const item = node('span', 'ps-item');
@@ -389,11 +496,12 @@ function renderPodcast(data) {
     const dl = document.createElement('a');
     dl.className = 'ps-dl'; dl.href = s.pod.audio_url;
     dl.download = s.dl + (date ? '-' + date : '') + '.mp3';
-    dl.title = 'Download the ' + s.label; dl.setAttribute('aria-label', 'Download the ' + s.label);
+    dl.title = t('download') + ' ' + s.label;
+    dl.setAttribute('aria-label', t('download') + ' ' + s.label);
     dl.textContent = '⤓';
     item.append(dl);
     if (s.pod.transcript) {
-      const tx = node('button', 'ps-tx', 'transcript'); tx.type = 'button';
+      const tx = node('button', 'ps-tx', t('transcript')); tx.type = 'button';
       tx.addEventListener('click', () => toggleTranscript(s.label, s.pod.transcript));
       item.append(tx);
     }
@@ -503,7 +611,7 @@ function renderPlaceholder() {
 // ════════════════════════════════════════════════════════════════════════════
 function updateDateDisplay(date) {
   const dateEl = el('current-date');
-  if (dateEl) dateEl.textContent = date.toLocaleDateString('en-IE',
+  if (dateEl) dateEl.textContent = date.toLocaleDateString(LOCALES[LANG] || 'en-IE',
     { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
@@ -511,6 +619,7 @@ function initDatePicker() {
   const input = el('date-picker');
   if (!input) return;
   input.type = 'date';
+  if (input.placeholder) input.placeholder = t('changeDate');
   input.max = toISODate(new Date());
   input.addEventListener('change', e => { if (e.target.value) loadEditionForDate(e.target.value); });
 }
@@ -564,13 +673,18 @@ function toISODate(date) {
 // BOOT
 // ════════════════════════════════════════════════════════════════════════════
 async function init() {
+  document.documentElement.lang = LANG;          // crawlers + a11y: the page's real language
   const fy = el('footer-year');
   if (fy) fy.textContent = new Date().getFullYear();
+  renderLangSwitcher();
   initDatePicker();
   initVersionSelect();
   initHoodDrawer();
   initNewsletter();
-  await loadMostRecentEdition();
+  // A ?date=YYYY-MM-DD (carried by the language switcher) keeps you on the same edition.
+  const qDate = new URLSearchParams(location.search).get('date');
+  if (qDate && /^\d{4}-\d{2}-\d{2}$/.test(qDate)) await loadEditionForDate(qDate);
+  else await loadMostRecentEdition();
 }
 
 if (document.readyState === 'loading') {

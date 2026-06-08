@@ -12,12 +12,22 @@
   <title>About the Editor — The Craic Gazette</title>
   <meta name="description" content="About Graham Land, Editor-in-Chief of The Craic Gazette — introduced, more or less honestly, in the voice of Father Ted.">
 
-  <link rel="stylesheet" href="static_assets/style.css">
-  <link rel="stylesheet" href="static_assets/style-v3.css">
+  <!-- Root-absolute so the shared assets resolve under any /<lang>/ path prefix. -->
+  <link rel="stylesheet" href="/static_assets/style.css">
+  <link rel="stylesheet" href="/static_assets/style-v3.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
-  <link rel="icon" href="favicon.ico">
+  <link rel="icon" href="/favicon.ico">
+
+  <!-- hreflang for the About page: every language alternate + x-default (→ English). -->
+  <link rel="alternate" hreflang="en" href="https://craicgpt.ie/en/about.html">
+  <link rel="alternate" hreflang="de" href="https://craicgpt.ie/de/about.html">
+  <link rel="alternate" hreflang="es" href="https://craicgpt.ie/es/about.html">
+  <link rel="alternate" hreflang="it" href="https://craicgpt.ie/it/about.html">
+  <link rel="alternate" hreflang="ja" href="https://craicgpt.ie/ja/about.html">
+  <link rel="alternate" hreflang="fr" href="https://craicgpt.ie/fr/about.html">
+  <link rel="alternate" hreflang="x-default" href="https://craicgpt.ie/en/about.html">
 </head>
 
 <body class="v3">
@@ -69,6 +79,6 @@
     </div>
   </footer>
 
-  <script src="static_assets/main.js"></script>
+  <script src="/static_assets/main.js"></script>
 </body>
 </html>

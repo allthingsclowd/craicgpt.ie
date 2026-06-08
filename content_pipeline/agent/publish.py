@@ -32,6 +32,21 @@ def s3_key(date_iso: str, prefix: str, name: str = "paper_content.json") -> str:
     return f"{prefix}/{y}/{m}/{d}/{name}"
 
 
+def _prefix_for(base: str, language: Optional[str]) -> str:
+    """Language-qualify a base prefix: ``content`` → ``de/content`` (None → legacy ``content``).
+
+    Multi-lingual editions live under a per-language prefix (``/<lang>/content/…``);
+    a ``None`` language preserves the original single-language layout so existing
+    callers/tests are unaffected. English is published explicitly with ``language="en"``.
+    """
+    return f"{language}/{base}" if language else base
+
+
+def _content_prefix(language: Optional[str] = None) -> str:
+    """The live content prefix, language-qualified when a language is given."""
+    return _prefix_for(content_cfg.content_prefix, language)
+
+
 def _default_s3():
     import boto3
 
@@ -65,9 +80,9 @@ def _hhmm(generated_at: str) -> str:
     return f"{m.group(1)}:{m.group(2)}" if m else ""
 
 
-def _read_versions_manifest(s3: Any, bucket: str, date_iso: str) -> dict:
-    """The day's versions.json, or a fresh empty manifest."""
-    key = s3_key(date_iso, content_cfg.content_prefix, "versions.json")
+def _read_versions_manifest(s3: Any, bucket: str, date_iso: str, language: Optional[str] = None) -> dict:
+    """The day's versions.json (for this language), or a fresh empty manifest."""
+    key = s3_key(date_iso, _content_prefix(language), "versions.json")
     try:
         data = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
         if isinstance(data, dict) and isinstance(data.get("versions"), list):
@@ -77,19 +92,21 @@ def _read_versions_manifest(s3: Any, bucket: str, date_iso: str) -> dict:
     return {"date": date_iso, "versions": []}
 
 
-def _write_edition_version(s3: Any, bucket: str, date_iso: str, paper: dict) -> Optional[str]:
+def _write_edition_version(s3: Any, bucket: str, date_iso: str, paper: dict,
+                           language: Optional[str] = None) -> Optional[str]:
     """Write an immutable snapshot of ``paper`` and prepend it to versions.json.
 
     Returns the snapshot key, or None if this edition (by generated_at) was already
-    versioned — so a repeated publish of the same edition is a no-op."""
+    versioned — so a repeated publish of the same edition is a no-op. Each language
+    keeps its OWN manifest under ``<lang>/content/<date>/versions.json``."""
     gen = str(paper.get("generated_at") or "")
     vid = _version_id(gen)
-    manifest = _read_versions_manifest(s3, bucket, date_iso)
+    manifest = _read_versions_manifest(s3, bucket, date_iso, language)
     versions = manifest["versions"]
     if any(v.get("id") == vid for v in versions):
         return None  # this exact edition is already a version — don't duplicate
 
-    snap_key = s3_key(date_iso, content_cfg.content_prefix, f"versions/{vid}.json")
+    snap_key = s3_key(date_iso, _content_prefix(language), f"versions/{vid}.json")
     s3.put_object(Bucket=bucket, Key=snap_key,
                   Body=json.dumps(paper, ensure_ascii=False, indent=2).encode("utf-8"),
                   ContentType="application/json",
@@ -100,7 +117,7 @@ def _write_edition_version(s3: Any, bucket: str, date_iso: str, paper: dict) -> 
     label = f"v{seq}" + (f" · {_hhmm(gen)}" if _hhmm(gen) else "")
     versions.insert(0, {"id": vid, "generated_at": gen, "seq": seq,
                         "label": label, "headliner": headliner})
-    man_key = s3_key(date_iso, content_cfg.content_prefix, "versions.json")
+    man_key = s3_key(date_iso, _content_prefix(language), "versions.json")
     s3.put_object(Bucket=bucket, Key=man_key,
                   Body=json.dumps({"date": date_iso, "versions": versions},
                                   ensure_ascii=False, indent=2).encode("utf-8"),
@@ -118,6 +135,7 @@ def publish_paper(
     bucket: Optional[str] = None,
     cloudfront_id: Optional[str] = None,
     site_base_url: Optional[str] = None,
+    language: Optional[str] = None,
 ) -> str:
     """Upload an edition (and its images) to S3; return the JSON's S3 key.
 
@@ -128,11 +146,18 @@ def publish_paper(
         s3: injected S3 client (defaults to a boto3 client).
         bucket / cloudfront_id / site_base_url: overrides for the configured
             values.
+        language: when given, content is stored under a per-language prefix
+            ``<lang>/content/…`` (the multi-lingual layout). ``None`` keeps the
+            original single-language layout. Each language keeps its own
+            ``versions.json``. Translated editions carry absolute (already-uploaded)
+            English image URLs, so ``_is_local_path`` skips them → images are SHARED,
+            only the per-language audio + JSON upload under ``<lang>/``.
     """
     s3 = s3 or _default_s3()
     bucket = bucket or content_cfg.s3_bucket
     site = site_base_url or content_cfg.site_base_url
-    prefix = content_cfg.content_prefix if live else content_cfg.preview_prefix
+    base_prefix = content_cfg.content_prefix if live else content_cfg.preview_prefix
+    prefix = _prefix_for(base_prefix, language)
 
     # 1) Upload any locally-generated images and rewrite their URLs to the CDN.
     #    This MUST cover the AI lead images (headliner + subarticles) as well as
@@ -191,8 +216,8 @@ def publish_paper(
     manifest_key: Optional[str] = None
     if live:
         try:
-            if _write_edition_version(s3, bucket, date_iso, paper):
-                manifest_key = s3_key(date_iso, content_cfg.content_prefix, "versions.json")
+            if _write_edition_version(s3, bucket, date_iso, paper, language=language):
+                manifest_key = s3_key(date_iso, _content_prefix(language), "versions.json")
         except Exception as exc:  # noqa: BLE001 — versioning must never sink a publish
             logger.warning("[publish] versioning failed: %s", exc)
 

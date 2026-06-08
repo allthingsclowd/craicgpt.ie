@@ -151,8 +151,19 @@ def persona_byline(character: str) -> str:
     return f"As told to The Craic Gazette by {character}"
 
 
-def character_read_intro(character: str) -> str:
-    """A short spoken 'character voice' framing for a parody piece.
+# Theatrical 'character voice' framing per language (English is the fallback).
+_CHARACTER_INTRO = {
+    "en": "And now — in the unmistakable style of {character}!",
+    "de": "Und jetzt — ganz im unverkennbaren Stil von {character}!",
+    "es": "Y ahora — ¡al inconfundible estilo de {character}!",
+    "it": "E ora — nell'inconfondibile stile di {character}!",
+    "fr": "Et maintenant — dans le style inimitable de {character} !",
+    "ja": "それでは——まさに{character}そのもののスタイルでどうぞ！",
+}
+
+
+def character_read_intro(character: str, language: str = "en") -> str:
+    """A short spoken 'character voice' framing for a parody piece (localised).
 
     We only have the Graham/Tom voice clones (no per-persona clone), so the character
     is carried by the SCRIPT, not a new voice: a theatrical announcement, then the body —
@@ -160,7 +171,9 @@ def character_read_intro(character: str) -> str:
     Tom) performs it. Deterministic; the body itself stays verbatim.
     """
     character = (character or "").strip()
-    return f"And now — in the unmistakable style of {character}!" if character else ""
+    if not character:
+        return ""
+    return _CHARACTER_INTRO.get(language, _CHARACTER_INTRO["en"]).format(character=character)
 
 
 def persona_voice_key(character: str) -> str:

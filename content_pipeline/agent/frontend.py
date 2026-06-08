@@ -103,8 +103,12 @@ def sync_frontend(frontend_dir: str, *, s3: Any | None = None,
     if uploaded:
         cf = cloudfront_id if cloudfront_id is not None else content_cfg.cloudfront_distribution_id
         if cf:
-            # Invalidate the changed asset paths + the HTML entry points.
-            paths = sorted({f"/{k}" for k in uploaded} | {"/", "/index.html"})
+            # Invalidate the changed asset paths + the HTML entry points. When a
+            # localized shell changed (e.g. de/index.html) also bust its bare dir
+            # (/de/) so the language home reflects it immediately.
+            lang_dirs = {f"/{k.rsplit('/', 1)[0]}/"
+                         for k in uploaded if k.endswith("index.html") and "/" in k}
+            paths = sorted({f"/{k}" for k in uploaded} | {"/", "/index.html"} | lang_dirs)
             invalidate(cf, paths)
             logger.info("[frontend] invalidated %d path(s)", len(paths))
     else:

@@ -121,7 +121,9 @@ def chunk_text(text: str, max_chars: int = DEF_MAX_CHARS) -> list[str]:
             chunks.append(p)
             continue
         cur = ""
-        for s in re.split(r"(?<=[.!?])\s+", p):
+        # Sentence-split on Latin (.!? + space) AND CJK (。！？, which carry no trailing
+        # space) punctuation, so Japanese/Chinese readings chunk on real sentence breaks.
+        for s in re.split(r"(?<=[.!?])\s+|(?<=[。！？])\s*", p):
             if cur and len(cur) + len(s) + 1 > max_chars:
                 chunks.append(cur.strip())
                 cur = s
@@ -133,27 +135,59 @@ def chunk_text(text: str, max_chars: int = DEF_MAX_CHARS) -> list[str]:
 
 
 # Phonetic fixes applied to the SPOKEN text only (the on-screen transcript keeps the real
-# spelling). Irish "craic" is pronounced "crack"; the brand "CraicGPT" → "Crack Gee Pee
-# Tee". Word-boundary, case-insensitive. CraicGPT MUST come before craic (longer match).
-PRONUNCIATIONS = {
-    # The sign-off sends listeners to the site; spell the URL so it reads naturally.
-    # Longer match first (craicgpt.ie before craicgpt before craic).
-    r"\bcraicgpt\.ie\b": "Crack Gee Pee Tee dot Eye Ee",
-    r"\bcraicgpt\b": "Crack Gee Pee Tee",
-    r"\bcraic\b": "crack",
+# spelling), and they are PER-LANGUAGE: the English-only "craic"→"crack" rule must NOT be
+# applied to other languages' prose, and the spoken site URL localises its connector
+# ("dot"→"Punkt"/"point"/"punto"/"ドット"). English is the default/fallback map. CraicGPT
+# MUST come before craic (longer match first). Non-English maps are frozen, review-pending
+# (decision: reuse the voice clones cross-lingually, review accent/readout post-deploy).
+PRONUNCIATIONS_BY_LANG: dict[str, dict[str, str]] = {
+    "en": {
+        r"\bcraicgpt\.ie\b": "Crack Gee Pee Tee dot Eye Ee",
+        r"\bcraicgpt\b": "Crack Gee Pee Tee",
+        r"\bcraic\b": "crack",
+    },
+    "de": {
+        r"\bcraicgpt\.ie\b": "Crack Gee Pee Tee Punkt Eye Ee",
+        r"\bcraicgpt\b": "Crack Gee Pee Tee",
+    },
+    "fr": {
+        r"\bcraicgpt\.ie\b": "Crack Gee Pee Tee point Eye Ee",
+        r"\bcraicgpt\b": "Crack Gee Pee Tee",
+    },
+    "es": {
+        r"\bcraicgpt\.ie\b": "Crack Ge Pe Te punto Eye Ee",
+        r"\bcraicgpt\b": "Crack Ge Pe Te",
+    },
+    "it": {
+        r"\bcraicgpt\.ie\b": "Crack Gi Pi Ti punto Eye Ee",
+        r"\bcraicgpt\b": "Crack Gi Pi Ti",
+    },
+    "ja": {
+        r"\bcraicgpt\.ie\b": "クラックジーピーティー ドット アイイー",
+        r"\bcraicgpt\b": "クラックジーピーティー",
+    },
 }
 
+# Back-compat alias: the bare English map under its original name.
+PRONUNCIATIONS = PRONUNCIATIONS_BY_LANG["en"]
 
-def _phonetic(text: str) -> str:
-    for pat, repl in PRONUNCIATIONS.items():
+
+def _phonetic(text: str, language: str = "en") -> str:
+    """Apply the language's spoken-form fixes to ``text`` (falls back to the English map)."""
+    table = PRONUNCIATIONS_BY_LANG.get(language, PRONUNCIATIONS_BY_LANG["en"])
+    for pat, repl in table.items():
         text = re.sub(pat, repl, text, flags=re.IGNORECASE)
     return text
 
 
 def _post_speech(base: str, model: str, ref_audio: str, ref_text: str, text: str,
                  timeout: float = 400) -> bytes:
-    """POST one chunk to the M3 mlx-audio server and return raw WAV bytes."""
-    body = {"model": model, "input": _phonetic(text), "ref_audio": ref_audio,
+    """POST one chunk to the M3 mlx-audio server and return raw WAV bytes.
+
+    Phonetic fixes are applied by the callers (``narrate_text``/``render_podcast``), which
+    know the language — so they run identically whether the backend is the real M3 or an
+    injected test double."""
+    body = {"model": model, "input": text, "ref_audio": ref_audio,
             "ref_text": ref_text, "response_format": "wav"}
     req = urllib.request.Request(base.rstrip("/") + "/audio/speech",
                                  data=json.dumps(body).encode(),
@@ -491,11 +525,15 @@ def master_wav(wav_bytes: bytes, *, target_i: float = -16.0, target_tp: float = 
 # --------------------------------------------------------------------------- #
 def narrate_text(text: str, voice: str, *, speak: Optional[Speak] = None,
                  base_url: Optional[str] = None, model: Optional[str] = None,
-                 max_chars: int = DEF_MAX_CHARS) -> list[bytes]:
-    """Synthesise ``text`` in ``voice`` → list of WAV byte-chunks."""
+                 max_chars: int = DEF_MAX_CHARS, language: str = "en") -> list[bytes]:
+    """Synthesise ``text`` in ``voice`` → list of WAV byte-chunks.
+
+    Phonetic fixes are applied here (language-aware) before synthesis, so the same fix runs
+    whether ``speak`` is the real M3 backend or an injected test double."""
     ref_audio, ref_text = resolve_voice(voice)
     spk = speak or _default_speak(base_url, model)
-    return [spk(c, ref_audio, ref_text) for c in chunk_text(strip_markdown(text), max_chars)]
+    return [spk(_phonetic(c, language), ref_audio, ref_text)
+            for c in chunk_text(strip_markdown(text), max_chars)]
 
 
 def article_text(item: dict[str, Any]) -> str:
@@ -506,15 +544,18 @@ def article_text(item: dict[str, Any]) -> str:
 
 def narrate_article(item: dict[str, Any], *, voice: str = "graham",
                     out_dir: Optional[str] = None, speak: Optional[Speak] = None,
-                    base_url: Optional[str] = None, model: Optional[str] = None
-                    ) -> tuple[str, str]:
+                    base_url: Optional[str] = None, model: Optional[str] = None,
+                    language: str = "en") -> tuple[str, str]:
     """Narrate one article (title + standfirst + body) in ``voice``.
 
     Writes a content-addressed MP3 (or WAV without ffmpeg) to the scratch dir and
     returns ``(local_path, model_used)`` — the same shape as ``images.save_image``.
+    ``language`` selects the spoken-form fixes (the translated body already differs, so the
+    content-addressed filename is distinct per language).
     """
     text = article_text(item)
-    wavs = narrate_text(text, voice, speak=speak, base_url=base_url, model=model)
+    wavs = narrate_text(text, voice, speak=speak, base_url=base_url, model=model,
+                        language=language)
     if not wavs:
         raise ValueError("no audio produced for article")
     leveled = [_rms_normalize(w) for w in wavs]        # even out chunk-to-chunk level
@@ -595,7 +636,8 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
                    model: Optional[str] = None, gap_sec: float = DEF_GAP_SEC,
                    max_chars: int = DEF_MAX_CHARS, add_jingle: bool = True,
                    jingle_wav: Optional[bytes] = None,
-                   outro_wav: Optional[bytes] = None) -> tuple[str, str]:
+                   outro_wav: Optional[bytes] = None,
+                   language: str = "en") -> tuple[str, str]:
     """Render speaker turns ``[(voice, text), …]`` → one stitched MP3.
 
     Each turn is synthesised in its speaker's voice (unknown speaker → graham), with a
@@ -614,7 +656,8 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
         # parody key was silently read in Graham's voice within the podcast.)
         voice = who if has_clone(who) else "graham"
         ref_audio, ref_text = resolve_voice(voice)
-        wavs = [spk(c, ref_audio, ref_text) for c in chunk_text(strip_markdown(text), max_chars)]
+        wavs = [spk(_phonetic(c, language), ref_audio, ref_text)
+                for c in chunk_text(strip_markdown(text), max_chars)]
         if not wavs:
             continue
         # Level each chunk to a common target, then crossfade the seams within the turn —

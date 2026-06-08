@@ -56,7 +56,7 @@ def loads_lenient(raw: str) -> dict:
     raise ValueError(f"could not parse JSON from model output: {text[:120]!r}")
 
 
-def _default_generate(prompt: str, *, attempts: int = 3) -> dict:
+def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000) -> dict:
     """Plain chat completion on the write model, parsed leniently to a dict.
 
     Thinking mode is disabled — Qwen3.6 otherwise emits a long ``<think>`` preamble
@@ -82,7 +82,8 @@ def _default_generate(prompt: str, *, attempts: int = 3) -> dict:
             # Headroom for the AI section: ten 110-140 word shorts + headliner + subs
             # as one JSON object. Too tight a cap truncates the tail shorts (the
             # lenient parser then drops them, risking review.MIN_SHORTS). 8000 slack.
-            max_tokens=8000,
+            # Callers translating into token-dense scripts (e.g. CJK) pass a higher cap.
+            max_tokens=max_tokens,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}},
         )
         resp = llm.invoke(prompt)

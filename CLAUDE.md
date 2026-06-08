@@ -133,6 +133,33 @@ so each stage is independently retriable and the gate is idempotent.
 
 ---
 
+## Multi-lingual editions (write-once, translate-many)
+
+The paper ships daily in **`CRAICGPT_LANGUAGES`** (default `en,de,es,it,ja,fr` — the
+Qwen3-TTS-supported set, so all carry audio). **English is the single editorial source of
+truth**: it is researched, written, judged and link-checked **once**. Every other language
+is a **translation of the compiled English edition** (`generate/translate.py`), not a fresh
+generation — one extra LLM pass over the prose, preserving URLs/images/credits.
+
+- **Storage:** English stays at the existing root (`content/…`, `/index.html`); `/en/` is a
+  **CloudFront alias** to it (`infra/cloudfront/router.js`). Translations live under a real
+  `<lang>/content/…` prefix (own `versions.json`); **images are shared** (translations carry
+  the absolute English image URLs → publish skips re-upload), audio is per-language.
+- **Flow:** `run` writes the English preview, then translates + publishes a preview per
+  language; `narrate --language <l>` adds per-language audio (the voice clones are reused
+  cross-lingually; the podcast/TL;DR open with a spoken "machine-translated by `<model>`"
+  note); the gate promotes **all languages on the single English verdict** (translations are
+  faithful, not re-judged). The verdict/status control-plane stays **language-neutral**.
+- **Honesty:** translated pages carry a light footer note + a link to the English original,
+  and the audio its spoken apology — both naming `edition.translated_by` (the real model).
+- **URLs / SEO:** `/en/`, `/de/`, … path prefixes, edge auto-detect (Accept-Language → 302,
+  cookie-remembered), `hreflang` + `x-default`. The edge router is deployed via
+  `infra/cloudfront/deploy-router.sh` (AWS CLI — **not** `terraform apply`; state isn't in
+  this checkout). **Code comments stay English**; only LLM prompts, fixed podcast/UI
+  templates and the HTML `<head>` are localised.
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -145,8 +172,10 @@ so each stage is independently retriable and the gate is idempotent.
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
 | `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge); the HITL **passive-approval** (escalate → auto-publish after `CRAICGPT_HITL_PASSIVE_MINUTES`, fenced by structural validity) + the `force-publish`/`remove-and-publish`/`hold` directives |
 | `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on an **independent** local model (`qwen3-coder-next`, M3 :8087 — Qwen3-Coder-Next 80B-A3B, distinct from the writer; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
-| `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation |
+| `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation. `publish_paper(language=…)` stores translations under `<lang>/content/…` (English stays at root); each language keeps its own `versions.json` |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
+| `content_pipeline/generate/translate.py` | **Multi-lingual:** `translate_paper(paper, language)` translates a COMPILED English edition's prose into another language (reuses the writer's robust chat→JSON path), preserving URLs/images/credits/persona; stamps `edition.translated_by`; per-section English fallback on failure. Write-once, translate-many |
+| `content_pipeline/agent/i18n_html.py` | **Multi-lingual:** generates `frontend/<lang>/{index,about}.html` from the English templates (translated `<title>`/`<meta>`/`<html lang>` + hreflang + lang-prefixed nav) at deploy time |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
 | `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, `_phonetic` (craic→"crack", craicgpt.ie→spoken URL), **mastering chain** (`_rms_normalize` per-chunk leveling → `_crossfade_concat` equal-power seams → `master_wav`: de-box EQ + two-pass EBU-R128 loudness + true-peak limiter; reserved `mode='apple'` Match-EQ seam), multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
 | `content_pipeline/generate/jingle.py` | The show's **80s call-sign** sting — our own Am–F–C–G hook voiced through Apple's sampled GM instruments, bounced offline to `assets/jingle_80s_{intro,outro}.wav` (renderer in `jingle_src/`); owned, zero-copyright. The stdlib *Whiskey in the Jar* Karplus-Strong synth remains as a graceful fallback |
@@ -172,7 +201,7 @@ so each stage is independently retriable and the gate is idempotent.
   "date": "YYYY-MM-DD",
   "generated_at": "ISO8601",
   "pipeline_version": "3.0",
-  "edition": { "approved_by": null, "approved_at": null },
+  "edition": { "approved_by": null, "approved_at": null, "language": "en", "available_languages": ["en","de","es","it","ja","fr"], "translated_by": null },
   "editors_brief": { "title": "", "body": "" },
   "ai": {
     "headliner":    { "title": "", "standfirst": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_audio_model": "" },
@@ -252,6 +281,8 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `AUDIO_TTS_MODEL` (voice clone) | No | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` |
 | `GRAHAM_REF_AUDIO` / `TOM_REF_AUDIO` (M3-side ref WAVs) | No | `/Users/graz/ai-models/voice-ref/{graham,tom}/ref.wav` |
 | `ENABLE_NARRATION` | No | `true` |
+| `CRAICGPT_LANGUAGES` (multi-lingual: the daily set) | No | `en,de,es,it,ja,fr` |
+| `CRAICGPT_SOURCE_LANGUAGE` (always generated natively; the rest are translations) | No | `en` |
 | `FALLBACK_TEXT_MODEL` (local cross-box) | No | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 | `SERPER_API_KEY` | Yes (web_search) | — |
 | `MIN_AI_SOURCES` / `MIN_FUN_SOURCES` | No | `11` / `4` |
