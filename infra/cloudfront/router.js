@@ -80,9 +80,13 @@ function handler(event) {
     statusDescription: 'Found',
     headers: {
       'location': { value: target },
-      // Remember the choice so we don't re-evaluate on every subsequent visit.
-      'set-cookie': { value: 'cg_lang=' + lang + '; Path=/; Max-Age=31536000; SameSite=Lax' },
       'cache-control': { value: 'no-cache' }
+    },
+    // Remember the choice so we don't re-evaluate on every subsequent visit. NB: a raw
+    // `set-cookie` HEADER on a function-GENERATED response fails CloudFront validation
+    // (→ 503); cookies on a generated response must use this `cookies` structure.
+    cookies: {
+      'cg_lang': { value: lang, attributes: 'Path=/; Max-Age=31536000; SameSite=Lax' }
     }
   };
 }
