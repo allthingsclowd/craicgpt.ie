@@ -129,4 +129,31 @@ def test_default_generate_raises_after_exhausting_attempts(monkeypatch):
     monkeypatch.setattr(litellm_mod, "get_litellm_llm", lambda *a, **k: _LLM())
     with pytest.raises(ValueError):
         writer._default_generate("prompt", attempts=2)
-    assert calls["n"] == 2  # tried the configured number of times, then gave up
+    # 2 re-samples on the primary, THEN 2 on the cross-box fallback, before giving up.
+    assert calls["n"] == 4
+
+
+def test_default_generate_falls_back_to_other_box_on_connection_error(monkeypatch):
+    # A DGX connection drop must NOT crash the run — it falls back to FALLBACK_TEXT_MODEL
+    # on the M3 (run_with_fallback). The primary raises like a real litellm 500; the
+    # fallback box returns valid JSON.
+    from content_pipeline.generate import writer
+    from content_pipeline.providers import litellm as litellm_mod
+
+    seen = []
+
+    class _LLM:
+        def __init__(self, model):
+            self.model = model
+
+        def invoke(self, prompt):
+            seen.append(self.model)
+            if self.model == writer.content_cfg.write_model:
+                raise RuntimeError("Cannot connect to host 192.168.50.13:8003")
+            return _Resp('{"headliner": {"title": "H"}}')
+
+    monkeypatch.setattr(litellm_mod, "get_litellm_llm", lambda model, **k: _LLM(model))
+    out = writer._default_generate("prompt")
+    assert out == {"headliner": {"title": "H"}}
+    assert seen[0] == writer.content_cfg.write_model               # tried the DGX first
+    assert seen[-1] == writer.content_cfg.fallback_text_model      # then the M3 fallback

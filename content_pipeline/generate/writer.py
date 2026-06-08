@@ -69,32 +69,49 @@ def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000)
     completion (and we nudge it up on retries to vary even if the configured
     temperature is 0). This is the same fail-soft spirit as the rest of the desk.
     """
-    from content_pipeline.providers.litellm import get_litellm_llm
+    from content_pipeline.providers.litellm import get_litellm_llm, run_with_fallback
 
-    last_err: Optional[Exception] = None
-    for n in range(attempts):
-        # First try at the configured temperature; retries nudge it up so the
-        # re-sample differs even if the default were 0 (deterministic).
-        temp = None if n == 0 else max(content_cfg.temperature, 0.4) + 0.1 * n
-        llm = get_litellm_llm(
-            content_cfg.write_model,
-            temperature=temp,
-            # Headroom for the AI section: ten 110-140 word shorts + headliner + subs
-            # as one JSON object. Too tight a cap truncates the tail shorts (the
-            # lenient parser then drops them, risking review.MIN_SHORTS). 8000 slack.
-            # Callers translating into token-dense scripts (e.g. CJK) pass a higher cap.
-            max_tokens=max_tokens,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-        )
-        resp = llm.invoke(prompt)
-        text = resp.content if isinstance(resp.content, str) else str(resp.content)
-        try:
-            return loads_lenient(text)
-        except ValueError as exc:
-            last_err = exc
-            logger.warning("[writer] model JSON unparseable (attempt %d/%d, temp=%s); "
-                           "re-sampling: %s", n + 1, attempts, temp, exc)
-    raise last_err  # type: ignore[misc]  # attempts >= 1, so last_err is set
+    def _try(model: str) -> dict:
+        """Up to ``attempts`` samples on ONE model; raise on the last bad sample (or any
+        invoke error) so :func:`run_with_fallback` can cross over to the other box."""
+        last_err: Optional[Exception] = None
+        for n in range(attempts):
+            # First try at the configured temperature; retries nudge it up so the
+            # re-sample differs even if the default were 0 (deterministic).
+            temp = None if n == 0 else max(content_cfg.temperature, 0.4) + 0.1 * n
+            llm = get_litellm_llm(
+                model,
+                temperature=temp,
+                # Headroom for the AI section: ten 110-140 word shorts + headliner + subs
+                # as one JSON object. Too tight a cap truncates the tail shorts (the
+                # lenient parser then drops them, risking review.MIN_SHORTS). 8000 slack.
+                # Callers translating into token-dense scripts (e.g. CJK) pass a higher cap.
+                max_tokens=max_tokens,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            # A connection drop / 5xx here RAISES (not a ValueError) → it leaves this loop
+            # and run_with_fallback retries on the other box, instead of sinking the run.
+            resp = llm.invoke(prompt)
+            text = resp.content if isinstance(resp.content, str) else str(resp.content)
+            try:
+                return loads_lenient(text)
+            except ValueError as exc:
+                last_err = exc
+                logger.warning("[writer] %s JSON unparseable (attempt %d/%d, temp=%s); "
+                               "re-sampling: %s", model, n + 1, attempts, temp, exc)
+        raise last_err  # type: ignore[misc]  # attempts >= 1, so last_err is set
+
+    # Local-first → CROSS-BOX fallback (the project's run_with_fallback pattern): a DGX blip
+    # or outage — or exhausted re-samples — falls back to FALLBACK_TEXT_MODEL on the M3, so a
+    # transient engine drop no longer crashes a multi-minute generation. (This is what was
+    # missing: the writer used to call the DGX write_model directly, ignoring the configured
+    # backup.) translate.py / the editor's brief / About / podcast banter all inherit this.
+    result = run_with_fallback(
+        _try, local_model=content_cfg.write_model, fallback_model=content_cfg.fallback_text_model)
+    if result.fell_back:
+        logger.warning("[writer] fell back to %s (primary failed: %s)",
+                       result.model_used, result.error)
+    return result.output
 
 
 # ─────────────────────────────────────────────────────────────────────────────
