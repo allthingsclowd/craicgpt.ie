@@ -54,6 +54,7 @@ def narrate_paper(
     *,
     limit: Optional[int] = None,
     voice: str = "graham",
+    language: Optional[str] = None,
     narrate_article: Optional[Callable] = None,
     build_script: Optional[Callable] = None,
     build_tldr: Optional[Callable] = None,
@@ -80,6 +81,10 @@ def narrate_paper(
     if render_podcast is None:
         from content_pipeline.generate.audio import render_podcast as render_podcast
 
+    # The edition's language drives spoken-form fixes, localised podcast framing, and the
+    # in-language banter — an explicit override, else the paper's own edition.language.
+    lang = language or (paper.get("edition") or {}).get("language") or content_cfg.source_language
+
     # ── 1. Per-article readings (best-effort, like images) ────────────────────
     targets = _article_targets(paper)
     if limit is not None:
@@ -102,7 +107,7 @@ def narrate_paper(
             v = "graham" if desk_i % 2 == 0 else "tom"  # desk articles alternate
             desk_i += 1
         try:
-            path, model = narrate_article(item, voice=v)
+            path, model = narrate_article(item, voice=v, language=lang)
             item["audio_url"] = path
             item["_audio_voice"] = v
             item["_audio_model"] = model
@@ -111,14 +116,14 @@ def narrate_paper(
             item["audio_url"] = None
 
     # ── 2. The dad↔son podcast (banter gated before it's voiced) ──────────────
-    script = build_script(paper, limit=limit)
+    script = build_script(paper, limit=limit, language=lang)
     banter = (script.get("banter_text") or "").strip()
     verdict = grade(banter) if banter else {"verdict": "APPROVE", "reasons": [],
                                             "result": "no_banter", "judge_model": None}
 
     if verdict.get("verdict") == "APPROVE":
         try:
-            path, tts_model = render_podcast(script["turns"])
+            path, tts_model = render_podcast(script["turns"], language=lang)
             paper["podcast"] = {
                 "audio_url": path,
                 "transcript": script.get("script_text", ""),
@@ -137,11 +142,11 @@ def narrate_paper(
 
     # ── 2b. The <180s TL;DR headline bulletin (deterministic; same jingle) ────
     # No LLM banter → nothing to gate; it's independent of the main podcast's verdict.
-    tldr = build_tldr(paper, limit=limit)
+    tldr = build_tldr(paper, limit=limit, language=lang)
     paper["podcast_tldr"] = None
     if tldr and tldr.get("turns"):
         try:
-            tldr_path, tldr_tts = render_podcast(tldr["turns"])
+            tldr_path, tldr_tts = render_podcast(tldr["turns"], language=lang)
             paper["podcast_tldr"] = {
                 "audio_url": tldr_path,
                 "transcript": tldr.get("script_text", ""),

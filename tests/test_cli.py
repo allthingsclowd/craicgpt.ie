@@ -111,7 +111,7 @@ def test_cmd_narrate_enriches_and_reports(monkeypatch, capsys):
     }
     monkeypatch.setattr(
         cli, "_load_edition",
-        lambda date, source, prefix="content": {
+        lambda date, source, prefix="content", language=None: {
             "ai": {"headliner": {"title": "H"}, "subarticles": [], "shorts": []}, "fun": []})
     monkeypatch.setattr("content_pipeline.generate.narration.narrate_paper",
                         lambda paper, **kw: enriched)
@@ -143,3 +143,47 @@ def test_already_live_is_content_aware(monkeypatch):
     # Nothing live yet → not live.
     gens.update(content=None, preview="2026-06-04T11:50:00Z")
     assert cli._already_live("2026-06-04") is False
+
+
+# --- multi-lingual CLI primitives -------------------------------------------
+def test_narrate_parses_language():
+    a = build_parser().parse_args(["narrate", "--date", "2026-06-08", "--language", "de"])
+    assert a.language == "de"
+    assert build_parser().parse_args(["narrate", "--date", "2026-06-08"]).language is None
+
+
+def test_is_translation_only_for_non_source_languages():
+    from content_pipeline.agent import cli
+    assert cli._is_translation("de") is True
+    assert cli._is_translation("en") is False     # the source language stays at the root prefix
+    assert cli._is_translation(None) is False
+
+
+def test_draft_path_is_language_suffixed_for_translations():
+    from content_pipeline.agent import cli
+    assert cli._draft_path("2026-06-08") == "/tmp/paper_content_2026-06-08.json"
+    assert cli._draft_path("2026-06-08", "en") == "/tmp/paper_content_2026-06-08.json"   # source
+    assert cli._draft_path("2026-06-08", "de") == "/tmp/paper_content_2026-06-08_de.json"
+
+
+def test_load_edition_url_is_language_prefixed_for_translations(monkeypatch):
+    import httpx
+
+    from content_pipeline.agent import cli
+
+    seen = {}
+
+    class _Resp:
+        def json(self):
+            return {"ok": True}
+
+    def _get(url, **kw):
+        seen["url"] = url
+        return _Resp()
+
+    monkeypatch.setattr(httpx, "get", _get)
+    cli._load_edition("2026-06-08", None, prefix="content", language="de")
+    assert "/de/content/2026/06/08/paper_content.json" in seen["url"]
+    cli._load_edition("2026-06-08", None, prefix="content", language="en")   # source → root
+    assert seen["url"].endswith("/content/2026/06/08/paper_content.json")
+    assert "/en/content/" not in seen["url"]

@@ -22,6 +22,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Optional
 
+from content_pipeline.content_config import content_cfg
+
 
 def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -145,6 +147,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_nar.add_argument("--source", help="explicit edition JSON path/URL (default: CDN by --prefix)")
     p_nar.add_argument("--prefix", default="preview", choices=["preview", "content"],
                        help="which prefix to load the edition from (default: preview)")
+    p_nar.add_argument("--language", default=None,
+                       help="narrate a translated edition under its <lang>/ prefix "
+                            "(default: the source language at the root prefix)")
     p_nar.add_argument("--limit", type=int, default=None,
                        help="cap the number of articles narrated (for quick test runs)")
     p_nar.add_argument("--publish", action="store_true",
@@ -238,6 +243,31 @@ def cmd_run(args) -> int:
         ymd = "/".join(date_iso.split("-"))
         _notify_safe("generated", date_iso, vid=vid,
                      draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json")
+
+        # ── Multi-lingual: translate the published English preview into each other
+        #    language and publish each as its OWN preview draft, sharing the English
+        #    images (already absolute CDN URLs → publish skips re-uploading them). Each
+        #    is staged locally so the narrate step + gate can promote it. Best-effort per
+        #    language — a failure drops that language for the day; English still stands.
+        from content_pipeline.agent import review as _review
+        from content_pipeline.generate.translate import translate_paper
+
+        for lang in content_cfg.languages:
+            if lang == content_cfg.source_language:
+                continue
+            try:
+                translated = translate_paper(preview, lang)   # preview carries abs English URLs
+                vres = _review.validate_paper(translated)
+                if not vres.get("valid"):
+                    logging.warning("[cli] %s translation structurally invalid — skipped: %s",
+                                    lang, vres.get("reasons"))
+                    continue
+                tkey = publish_paper(copy.deepcopy(translated), date_iso, live=False, language=lang)
+                with open(_draft_path(date_iso, lang), "w", encoding="utf-8") as fh:
+                    json.dump(translated, fh, indent=2, ensure_ascii=False)
+                print(f"  translated draft [{lang}]: {tkey}")
+            except Exception as exc:  # noqa: BLE001 — one language failing never holds the rest
+                logging.warning("[cli] translation %s failed: %s", lang, exc)
     return 0
 
 
@@ -303,34 +333,69 @@ def _write_rubric_verdict_safe(date_iso: str, paper: dict, *, vid: Optional[str]
         logging.warning("[cli] writing rubric verdict failed: %s", exc)
 
 
-def _draft_path(date_iso: str) -> str:
-    return f"/tmp/paper_content_{date_iso}.json"
+def _is_translation(language: Optional[str]) -> bool:
+    """True for a real translation language (not the source, which stays at the root prefix
+    — English content lives at content/ and /en/ is served as a CloudFront alias)."""
+    return bool(language) and language != content_cfg.source_language
 
 
-def _load_draft(date_iso: str) -> dict:
+def _draft_path(date_iso: str, language: Optional[str] = None) -> str:
+    suffix = f"_{language}" if _is_translation(language) else ""
+    return f"/tmp/paper_content_{date_iso}{suffix}.json"
+
+
+def _load_draft(date_iso: str, language: Optional[str] = None) -> dict:
     """The locally-staged draft (preferred — it keeps local image paths so publish
-    can re-upload them) or, if absent, the published preview copy."""
-    path = _draft_path(date_iso)
+    can re-upload them) or, if absent, the published preview copy (for this language)."""
+    path = _draft_path(date_iso, language)
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
             return json.load(fh)
-    return _load_edition(date_iso, None, prefix="preview")
+    return _load_edition(date_iso, None, prefix="preview", language=language)
 
 
-def _publish_paper_live(date_iso: str, paper: dict, *, note: Optional[str] = None) -> int:
+def _publish_paper_live(date_iso: str, paper: dict, *, note: Optional[str] = None,
+                        language: Optional[str] = None) -> int:
     from content_pipeline.agent.publish import publish_paper
     from content_pipeline.compile import mark_approved
 
     paper = mark_approved(paper, approver="cli", at=_now_iso())
-    key = publish_paper(paper, date_iso, live=True)
+    key = publish_paper(paper, date_iso, live=True, language=language)
     print(f"published live{f' ({note})' if note else ''}: s3://{paper.get('_bucket', '')} {key}")
     return 0
 
 
-def _publish_live(date_iso: str, draft_path: str) -> int:
+def _publish_live(date_iso: str, draft_path: str, *, language: Optional[str] = None) -> int:
     with open(draft_path, encoding="utf-8") as fh:
         paper = json.load(fh)
-    return _publish_paper_live(date_iso, paper)
+    return _publish_paper_live(date_iso, paper, language=language)
+
+
+def _publish_translations_live(date_iso: str, *, retranslate_from: Optional[dict] = None) -> dict:
+    """Promote each translation edition to its ``<lang>/content/`` tree on the SAME English
+    verdict that authorised the source edition (translations are faithful, not re-judged).
+
+    Normally each language's narrated preview draft is promoted as-is; for remediation
+    (``retranslate_from`` set) the cleaned English edition is re-translated first, since
+    dropping a story changes counts/layout. Best-effort + ISOLATED per language: a failure
+    (or a language not generated today) is logged and skipped — it never affects the English
+    publish or the other languages."""
+    out: dict = {}
+    for lang in content_cfg.languages:
+        if lang == content_cfg.source_language:
+            continue
+        try:
+            if retranslate_from is not None:
+                from content_pipeline.generate.translate import translate_paper
+                paper = translate_paper(retranslate_from, lang)
+            else:
+                paper = _load_draft(date_iso, lang)   # narrated local draft, else preview S3 copy
+            rc = _publish_paper_live(date_iso, paper, language=lang, note=f"translation [{lang}]")
+            out[lang] = "published" if rc == 0 else "failed"
+        except Exception as exc:  # noqa: BLE001 — one language never sinks the English publish
+            logging.warning("[cli] translation %s live publish skipped: %s", lang, exc)
+            out[lang] = f"skipped: {exc}"
+    return out
 
 
 def cmd_approve(args) -> int:
@@ -347,10 +412,15 @@ def cmd_publish(args) -> int:
     return _publish_live(args.date, args.draft)
 
 
-def _load_edition(date_iso: str, source: Optional[str], prefix: str = "content") -> dict:
-    """Load an edition JSON from an explicit URL/path, or the default CDN URL."""
+def _load_edition(date_iso: str, source: Optional[str], prefix: str = "content",
+                  language: Optional[str] = None) -> dict:
+    """Load an edition JSON from an explicit URL/path, or the default CDN URL.
+
+    A translation language loads from its ``<lang>/<prefix>/…`` tree; the source language
+    (English) loads from the root ``<prefix>/…`` (its content is not language-prefixed)."""
     y, m, d = date_iso.split("-")
-    source = source or f"https://craicgpt.ie/{prefix}/{y}/{m}/{d}/paper_content.json"
+    pfx = f"{language}/{prefix}" if _is_translation(language) else prefix
+    source = source or f"https://craicgpt.ie/{pfx}/{y}/{m}/{d}/paper_content.json"
     if source.startswith("http"):
         import httpx
 
@@ -392,8 +462,9 @@ def cmd_narrate(args) -> int:
     from content_pipeline.generate.narration import narrate_paper
 
     prefix = getattr(args, "prefix", "preview") or "preview"
-    paper = _load_edition(args.date, args.source, prefix=prefix)
-    paper = narrate_paper(paper, limit=getattr(args, "limit", None))
+    language = getattr(args, "language", None)
+    paper = _load_edition(args.date, args.source, prefix=prefix, language=language)
+    paper = narrate_paper(paper, limit=getattr(args, "limit", None), language=language)
 
     ai = paper.get("ai") or {}
     arts = [ai.get("headliner"), *(ai.get("subarticles") or []),
@@ -412,7 +483,7 @@ def cmd_narrate(args) -> int:
     if getattr(args, "publish", False):
         from content_pipeline.agent.publish import publish_paper
         live = getattr(args, "live", False)
-        summary["published_key"] = publish_paper(paper, args.date, live=live)
+        summary["published_key"] = publish_paper(paper, args.date, live=live, language=language)
         summary["live"] = live
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
@@ -560,7 +631,11 @@ def _after_publish(date_iso: str, *, note: Optional[str] = None,
     out: dict = {}
     try:
         from content_pipeline.agent.frontend import sync_frontend
+        from content_pipeline.agent.i18n_html import generate_localized_pages
 
+        # Refresh the per-language HTML shells (frontend/<lang>/…) from the English
+        # templates so the sync below ships them in lockstep with the content.
+        generate_localized_pages(_frontend_dir())
         out["frontend"] = sync_frontend(_frontend_dir())["uploaded"]
     except Exception as exc:  # noqa: BLE001
         logging.warning("[cli] frontend sync after publish failed: %s", exc)
@@ -656,6 +731,8 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
         if rc == 0:
             approvers = [a for a, v in (g.get("voted") or {}).items() if v == "APPROVE"]
             g.update(_after_publish(date_iso, note=note, approvers=approvers, vid=vid))
+            # Promote the translations on the same English verdict (additive, isolated).
+            g["languages"] = _publish_translations_live(date_iso)
     elif g["action"] == "remediate-publish":
         g.update(_remediate_and_publish(date_iso, g.get("drop") or [], by=by))
     elif g["action"] == "hold":
@@ -732,6 +809,8 @@ def _remediate_and_publish(date_iso: str, drop: list, *, by: str) -> dict:
     if rc == 0:
         note = f"remediated by {by}: dropped {len(dropped)} item(s)"
         out.update(_after_publish(date_iso, note=note))
+        # Re-translate the CLEANED edition (counts/layout changed) and promote each language.
+        out["languages"] = _publish_translations_live(date_iso, retranslate_from=cleaned)
     return out
 
 

@@ -195,3 +195,10 @@ coverage.xml
 # Add any project-specific patterns here
 # Example: generated content, compiled assets, etc.
 frontend/content/
+# Per-language HTML shells — generated from the English templates by
+# content_pipeline/agent/i18n_html.py at deploy time (sync_frontend / deploy_frontend.sh).
+frontend/de/
+frontend/es/
+frontend/it/
+frontend/ja/
+frontend/fr/

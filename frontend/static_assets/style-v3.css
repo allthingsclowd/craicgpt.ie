@@ -276,3 +276,26 @@
 }
 .sticky-player .np-close:hover { opacity: 1; }
 @media (max-width: 520px) { .sticky-player .np-label { max-width: 30vw; } }
+
+/* ── Multi-lingual: masthead language switcher + translated-page note ──────── */
+.lang-switcher {
+  display: inline-flex; gap: .5rem; align-items: center; margin-left: .75rem;
+  font-family: 'Archivo', Arial, sans-serif; font-size: .72rem; letter-spacing: .04em;
+}
+.lang-switcher .lang-link {
+  color: var(--ink, #1a1a1a); opacity: .55; text-decoration: none; font-weight: 700;
+}
+.lang-switcher .lang-link:hover { opacity: 1; text-decoration: underline; }
+.lang-switcher .lang-current { color: var(--red, #B23A36); font-weight: 800; opacity: 1; }
+
+.translation-note {
+  max-width: 1100px; margin: 1.25rem auto 0; padding: .7rem 1rem;
+  border-top: 1px dashed rgba(0,0,0,.18);
+  font-family: 'Source Serif 4', Georgia, serif; font-style: italic;
+  font-size: .82rem; line-height: 1.5; color: #565650; text-align: center;
+}
+.translation-note .translation-note-link {
+  font-style: normal; font-weight: 600; color: var(--red, #B23A36);
+  white-space: nowrap; text-decoration: none;
+}
+.translation-note .translation-note-link:hover { text-decoration: underline; }

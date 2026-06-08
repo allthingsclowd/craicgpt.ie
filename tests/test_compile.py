@@ -84,3 +84,25 @@ def test_mark_approved_sets_edition_fields():
     approved = mark_approved(paper, approver="graham", at="2026-06-02T07:30:00Z")
     assert approved["edition"]["approved_by"] == "graham"
     assert approved["edition"]["approved_at"] == "2026-06-02T07:30:00Z"
+
+
+def test_build_paper_language_defaults_to_en():
+    paper = build_paper("2026-06-02", "t", ai=_ai_set(), fun=_fun_set())
+    assert paper["edition"]["language"] == "en"
+    assert paper["edition"]["available_languages"] == ["en"]
+
+
+def test_build_paper_carries_language_and_available_set():
+    paper = build_paper("2026-06-02", "t", ai=_ai_set(), fun=_fun_set(),
+                        language="de", available_languages=["en", "de", "fr"])
+    assert paper["edition"]["language"] == "de"
+    assert paper["edition"]["available_languages"] == ["en", "de", "fr"]
+
+
+def test_mark_approved_preserves_language_fields():
+    paper = build_paper("2026-06-02", "t", ai=_ai_set(), fun=_fun_set(),
+                        language="de", available_languages=["en", "de"])
+    from content_pipeline.compile import mark_approved
+    approved = mark_approved(paper, approver="graham", at="t2")
+    assert approved["edition"]["language"] == "de"
+    assert approved["edition"]["available_languages"] == ["en", "de"]

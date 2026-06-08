@@ -209,6 +209,27 @@ class ContentConfig:
         default_factory=lambda: os.getenv("CRAICGPT_IMAGE_DIR", "/tmp/craicgpt-images")
     )
 
+    # ── Internationalisation (multi-lingual editions) ─────────────────────────
+    # TUTORIAL: write-once, translate-many.
+    # ONE English edition is researched, written and judged; it is then TRANSLATED
+    # into every other language (generate/translate.py) — one extra LLM pass per
+    # language over the finished prose, NOT a fresh native generation. The FIRST
+    # entry is the SOURCE language (always English): it is generated natively, the
+    # rest are translations of it. Content is stored per-language under
+    # ``/<lang>/content/…`` and only these languages carry audio (they are the
+    # Qwen3-TTS-supported set). Env-driven so the fleet can widen/narrow the daily
+    # set with no code change — e.g. CRAICGPT_LANGUAGES="en,de,fr".
+    languages: list[str] = field(
+        default_factory=lambda: [
+            s.strip()
+            for s in os.getenv("CRAICGPT_LANGUAGES", "en,de,es,it,ja,fr").split(",")
+            if s.strip()
+        ]
+    )
+    source_language: str = field(
+        default_factory=lambda: os.getenv("CRAICGPT_SOURCE_LANGUAGE", "en")
+    )
+
     # ── Narration / audio (per-article readings + the daily dad↔son podcast) ──
     # TTS runs on the M3 mlx-audio server (Qwen3-TTS-12Hz Base, Full-ICL voice clone).
     # NB: this is a CUSTOM contract (ref_audio + ref_text), NOT the OpenAI /audio/speech

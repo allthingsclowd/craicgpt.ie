@@ -221,3 +221,48 @@ def test_preview_publish_is_not_versioned():
     publish_paper(_v3("2026-06-04T11:50:00Z"), "2026-06-04", live=False, s3=s3, bucket="b",
                   site_base_url="https://x")
     assert not any("/versions" in p["Key"] for p in s3.puts)  # preview is transient
+
+
+# ── Multi-lingual: per-language prefix + per-language versioning ──────────────
+def test_publish_language_prefixes_content_and_versions():
+    s3 = _StoreS3()
+    key = publish_paper(_v3("2026-06-08T05:00:00Z"), "2026-06-08", live=True, s3=s3,
+                        bucket="b", site_base_url="https://x", language="de")
+    assert key == "de/content/2026/06/08/paper_content.json"
+    assert "de/content/2026/06/08/versions.json" in s3.store     # per-language manifest
+    man = json.loads(s3.store["de/content/2026/06/08/versions.json"])
+    assert len(man["versions"]) == 1
+
+
+def test_publish_language_preview_prefix():
+    s3 = _StoreS3()
+    key = publish_paper(_v3("2026-06-08T05:00:00Z"), "2026-06-08", live=False, s3=s3,
+                        bucket="b", site_base_url="https://x", language="fr")
+    assert key == "fr/preview/2026/06/08/paper_content.json"
+
+
+def test_publish_language_shares_absolute_english_images():
+    """A translated edition carries the already-uploaded (absolute) English image URLs,
+    so they're NOT re-uploaded under the language prefix — images are shared."""
+    s3 = _StoreS3()
+    paper = _v3("2026-06-08T05:00:00Z")
+    paper["fun"] = [{"title": "f",
+                     "image_url": "https://craicgpt.ie/en/content/2026/06/08/images/x.png"}]
+    publish_paper(paper, "2026-06-08", live=True, s3=s3, bucket="b",
+                  site_base_url="https://x", language="de")
+    assert not [p for p in s3.puts if "/images/" in p["Key"]]    # nothing re-uploaded
+    assert paper["fun"][0]["image_url"].endswith("/en/content/2026/06/08/images/x.png")
+
+
+def test_publish_two_languages_keep_separate_manifests():
+    """Regression: same generated_at across languages must NOT collide on one manifest
+    (the old _write_edition_version hardcoded the content prefix)."""
+    s3 = _StoreS3()
+    publish_paper(_v3("2026-06-08T05:00:00Z", "EN head"), "2026-06-08", live=True, s3=s3,
+                  bucket="b", site_base_url="https://x", language="en")
+    publish_paper(_v3("2026-06-08T05:00:00Z", "DE head"), "2026-06-08", live=True, s3=s3,
+                  bucket="b", site_base_url="https://x", language="de")
+    en = json.loads(s3.store["en/content/2026/06/08/versions.json"])
+    de = json.loads(s3.store["de/content/2026/06/08/versions.json"])
+    assert en["versions"][0]["headliner"] == "EN head"
+    assert de["versions"][0]["headliner"] == "DE head"

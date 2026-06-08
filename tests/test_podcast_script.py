@@ -275,3 +275,56 @@ def test_undeployed_guest_cannot_speak_banter_falls_back_to_host(monkeypatch):
 
     res = ps.build_podcast_script(PARODY_SAMPLE, generate=_gen)
     assert not any(w == "ronald_dump" for w, _ in res["turns"])      # no clone -> guest is silent
+
+
+# --- multi-lingual: translation note, localised framing, CJK budget ----------
+def _de_paper():
+    return {**SAMPLE, "edition": {"language": "de", "source_language": "en",
+                                  "translated_by": "qwen3.6-test"}}
+
+
+def test_translated_podcast_opens_with_a_spoken_translation_note():
+    res = ps.build_podcast_script(_de_paper(), generate=lambda p: {"items": []})
+    first = res["turns"][0]
+    assert first[0] == "graham"
+    assert "qwen3.6-test" in first[1]                              # names the real model
+    assert "übersetzt" in first[1].lower()                        # the German note
+    # the cold-open follows the note, and the framing is German
+    assert any("willkommen bei craicgpt" in t.lower() for _, t in res["turns"][:3])
+    # the note is deterministic framing — NOT part of the gated banter
+    assert "übersetzt" not in res["banter_text"].lower()
+
+
+def test_english_edition_has_no_translation_note():
+    res = ps.build_podcast_script(SAMPLE, generate=_fake_generate)
+    assert "translated" not in res["turns"][0][1].lower()
+    assert "übersetzt" not in " ".join(t for _, t in res["turns"]).lower()
+
+
+def test_banter_prompt_asks_for_target_language_links():
+    captured = {}
+    ps.build_podcast_script(_de_paper(), generate=lambda p: captured.setdefault("p", p) or {"items": []})
+    assert "German" in captured["p"]                              # the LLM is told to write in German
+
+
+def test_localised_intro_uses_target_language_and_date():
+    intro = ps.build_signature_intro("2026-05-12", "de")
+    assert "Guten Morgen" in intro[0][1]
+    assert "12. Mai 2026" in intro[0][1]                          # localised date form
+
+
+def test_tldr_japanese_budgets_by_characters_and_notes_translation():
+    paper = {
+        "date": "2026-05-12", "layout": ["ai.headliner", "ai.subarticles.0"],
+        "edition": {"language": "ja", "source_language": "en", "translated_by": "qwen"},
+        "ai": {"headliner": {"title": "長い文脈", "body": "ある研究所がモデルに大きな記憶を与えた。"},
+               "subarticles": [{"title": "チップ", "body": "チップの話。"}], "shorts": []},
+        "fun": [],
+    }
+    res = ps.build_tldr_script(paper, max_seconds=180)
+    assert "翻訳" in res["turns"][0][1] and "qwen" in res["turns"][0][1]   # JA note + model
+    assert res["refs"]                                            # kept at least one headline
+    # the budget helper picks characters-per-second for CJK and counts characters, not words
+    assert ps._tldr_budget(180, "ja") == int((180 - ps.TLDR_JINGLE_SECONDS) * ps.TLDR_BUDGET_CPS)
+    assert ps._speaking_units("これはテスト", "ja") == 6            # chars, not one "word"
+    assert ps._speaking_units("two words", "en") == 2

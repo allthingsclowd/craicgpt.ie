@@ -75,6 +75,8 @@ def build_paper(
     about: Optional[dict[str, Any]] = None,
     context: Optional[dict[str, Any]] = None,
     podcast: Optional[dict[str, Any]] = None,
+    language: str = "en",
+    available_languages: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Assemble the schema-v3 paper.
 
@@ -102,7 +104,15 @@ def build_paper(
         "date": date_iso,
         "generated_at": generated_at,
         "pipeline_version": PIPELINE_VERSION,
-        "edition": {"approved_by": None, "approved_at": None},
+        # ``language`` is this edition's language; ``available_languages`` is the full
+        # set published for the day (lets the frontend offer a language switcher). The
+        # English source is built here; translations overwrite ``language`` in translate.py.
+        "edition": {
+            "approved_by": None,
+            "approved_at": None,
+            "language": language,
+            "available_languages": available_languages or [language],
+        },
         "editors_brief": editors_brief or {},
         "ai": {
             "headliner": ai.get("headliner"),

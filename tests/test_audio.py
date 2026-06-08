@@ -237,3 +237,34 @@ def test_render_podcast_unknown_or_undeployed_voice_falls_back_to_graham(tmp_pat
     audio.render_podcast([("ronald_dump", "Believe me.")], out_dir=str(tmp_path),
                          speak=_fake_speak(calls))
     assert calls[0]["ref_audio"] == content_cfg.graham_ref_audio      # safe fallback
+
+
+# --------------------------------------------------------------------------- #
+# Multi-lingual: language-aware phonetics + CJK chunking
+# --------------------------------------------------------------------------- #
+def test_phonetic_is_language_aware():
+    # English: the Irish 'craic'→'crack' rule and the spelled-out site URL both apply.
+    assert audio._phonetic("the craic was great") == "the crack was great"
+    # German: the bare 'craic'→'crack' rule is NOT applied (it would corrupt other prose);
+    # the brand URL still localises its connector ('dot'→'Punkt').
+    de = audio._phonetic("besuche craicgpt.ie morgen", "de")
+    assert "Punkt" in de and "craicgpt.ie" not in de.lower()
+    assert audio._phonetic("der craic ist gut", "de") == "der craic ist gut"   # untouched
+
+
+def test_phonetic_unknown_language_falls_back_to_english():
+    assert audio._phonetic("the craic", "xx") == "the crack"
+
+
+def test_chunk_text_splits_on_cjk_sentence_punctuation():
+    # A long spaceless Japanese paragraph splits on 。 sentence breaks (not one giant chunk).
+    para = "これはテストです。" * 100
+    chunks = audio.chunk_text(para, max_chars=80)
+    assert len(chunks) > 1
+    assert all(len(c) <= 80 for c in chunks)
+
+
+def test_narrate_text_applies_language_phonetics_before_speak():
+    calls = []
+    audio.narrate_text("Visit craicgpt.ie", "graham", speak=_fake_speak(calls), language="de")
+    assert "Punkt" in calls[0]["text"]               # German URL readout reaches the synth call

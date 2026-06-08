@@ -3,6 +3,18 @@
 # File: terraform/frontend/modules/cloudfront/main.tf
 # Version: 0.0.9
 # Purpose: Defines AWS CloudFront distribution resources for the CloudFront submodule.
+#
+# ┌─ MULTI-LINGUAL EDGE ROUTER — NOT APPLIED FROM THIS CHECKOUT ──────────────┐
+# │ The /en/, /de/, … language routing is enacted via the AWS CLI, NOT here:  │
+# │ this module's state is not in this checkout, so a `terraform apply` would  │
+# │ try to RE-CREATE the live stack. The equivalent change — an                │
+# │ aws_cloudfront_function (viewer-request) from infra/cloudfront/router.js   │
+# │ associated on default_cache_behavior, plus ordered behaviors for           │
+# │ /static_assets/*, */content/*, /favicon.ico WITHOUT the function — lives    │
+# │ in infra/cloudfront/ (router.js + deploy-router.sh + README.md). Reconcile  │
+# │ / `terraform import` it here from wherever the live state is held before    │
+# │ any future apply. Do NOT add the resources below until then.                │
+# └────────────────────────────────────────────────────────────────────────────┘
 
 terraform {
   required_providers {
