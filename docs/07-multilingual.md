@@ -85,3 +85,67 @@ python -m content_pipeline.agent.cli narrate --date 2026-06-08 --language de --p
 # regenerate the per-language HTML shells from the English templates
 python -m content_pipeline.agent.i18n_html frontend
 ```
+
+## Deploying & operating it
+
+The translation pipeline rides the existing engine deploy — `git -C /opt/craicgpt.ie pull` on
+`.75`, no restart (each task is a fresh subprocess). Three things are new enough to trip you up.
+
+### 1. The edge router is deployed with the AWS CLI, not `terraform apply`
+
+The `/en/`, `/de/`, … routing is a **CloudFront Function**, and it's enacted imperatively:
+
+```bash
+cd infra/cloudfront
+./deploy-router.sh                                   # build + publish the function (safe)
+DIST_ID=E1DJEM9WBUG1C1 ./deploy-router.sh --attach   # wire it onto the default behavior
+```
+
+Why not Terraform? `terraform/frontend` declares **no backend** → local state, and that state
+**isn't in this checkout** (the live stack was applied from another host). A `terraform apply`
+from here would see an empty state and try to **re-create** the live S3/CloudFront/ACM/Route53.
+So the change is enacted against the live distribution here; `modules/cloudfront/main.tf`
+carries the equivalent as a clearly-labelled **NOT-APPLIED** note to reconcile/`import` later.
+
+Two auth notes that cost real time if missed:
+- **The put-only `craicgpt-publish` IAM can't `CreateFunction`** — `deploy-router.sh` uses the
+  **admin** account (creds pulled inline from 1Password, never printed). The pipeline role did
+  gain an inline `craicgpt-router-mgmt` policy (CloudFront function lifecycle + get/update the
+  one distribution `E1DJEM9WBUG1C1`) so it can manage the router for ongoing lifecycle.
+- **The 503-cookie trap:** a raw `set-cookie` *header* on a function-**generated** response
+  fails CloudFront validation and the redirect 503s. The fix — already in `router.js` — is the
+  response **`cookies`** structure (`{cookies:{cg_lang:{value,attributes}}}`). If you ever hand-
+  edit the router and the `/` → `/en/` redirect starts 503ing, this is why.
+
+Verify after deploy: `curl -sI https://craicgpt.ie/ | grep -i location` → `/en/` (or detected lang).
+
+### 2. Two worker services on `.75` — restart the *right* one
+
+This is the highest-cost operational gotcha and it isn't multilingual-specific, but you'll meet
+it the first time you change anything in `grazlab-llm-fleet`. There are **two** Conductor worker
+units on `.75`:
+
+- **`grazlab-fleet-worker-conductor.service`** (`python -m conductor.workers.fleet_worker`, from
+  `/home/ubuntu/grazlab-llm-fleet`) runs the **craicgpt** tasks
+  (`craicgpt_generate_daily`, `craicgpt_narrate`, `craicgpt_publish_gate`).
+- `conductor-workers.service` (`/opt/conductor-workers/workers.py`) runs the **vault-provision**
+  worker — proxmox/vault tasks, **nothing craicgpt**.
+
+So: **engine** code (this repo, which the task shells out to) is `git -C /opt/craicgpt.ie pull`
+with no restart; but **fleet worker** code (the task wrappers themselves) needs
+`git -C /home/ubuntu/grazlab-llm-fleet pull` **and**
+`sudo systemctl restart grazlab-fleet-worker-conductor.service` — the running process holds the
+old code in memory until restarted. Restarting `conductor-workers.service` does nothing for
+craicgpt. Task-defs/workflows are (re)registered with
+`CONDUCTOR_URL=http://192.168.50.75:8080/api python3 conductor/register-workflow.py`
+(Conductor API on `:8080`, UI on `:5000`).
+
+### 3. The writer now crosses boxes on a transient failure
+
+A multilingual run is *long* — English plus five translations plus narration is many minutes of
+back-to-back model calls, so a single blip used to be expensive. `writer._default_generate` now
+wraps generation in `run_with_fallback(local=write_model` (DGX)`, fallback=FALLBACK_TEXT_MODEL`
+(M3)`)`: a transient DGX connection drop **crosses to the M3** instead of crashing the run, and
+the published `_text_model` still records which box actually answered (honest attribution).
+Because `translate.py`, the editor's brief, the About page and the podcast banter all route
+through `_default_generate`, they inherit the resilience for free — no extra wiring per caller.

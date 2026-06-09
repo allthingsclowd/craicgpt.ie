@@ -99,31 +99,48 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │
    ├─ 5. COMPILE (compile.py, schema v3)
    │
-   └─ 6. JUDGE (in-pipeline, rubric_review.grade_edition) — a deepagents
-          RubricMiddleware grades the FINISHED edition (harmless/on-brand/attributed)
-          on an INDEPENDENT local model (qwen3-coder-next, M3 :8087 — distinct from the writer; frontier fallback).
-          Verdict → paper["edition"]["rubric"]; cli publishes the draft + images +
-          verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
-          old decoupled two-VM openclaw+hermes review.)
+   ├─ 6. JUDGE (in-pipeline, rubric_review.grade_edition) — a deepagents
+   │      RubricMiddleware grades the FINISHED edition (harmless/on-brand/attributed)
+   │      on an INDEPENDENT local model (qwen3-coder-next, M3 :8087 — distinct from the writer; frontier fallback).
+   │      Verdict → paper["edition"]["rubric"]; cli publishes the EN draft + images +
+   │      verdict-rubric.json to S3 preview/.  (This in-pipeline rubric REPLACED the
+   │      old decoupled two-VM openclaw+hermes review.)  ← English is judged ONCE.
+   │
+   └─ 7. TRANSLATE-MANY (deterministic) — for each other lang in CRAICGPT_LANGUAGES
+          (default en,de,es,it,ja,fr): generate/translate.py translate_paper() turns the
+          COMPILED English edition into <lang> (prose only — URLs/images/credits/persona
+          kept verbatim; stamps edition.translated_by), structural-validate, publish a
+          <lang>/ preview draft. NOT re-researched, NOT re-judged — the translations
+          inherit the single English verdict. Images are SHARED (translations carry the
+          absolute English image URLs → publish skips re-upload).
    ▼
-Narrate (AFTER validation) — cli narrate (Conductor task craicgpt_narrate, LIVE in the v2
-   daily workflow): per-article readings with Graham & Tom ALTERNATING + the dad↔son podcast
+Narrate EVERY language (AFTER validation) — cli narrate --language <l> (Conductor task
+   craicgpt_narrate): per-article readings with Graham & Tom ALTERNATING + the dad↔son podcast
    (verbatim readings + transitional "discussion" banter GATED by the deepagents rubric) + a
    deterministic <180s TL;DR headline bulletin — all topped & tailed by our own 80s call-sign
-   jingle (Apple sampled instruments, bounced offline; generate/jingle.py). Parody items read
-   in their OWN voice clone when deployed (else a spoken character intro). Adds audio_url per item + paper["podcast"] +
+   jingle (Apple sampled instruments, bounced offline; generate/jingle.py). Voice clones are
+   REUSED cross-lingually; a translated edition's podcast/TL;DR open with a spoken
+   "machine-translated by <model>" note. Parody items read in their OWN voice clone when
+   deployed (else a spoken character intro). Adds audio_url per item + paper["podcast"] +
    paper["podcast_tldr"]. Runs on .75 or the M3 (M3 mlx-audio TTS clone), never the laptop.
    ▼
 Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli gate:
    the single rubric APPROVE verdict + host structural validation + MANDATORY browser-UA
-   link-check → promote to content/ live + CloudFront invalidation + frontend sync. A
-   JUDGEMENT hold (rubric HOLD, structurally valid) escalates to Graham on Telegram and, if
-   no human directive lands within CRAICGPT_HITL_PASSIVE_MINUTES (default 60), is PASSIVELY
-   approved (published) — fenced so a structurally-broken edition is never auto-published.
-   Editions are VERSIONED: content/<date>/paper_content.json (latest) +
-   versions/<vid>.json + versions.json (multi-apply — several editions per day).
+   link-check → promote EN to content/ live, then promote ALL OTHER LANGUAGES on the SAME
+   English verdict (_publish_translations_live — additive + isolated; one language failing
+   never sinks English) + CloudFront invalidation + frontend sync. The verdict/status
+   control-plane is language-neutral. A JUDGEMENT hold (rubric HOLD, structurally valid)
+   escalates to Graham on Telegram and, if no human directive lands within
+   CRAICGPT_HITL_PASSIVE_MINUTES (default 60), is PASSIVELY approved (published) — fenced so
+   a structurally-broken edition is never auto-published. Editions are VERSIONED per language:
+   <lang>/content/<date>/paper_content.json (latest) + versions/<vid>.json + versions.json.
    ▼
-S3 + CloudFront → craicgpt.ie  (static HTML/JS fetches paper_content.json)
+S3 + CloudFront (edge language router) → craicgpt.ie
+   English lives at the S3 ROOT (content/…, /index.html); /en/ is a CloudFront ALIAS to it.
+   Translations live under a real <lang>/content/… prefix. The CloudFront Function
+   (infra/cloudfront/router.js) auto-detects language on a prefix-less request
+   (cg_lang cookie → Accept-Language → en) and 302s to /<lang>/, aliases /en/* → /*, and
+   rewrites /<lang>/ → /<lang>/index.html. Browser fetches /<lang>/…/paper_content.json.
 ```
 
 Generation now **judges itself in-pipeline** (the rubric is the last build step), so
@@ -143,20 +160,35 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 
 - **Storage:** English stays at the existing root (`content/…`, `/index.html`); `/en/` is a
   **CloudFront alias** to it (`infra/cloudfront/router.js`). Translations live under a real
-  `<lang>/content/…` prefix (own `versions.json`); **images are shared** (translations carry
-  the absolute English image URLs → publish skips re-upload), audio is per-language.
+  `<lang>/content/…` prefix with their **own `versions.json`** (`publish._prefix_for` +
+  `_write_edition_version(language=…)` — a versioning prefix-collision fix made per-language
+  manifests work). **Images are shared** (translations carry the absolute English image URLs
+  → `publish._is_local_path` skips re-upload), audio is per-language. New `edition` fields:
+  `language`, `available_languages`, `translated_by`.
 - **Flow:** `run` writes the English preview, then translates + publishes a preview per
   language; `narrate --language <l>` adds per-language audio (the voice clones are reused
   cross-lingually; the podcast/TL;DR open with a spoken "machine-translated by `<model>`"
-  note); the gate promotes **all languages on the single English verdict** (translations are
-  faithful, not re-judged). The verdict/status control-plane stays **language-neutral**.
+  note); the gate promotes English live, then **all other languages on the single English
+  verdict** (`_publish_translations_live` — additive + isolated; a language failing never
+  sinks English). Translations are faithful, not re-judged. The verdict/status control-plane
+  stays **language-neutral**.
 - **Honesty:** translated pages carry a light footer note + a link to the English original,
   and the audio its spoken apology — both naming `edition.translated_by` (the real model).
-- **URLs / SEO:** `/en/`, `/de/`, … path prefixes, edge auto-detect (Accept-Language → 302,
-  cookie-remembered), `hreflang` + `x-default`. The edge router is deployed via
-  `infra/cloudfront/deploy-router.sh` (AWS CLI — **not** `terraform apply`; state isn't in
-  this checkout). **Code comments stay English**; only LLM prompts, fixed podcast/UI
-  templates and the HTML `<head>` are localised.
+- **URLs / SEO:** `/en/`, `/de/`, … path prefixes, edge auto-detect (cg_lang cookie →
+  Accept-Language → 302), `hreflang` + `x-default`. The CloudFront **Function**
+  (`infra/cloudfront/router.js`, viewer-request) does it: 302 a prefix-less request to
+  `/<lang>/`, alias `/en/*`→`/*`, rewrite `/<lang>/`→`…/index.html` (OAC→S3 REST origin
+  needs this), pass assets/content/media through. Cost ≈ €0 ($0.10/1M, 2M/mo free).
+  - **GOTCHA (cost real time):** a raw `set-cookie` HEADER on a function-GENERATED response
+    fails CloudFront validation → the redirect **503**s. The fix in `router.js` is the
+    response **`cookies`** structure (`{cookies:{cg_lang:{value,attributes}}}`), not a header.
+  - **Deployed via AWS CLI, NOT `terraform apply`** (`infra/cloudfront/deploy-router.sh`):
+    `terraform/frontend` has no backend → local state, and that state isn't in this checkout,
+    so an apply would re-create the live stack. The `.tf` carries the change as a labelled
+    NOT-APPLIED note. The put-only `craicgpt-publish` IAM **can't** `CreateFunction` — the
+    router deploy uses the **admin** account; see Deployment below.
+  - **Code comments stay English**; only LLM prompts, fixed podcast/UI templates and the HTML
+    `<head>` are localised.
 
 ---
 
@@ -173,14 +205,14 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge); the HITL **passive-approval** (escalate → auto-publish after `CRAICGPT_HITL_PASSIVE_MINUTES`, fenced by structural validity) + the `force-publish`/`remove-and-publish`/`hold` directives |
 | `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on an **independent** local model (`qwen3-coder-next`, M3 :8087 — Qwen3-Coder-Next 80B-A3B, distinct from the writer; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation. `publish_paper(language=…)` stores translations under `<lang>/content/…` (English stays at root); each language keeps its own `versions.json` |
-| `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page) |
+| `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page). `_default_generate` now wraps generation in `run_with_fallback(local=write_model DGX, fallback=FALLBACK_TEXT_MODEL M3)` — a transient DGX connection drop crosses to the M3 instead of crashing a multi-minute run; translate/brief/about/banter inherit it |
 | `content_pipeline/generate/translate.py` | **Multi-lingual:** `translate_paper(paper, language)` translates a COMPILED English edition's prose into another language (reuses the writer's robust chat→JSON path), preserving URLs/images/credits/persona; stamps `edition.translated_by`; per-section English fallback on failure. Write-once, translate-many |
 | `content_pipeline/agent/i18n_html.py` | **Multi-lingual:** generates `frontend/<lang>/{index,about}.html` from the English templates (translated `<title>`/`<meta>`/`<html lang>` + hreflang + lang-prefixed nav) at deploy time |
 | `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
-| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, `_phonetic` (craic→"crack", craicgpt.ie→spoken URL), **mastering chain** (`_rms_normalize` per-chunk leveling → `_crossfade_concat` equal-power seams → `master_wav`: de-box EQ + two-pass EBU-R128 loudness + true-peak limiter; reserved `mode='apple'` Match-EQ seam), multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
+| `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, **per-language** `_phonetic` (the English craic→"crack" / spoken-URL rules must not touch other prose; falls back to the English map) + `chunk_text` splits on CJK sentence punctuation (`。！？`), **mastering chain** (`_rms_normalize` per-chunk leveling → `_crossfade_concat` equal-power seams → `master_wav`: de-box EQ + two-pass EBU-R128 loudness + true-peak limiter; reserved `mode='apple'` Match-EQ seam), multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
 | `content_pipeline/generate/jingle.py` | The show's **80s call-sign** sting — our own Am–F–C–G hook voiced through Apple's sampled GM instruments, bounced offline to `assets/jingle_80s_{intro,outro}.wav` (renderer in `jingle_src/`); owned, zero-copyright. The stdlib *Whiskey in the Jar* Karplus-Strong synth remains as a graceful fallback |
-| `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script, **one clip per article** (each reader's `pre` link + verbatim reading + `post` hand-off-by-name in ONE TTS piece → far fewer transition seams): clean two-host cold-open (Graham + date, Tom breaks in) + ALTERNATING reads (Graham/Tom) + parody guests framed by FIXED `GUEST_WELCOME`/`GUEST_ACK`/`GUEST_SIGNOFF` templates (seniority host welcomes; guest reads in own voice) + only the host links are gated + Tom's minimal slang (`build_podcast_script`); plus the deterministic **<180s** `build_tldr_script` headline bulletin |
-| `content_pipeline/generate/narration.py` | `narrate_paper` — the narration step: per-article audio (best-effort, alternating voices) + the rubric-gated podcast + the deterministic TL;DR bulletin + trace events |
+| `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script, **one clip per article** (each reader's `pre` link + verbatim reading + `post` hand-off-by-name in ONE TTS piece → far fewer transition seams): clean two-host cold-open (Graham + date, Tom breaks in) + ALTERNATING reads (Graham/Tom) + parody guests framed by FIXED `GUEST_WELCOME`/`GUEST_ACK`/`GUEST_SIGNOFF` templates (seniority host welcomes; guest reads in own voice) + only the host links are gated + Tom's minimal slang (`build_podcast_script`); plus the deterministic **<180s** `build_tldr_script` headline bulletin. **Multi-lingual:** the fixed framing (`_L10N`) + the date phrase are localised per language; a translated edition opens with `translation_preamble` (the spoken "machine-translated by `<model>`" note naming `edition.translated_by`); the TL;DR budget counts **characters** for spaceless CJK (`_CJK_LANGS`) instead of words |
+| `content_pipeline/generate/narration.py` | `narrate_paper(paper, language=…)` — the narration step: per-article audio (best-effort, alternating voices) + the rubric-gated podcast + the deterministic TL;DR bulletin + trace events. **Loops every language** (driven by `language` or `edition.language`); voice clones are reused cross-lingually; the banter is generated **and** rubric-gated per language |
 | `content_pipeline/generate/personas.py` | Parody-journalist roster (assigned day-stable to each fun item) + satire disclaimer + `persona_voice_key` (persona → voice-clone key the narrator resolves) + podcast hand-off helpers (`PERSONA_SENIORITY` / `introducer_for` — younger→Tom, older→Graham — and `real_name` to decode the punny byline) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
 | `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest (AI feeds; Irish-creator YouTube feeds) |
@@ -189,8 +221,9 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/providers/litellm.py` | `get_litellm_llm` (ChatOpenAI → LiteLLM proxy) + `run_with_fallback` (local-first→frontier) |
 | `content_pipeline/content_config.py` | All config from env vars; singleton `content_cfg` |
 | `content_pipeline/notifications.py` | Telegram lifecycle alerts (generated / published / HELD) to both agents' channels |
-| `frontend/index.html` + `static_assets/{style.css,main.js}` | Tabloid layout, version picker, "Under the Hood" drawer |
-| `terraform/frontend/` | IaC for S3, CloudFront, ACM, Route53 |
+| `frontend/index.html` + `static_assets/{style.css,main.js}` | Tabloid layout, version picker, "Under the Hood" drawer. `main.js` is **i18n**: reads the language from the path (`/<lang>/`), fetches `/<lang>/content/…`, renders the masthead **language switcher** (sets the `cg_lang` cookie) + the translated-page footer note |
+| `infra/cloudfront/router.js` + `deploy-router.sh` + `README.md` | **NEW edge language router.** CloudFront **Function** (viewer-request): auto-detect lang on a prefix-less request (cookie→Accept-Language→en, **302**) + alias `/en/*`→`/*` + rewrite `/<lang>/`→`…/index.html`. Carries the **503-cookie gotcha** fix (use the `cookies` structure, not a `set-cookie` header). `deploy-router.sh` ships it via **AWS CLI** (admin creds — the put-only IAM can't `CreateFunction`), **not** `terraform apply` |
+| `terraform/frontend/` | IaC for S3, CloudFront, ACM, Route53. The language router is **NOT applied from here** (no backend → local state not in this checkout); `modules/cloudfront/main.tf` carries it as a labelled NOT-APPLIED note — the live router is the AWS-CLI deploy above |
 
 ---
 
@@ -305,17 +338,62 @@ over **public HTTPS** — so the deploy is just:
 git -C /opt/craicgpt.ie pull          # <-- this IS the deploy; the worker shells out per task
 ```
 
-No service restart is needed for engine code (the Conductor worker spawns a fresh
-`python -m content_pipeline.agent.cli …` per task). The autonomous schedule
-(`craicgpt_daily_0500` @05:00 generate-and-judge, `craicgpt_publish_gate_poll` @06–08,
-UTC) does the rest — the rubric judge now runs **in-pipeline** at generation time, so
-the old agent-VM `craicgpt-review.timer` is retired. See the grazlab-llm-fleet repo for
-the Conductor workflows/triggers and the worker (`conductor/workers/craicgpt/worker.py`).
+No service restart is needed for **engine code** (the Conductor worker spawns a fresh
+`python -m content_pipeline.agent.cli …` per task — it picks up the new checkout each run).
+The autonomous schedule (`craicgpt_daily_0500` @05:00 generate-and-judge,
+`craicgpt_publish_gate_poll` @06–08, UTC) does the rest — the rubric judge now runs
+**in-pipeline** at generation time, so the old agent-VM `craicgpt-review.timer` is retired.
+The daily workflow `craicgpt_daily_content` (v3) chains **generate → narrate → gate**.
+
+### CRITICAL GOTCHA — two SEPARATE worker services on `.75` (this cost real debugging time)
+
+There are **two** Conductor worker systemd units on `.75`. They are NOT interchangeable:
+
+| Service | Runs | Owns | Code lives at |
+|---------|------|------|---------------|
+| **`grazlab-fleet-worker-conductor.service`** | `python -m conductor.workers.fleet_worker` | the **craicgpt** tasks: `craicgpt_generate_daily`, `craicgpt_narrate`, `craicgpt_publish_gate` | `/home/ubuntu/grazlab-llm-fleet` |
+| `conductor-workers.service` | `/opt/conductor-workers/workers.py` | the **vault-provision** worker (proxmox / vault tasks) — **no craicgpt** | `/opt/conductor-workers/` |
+
+- **Engine code** (this repo, what the craicgpt task *shells out to*): `git -C /opt/craicgpt.ie pull` — no restart (a fresh subprocess per task).
+- **Fleet worker code** (the task wrappers / shell-outs themselves, in `grazlab-llm-fleet`):
+  the running `fleet_worker` process **holds the old code in memory** until restarted, so a
+  change there is `git -C /home/ubuntu/grazlab-llm-fleet pull` **+**
+  `sudo systemctl restart grazlab-fleet-worker-conductor.service`. Restarting
+  `conductor-workers.service` does **nothing** for craicgpt — it's the wrong service.
+- **Task-defs / workflows** are (re)registered with
+  `CONDUCTOR_URL=http://192.168.50.75:8080/api python3 conductor/register-workflow.py`
+  (in `grazlab-llm-fleet`). Conductor **API :8080**, **UI :5000**.
+
+### The CloudFront language router (deploy via AWS CLI, not Terraform)
+
+The `/en/`, `/de/`, … edge router (`infra/cloudfront/router.js`) is deployed **imperatively**:
+
+```bash
+# on a box with the ADMIN AWS account (creds pulled inline from 1Password — never printed).
+cd infra/cloudfront
+./deploy-router.sh                                   # build + publish the function (safe)
+DIST_ID=E1DJEM9WBUG1C1 ./deploy-router.sh --attach   # also wire it onto the default behavior
+```
+
+- **NOT `terraform apply`:** `terraform/frontend` has no backend → local state, and that
+  state isn't in this checkout → an apply would re-create the live stack. The `.tf`
+  (`modules/cloudfront/main.tf`) carries the change as a labelled **NOT-APPLIED** note.
+- **IAM:** the put-only `craicgpt-publish` user **can't** `CreateFunction`, so the deploy
+  uses the **admin** account. The pipeline role itself got an added inline policy
+  **`craicgpt-router-mgmt`** (CloudFront function lifecycle + get/update the specific
+  distribution `E1DJEM9WBUG1C1`) so it can manage the router for invalidations/lifecycle.
+- The **503-cookie gotcha** (raw `set-cookie` header on a generated response → CloudFront
+  validation failure) is already fixed in `router.js` (the `cookies` structure). Verify with
+  `curl -sI https://craicgpt.ie/ | grep -i location` → `/en/` (or the detected language).
 
 **Frontend:** `aws s3 sync frontend/ s3://craicgpt-ie-production/ --delete` (the publish
 gate also syncs `frontend/` after each live publish so the shell never lags the content).
+The per-language HTML shells (`frontend/<lang>/{index,about}.html`) are (re)generated from the
+English templates by `python -m content_pipeline.agent.i18n_html frontend` before the sync.
 
-**Infrastructure:** `cd terraform/frontend && terraform init && terraform plan && terraform apply`.
+**Infrastructure:** `cd terraform/frontend && terraform init && terraform plan && terraform apply`
+— **but mind the local-state caveat above**; the live stack was applied from another host, so
+this checkout has no state for it and the language router is deployed by the AWS-CLI script, not here.
 
 ---
 
@@ -328,3 +406,5 @@ See `docs/` for the deep-agent tutorial (rewritten for v3):
 3. `docs/03-langgraph-workflow.md` — `create_deep_agent`, the research/write harness, HITL & trace
 4. `docs/04-multi-provider-setup.md` — One LiteLLM proxy, the grazlab fleet, `run_with_fallback`
 5. `docs/05-tools-and-agents.md` — `@tool`, deepagents `SubAgent` delegation, deterministic-vs-LLM
+6. `docs/06-narration-and-audio.md` — the narration pass: deterministic TTS + the rubric-gated podcast
+7. `docs/07-multilingual.md` — write-once translate-many, the CloudFront language router, deploy & ops
