@@ -87,21 +87,27 @@ def test_publish_uploads_ai_lead_images_too(tmp_path):
 
 
 def test_publish_uploads_local_audio_and_rewrites_url(tmp_path):
-    """Per-article readings (incl. shorts) + the podcast audio upload under
-    <prefix>/audio/ and get rewritten to public CDN URLs, mirroring images."""
+    """Per-article readings (incl. shorts) + the Editor-in-Chief sections (the Editor's
+    Brief + the About page) + the podcast all upload under <prefix>/audio/ and get
+    rewritten to public CDN URLs, mirroring images. The brief/about are listenable too,
+    so an un-uploaded local path on them would render a dead "Listen" button."""
+    a_brief = tmp_path / "graham-brief.mp3"; a_brief.write_bytes(b"ID3 brief")
     a_head = tmp_path / "graham-head.mp3"; a_head.write_bytes(b"ID3 head")
     a_short = tmp_path / "graham-short.mp3"; a_short.write_bytes(b"ID3 short")
     a_fun = tmp_path / "graham-fun.mp3"; a_fun.write_bytes(b"ID3 fun")
+    a_about = tmp_path / "graham-about.mp3"; a_about.write_bytes(b"ID3 about")
     a_pod = tmp_path / "podcast.mp3"; a_pod.write_bytes(b"ID3 pod")
     a_tldr = tmp_path / "tldr.mp3"; a_tldr.write_bytes(b"ID3 tldr")
     paper = {
         "date": "2026-06-02",
+        "editors_brief": {"title": "Brief", "body": "b", "audio_url": str(a_brief)},
         "ai": {
             "headliner": {"title": "H", "audio_url": str(a_head)},
             "subarticles": [],
             "shorts": [{"title": "S", "audio_url": str(a_short)}],
         },
         "fun": [{"title": "f0", "audio_url": str(a_fun)}],
+        "about": {"title": "About", "body": "b", "audio_url": str(a_about)},
         "podcast": {"audio_url": str(a_pod), "transcript": "..."},
         "podcast_tldr": {"audio_url": str(a_tldr), "transcript": "..."},
         "layout": [], "context": {},
@@ -110,12 +116,14 @@ def test_publish_uploads_local_audio_and_rewrites_url(tmp_path):
     publish_paper(paper, "2026-06-02", live=True, s3=s3, bucket="b",
                   site_base_url="https://craicgpt.ie")
     aud_puts = [p for p in s3.puts if "/audio/" in p["Key"]]
-    assert len(aud_puts) == 5, "headliner + short + fun + podcast + TL;DR audio must upload"
+    assert len(aud_puts) == 7, "brief + headliner + short + fun + about + podcast + TL;DR audio must upload"
     assert all(p["ContentType"] == "audio/mpeg" for p in aud_puts)
     pub = "https://craicgpt.ie/content/2026/06/02/audio/"
+    assert paper["editors_brief"]["audio_url"].startswith(pub)
     assert paper["ai"]["headliner"]["audio_url"].startswith(pub)
     assert paper["ai"]["shorts"][0]["audio_url"].startswith(pub)
     assert paper["fun"][0]["audio_url"].startswith(pub)
+    assert paper["about"]["audio_url"].startswith(pub)
     assert paper["podcast"]["audio_url"].startswith(pub)
     assert paper["podcast_tldr"]["audio_url"].startswith(pub)
 
