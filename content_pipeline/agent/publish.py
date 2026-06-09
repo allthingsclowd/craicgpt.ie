@@ -183,9 +183,12 @@ def publish_paper(
     # 1b) Upload any locally-generated audio (per-article readings + the daily podcast +
     #     the TL;DR bulletin) and rewrite their URLs to the CDN — same pattern as images.
     #     NB: shorts carry audio (they have no image); the podcast lives at
-    #     paper["podcast"] and the headline bulletin at paper["podcast_tldr"].
-    audio_items = [ai.get("headliner"), *(ai.get("subarticles") or []),
-                   *(ai.get("shorts") or []), *(paper.get("fun") or []),
+    #     paper["podcast"] and the headline bulletin at paper["podcast_tldr"]. The
+    #     Editor-in-Chief sections (the Editor's Brief and the About page) are narrated
+    #     too — include them or their "Listen" button points at an un-uploaded local path.
+    audio_items = [paper.get("editors_brief"), ai.get("headliner"),
+                   *(ai.get("subarticles") or []), *(ai.get("shorts") or []),
+                   *(paper.get("fun") or []), paper.get("about"),
                    paper.get("podcast"), paper.get("podcast_tldr")]
     for item in audio_items:
         if not item:
