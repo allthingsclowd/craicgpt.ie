@@ -37,6 +37,10 @@ const LANG = (() => {
   return KNOWN_LANGS.includes(seg) ? seg : SOURCE_LANG;
 })();
 const LOCALES = { en: 'en-IE', de: 'de-DE', es: 'es-ES', it: 'it-IT', ja: 'ja-JP', fr: 'fr-FR' };
+// Endonyms (each language's own name) + the flag file it shows in the switcher. English maps
+// to the Irish tricolour: this is Ireland's paper and English is the source edition.
+const LANG_NAMES = { en: 'English', de: 'Deutsch', es: 'Español', it: 'Italiano', ja: '日本語', fr: 'Français' };
+const LANG_FLAG  = { en: 'ie', de: 'de', es: 'es', it: 'it', ja: 'jp', fr: 'fr' };
 
 // UI-chrome strings per language (English is the fallback). Article CONTENT is translated
 // server-side and arrives in paper_content.json; this table only covers the shell.
@@ -273,24 +277,67 @@ function renderTranslationNote(data) {
   else document.body.append(note);
 }
 
-/** The masthead language switcher — one link per language, preserving the current edition
- *  date/preview flag, and setting the cg_lang cookie so the edge detector honours the choice. */
+/** A small HD flag (SVG) for a language — decorative: the adjacent code/name is the real label. */
+function flagImg(lang) {
+  const img = document.createElement('img');
+  img.className = 'lang-flag';
+  img.src = `/static_assets/flags/${LANG_FLAG[lang] || 'ie'}.svg`;
+  img.alt = ''; img.setAttribute('aria-hidden', 'true');
+  img.width = 21; img.height = 14; img.loading = 'lazy';
+  return img;
+}
+
+/** The masthead language switcher — a compact flag dropdown: the current language's flag + code,
+ *  opening a menu of the rest. Each choice preserves the edition date/preview flag (langHref) and
+ *  sets the cg_lang cookie so the CloudFront edge detector honours the override. Smaller than the
+ *  old "EN DE ES…" text row and instantly recognisable; SVG flags (emoji flags fail on Windows). */
 function renderLangSwitcher() {
   const strip = document.querySelector('.masthead-top-strip');
   if (!strip || el('lang-switcher')) return;
-  const nav = node('nav', 'lang-switcher'); nav.id = 'lang-switcher';
-  nav.setAttribute('aria-label', 'Language');
+  const wrap = node('div', 'lang-switcher'); wrap.id = 'lang-switcher';
+
+  // Trigger: current flag + code + caret.
+  const btn = node('button', 'lang-trigger'); btn.type = 'button';
+  btn.setAttribute('aria-haspopup', 'true');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.setAttribute('aria-label', `Language: ${LANG_NAMES[LANG] || LANG.toUpperCase()}. Change language`);
+  btn.append(flagImg(LANG), node('span', 'lang-code', LANG.toUpperCase()), node('span', 'lang-caret', '▾'));
+
+  // Menu: every language (the current one marked), each a link to /<lang>/ on the same edition.
+  const menu = node('nav', 'lang-menu'); menu.setAttribute('aria-label', 'Language'); menu.hidden = true;
   KNOWN_LANGS.forEach(lang => {
-    if (lang === LANG) { nav.append(node('span', 'lang-current', lang.toUpperCase())); return; }
     const a = document.createElement('a');
-    a.className = 'lang-link'; a.href = langHref(lang); a.textContent = lang.toUpperCase();
+    a.className = 'lang-option' + (lang === LANG ? ' is-current' : '');
+    a.href = langHref(lang);
     a.setAttribute('lang', lang); a.setAttribute('hreflang', lang);
+    if (lang === LANG) a.setAttribute('aria-current', 'true');
+    a.append(flagImg(lang), node('span', 'lang-code', lang.toUpperCase()),
+             node('span', 'lang-name', LANG_NAMES[lang] || ''));
     a.addEventListener('click', () => {
       document.cookie = `cg_lang=${lang}; path=/; max-age=31536000; samesite=lax`;
     });
-    nav.append(a);
+    menu.append(a);
   });
-  strip.append(nav);
+
+  const setOpen = (open) => {
+    menu.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    wrap.classList.toggle('is-open', open);
+    if (open) (menu.querySelector('.lang-option.is-current') || menu.querySelector('.lang-option'))?.focus();
+  };
+  btn.addEventListener('click', (e) => { e.stopPropagation(); setOpen(menu.hidden); });
+  document.addEventListener('click', (e) => { if (!wrap.contains(e.target)) setOpen(false); });
+  wrap.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { setOpen(false); btn.focus(); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const links = Array.from(menu.querySelectorAll('.lang-option'));
+    const i = links.indexOf(document.activeElement);
+    (e.key === 'ArrowDown' ? (links[i + 1] || links[0]) : (links[i - 1] || links[links.length - 1])).focus();
+  });
+
+  wrap.append(btn, menu);
+  strip.append(wrap);
 }
 
 /** The full-width Editor's Brief band: portrait byline + Graham's whole-edition synthesis. */

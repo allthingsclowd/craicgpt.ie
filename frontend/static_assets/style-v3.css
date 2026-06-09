@@ -278,15 +278,43 @@
 @media (max-width: 520px) { .sticky-player .np-label { max-width: 30vw; } }
 
 /* ── Multi-lingual: masthead language switcher + translated-page note ──────── */
-.lang-switcher {
-  display: inline-flex; gap: .5rem; align-items: center; margin-left: .75rem;
-  font-family: 'Archivo', Arial, sans-serif; font-size: .72rem; letter-spacing: .04em;
+.lang-switcher { position: relative; display: inline-flex; margin-left: .75rem; }
+.lang-switcher .lang-trigger {
+  display: inline-flex; align-items: center; gap: .32rem; cursor: pointer;
+  background: none; border: 1px solid var(--hairline, #E4E2DC); border-radius: var(--radius, 2px);
+  padding: .12rem .42rem; color: var(--ink, #1a1a1a);
+  font-family: 'Archivo', Arial, sans-serif; font-size: .68rem; font-weight: 700; letter-spacing: .06em;
 }
-.lang-switcher .lang-link {
-  color: var(--ink, #1a1a1a); opacity: .55; text-decoration: none; font-weight: 700;
+.lang-switcher .lang-trigger:hover { border-color: var(--accent, #B23A36); color: var(--accent, #B23A36); }
+.lang-switcher .lang-trigger:focus-visible { outline: 2px solid var(--accent, #B23A36); outline-offset: 1px; }
+/* The flag chip: a hairline ring so white-edged flags (Japan, the white stripes) read on the strip. */
+.lang-flag {
+  width: 21px; height: 14px; display: block; flex: none; object-fit: cover;
+  border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.12);
 }
-.lang-switcher .lang-link:hover { opacity: 1; text-decoration: underline; }
-.lang-switcher .lang-current { color: var(--red, #B23A36); font-weight: 800; opacity: 1; }
+.lang-switcher .lang-code { line-height: 1; color: inherit; }
+.lang-switcher .lang-caret { font-size: .58rem; opacity: .55; line-height: 1; color: inherit; transition: transform .15s ease; }
+.lang-switcher.is-open .lang-caret { transform: rotate(180deg); }
+
+.lang-menu {
+  position: absolute; top: calc(100% + 5px); right: 0; z-index: 1000;
+  display: flex; flex-direction: column; min-width: 9.5rem; padding: .25rem;
+  text-transform: none;                 /* the strip is uppercase; let endonyms keep their case */
+  background: var(--paper, #FAFAF8); border: 1px solid var(--hairline, #E4E2DC);
+  border-radius: var(--radius, 2px); box-shadow: 0 8px 24px rgba(0,0,0,.14);
+}
+.lang-menu[hidden] { display: none; }
+.lang-menu .lang-option {
+  display: flex; align-items: center; gap: .5rem; padding: .32rem .45rem;
+  text-decoration: none; color: var(--ink, #1a1a1a); border-radius: 1px;
+  font-family: 'Archivo', Arial, sans-serif; font-size: .74rem; letter-spacing: .02em;
+}
+.lang-menu .lang-option:hover,
+.lang-menu .lang-option:focus { background: var(--accent-tint, #b23a360f); outline: none; }
+.lang-menu .lang-option .lang-code { font-weight: 700; min-width: 1.7rem; }
+.lang-menu .lang-option .lang-name { color: var(--ink-soft, #565650); }
+.lang-menu .lang-option.is-current,
+.lang-menu .lang-option.is-current .lang-name { color: var(--accent, #B23A36); }
 
 .translation-note {
   max-width: 1100px; margin: 1.25rem auto 0; padding: .7rem 1rem;
