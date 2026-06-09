@@ -77,22 +77,23 @@ flowchart TD
 
     CRON(["⏰ Conductor cron · 05:00 UTC<br/>craicgpt_daily_content"]):::sched
 
-    subgraph BUILD["🛠️ GENERATE + JUDGE — one pass on .75 · content_pipeline/"]
+    subgraph BUILD["🛠️ GENERATE + JUDGE — one pass on .75, ENGLISH only · content_pipeline/"]
         direction TB
         R["① RESEARCH<br/>Editor-in-Chief deep agent → fun / AI / link-validator subagents"]:::agent
         C["② CURATE<br/>dedupe · diversity · recency · link-check · HOLD-if-thin"]:::code
         W["③ WRITE<br/>article prose + persona / creator credit"]:::code
         IMG["④ IMAGES<br/>one per AI lead + fun story"]:::code
         K["⑤ COMPILE<br/>schema-v3 paper_content.json"]:::code
-        J["⑥ JUDGE ★<br/>deepagents RubricMiddleware —<br/>harmless · on-brand · attributed"]:::judge
-        R --> C --> W --> IMG --> K --> J
+        J["⑥ JUDGE ★<br/>deepagents RubricMiddleware —<br/>harmless · on-brand · attributed<br/>(English judged ONCE)"]:::judge
+        TR["⑦ TRANSLATE-MANY<br/>translate_paper → de·es·it·ja·fr<br/>prose only · images shared · NOT re-judged"]:::code
+        R --> C --> W --> IMG --> K --> J --> TR
     end
 
-    subgraph NARR["🔊 NARRATE — additive audio after the judge · on .75 / M3"]
+    subgraph NARR["🔊 NARRATE EVERY LANGUAGE — additive audio after the judge · on .75 / M3"]
         direction TB
-        NB["⑦ BANTER<br/>dad↔son discussion glue (LLM-written)"]:::agent
-        NG["⑧ PODCAST GATE ★<br/>same RubricMiddleware — APPROVE before a word is voiced"]:::judge
-        NT["⑨ VOICE (deterministic)<br/>reads Graham⇄Tom · parody clones ·<br/>podcast + &lt;180s TL;DR · 80s call-sign jingle"]:::code
+        NB["⑧ BANTER<br/>dad↔son discussion glue (LLM-written, per language)"]:::agent
+        NG["⑨ PODCAST GATE ★<br/>same RubricMiddleware — APPROVE before a word is voiced"]:::judge
+        NT["⑩ VOICE (deterministic)<br/>reads Graham⇄Tom · parody clones (REUSED cross-lingually) ·<br/>podcast + &lt;180s TL;DR · 80s call-sign jingle ·<br/>translated editions open with a spoken 'machine-translated' note"]:::code
         NB --> NG --> NT
     end
 
@@ -111,10 +112,11 @@ flowchart TD
         DIR[("directive.json<br/>human override / remediate")]:::store
     end
 
-    GATE{"🚦 PUBLISH GATE · Conductor 06–08 UTC<br/>structural-valid + browser-UA link-check<br/>+ rubric APPROVE (or a human directive)"}:::sched
+    GATE{"🚦 PUBLISH GATE · Conductor 06–08 UTC<br/>structural-valid + browser-UA link-check<br/>+ rubric APPROVE (or a human directive)<br/>promotes EN, then ALL langs on the SAME verdict"}:::sched
 
-    LIVE(["🌐 content/&lt;date&gt;/ → CloudFront<br/>craicgpt.ie · versioned · audio + podcast"]):::live
-    WEB["🖥️ Browser · masonry paper · audio players ·<br/>'Under the Hood' agent-trace replay"]:::live
+    LIVE(["🌐 EN at root content/&lt;date&gt;/ · translations at &lt;lang&gt;/content/&lt;date&gt;/<br/>versioned per-language · audio + podcast"]):::live
+    ROUTER{{"🧭 CloudFront Function · router.js<br/>detect lang → 302 /&lt;lang&gt;/ · alias /en/*→/* · rewrite /&lt;lang&gt;/→index.html"}}:::sched
+    WEB["🖥️ Browser · /&lt;lang&gt;/ masonry paper · language switcher ·<br/>audio players · 'Under the Hood' agent-trace replay"]:::live
     GRAHAM["📲 Graham · Telegram<br/>generated · published · HELD"]:::human
 
     %% data flow
@@ -123,29 +125,35 @@ flowchart TD
     W -. uses .-> QWEN
     IMG -. uses .-> IMGM
     J -. uses .-> JUDGEM
-    J --> DRAFT & VRUB
+    TR -. uses .-> QWEN
+    TR --> DRAFT & VRUB
     J -. "📰 generated + verdict" .-> GRAHAM
     DRAFT --> NB
     NB -. uses .-> QWEN
     NG -. uses .-> JUDGEM
     NT -. uses .-> TTSM
-    NT -. "enriches with audio" .-> DRAFT
+    NT -. "enriches every lang with audio" .-> DRAFT
     DRAFT --> GATE
     VRUB --> GATE
     DIR --> GATE
     GRAHAM -. "override / remediate · CLI on .75" .-> DIR
-    GATE ==>|"APPROVE → promote"| LIVE
+    GATE ==>|"APPROVE → promote all langs"| LIVE
     GATE -. "✅ published / ✋ HELD" .-> GRAHAM
-    LIVE -->|fetches paper_content.json| WEB
+    LIVE --> ROUTER
+    ROUTER -->|"serves /&lt;lang&gt;/ · fetches paper_content.json"| WEB
 ```
 
 > **Colour key** — 🟣 violet = **LLM / agent** work · 🟢 teal = **deterministic
 > harness** (plain code) · 🟡 gold ★ = the **rubric judge** · 🔵 blue =
-> **Conductor** schedules · 🔷 indigo = **S3 state** · 🟢 green = **live**. Read it as one
-> spine: the agent only *researches* (①), code does every mechanical step (②–⑤), then an
-> **independent** model judges (⑥) before anything reaches S3; narration (⑦–⑨) then adds
-> audio — the dad↔son banter is the only new probabilistic text, so it passes the **same**
-> rubric (⑧) before it's voiced. The publish gate is the single place the flow is decoupled.
+> **Conductor** schedules / the **edge router** · 🔷 indigo = **S3 state** · 🟢 green = **live**.
+> Read it as one spine: the agent only *researches* (①), code does every mechanical step (②–⑤),
+> then an **independent** model judges (⑥) **English once** before anything reaches S3 —
+> every other language is a deterministic **translation of the compiled English edition** (⑦),
+> not a fresh generation, and inherits that one verdict. Narration (⑧–⑩) then adds audio for
+> **every** language (clones reused cross-lingually) — the dad↔son banter is the only new
+> probabilistic text, so it passes the **same** rubric (⑨) before it's voiced. The publish gate
+> promotes all languages on the single English verdict; a **CloudFront Function** then routes
+> `/en/`-alias + `/<lang>/` URLs at the edge. The publish gate is the single place the flow is decoupled.
 
 ### Why this shape (the hard-won lesson)
 
@@ -214,6 +222,56 @@ flowchart LR
     classDef live fill:#dcfce7,stroke:#15803d,color:#052e16;
 ```
 
+### Multi-lingual — write-once, translate-many
+
+The paper ships daily in **`CRAICGPT_LANGUAGES`** (default `en,de,es,it,ja,fr` — the
+Qwen3-TTS-supported set, so all carry audio). **English is the single editorial source of
+truth**: researched, written, **rubric-judged** and link-checked **once**. Every other
+language is a deterministic **translation of the *compiled* English edition**
+(`generate/translate.py`) — one extra prose pass that keeps the URLs, images, credits and
+personas verbatim — **not** a fresh generation, and **not** re-judged: the translations
+inherit the single English verdict. Narration then runs for **every** language (the voice
+clones are reused cross-lingually; a translated edition's podcast/TL;DR open with a spoken
+"machine-translated by `<model>`" note). The publish gate promotes **all** languages on that
+one English verdict; its verdict/status control-plane stays language-neutral. It gets its own
+chapter in [`docs/07`](docs/07-multilingual.md).
+
+**At the edge:** English lives at the S3 **root** (`content/…`, `/index.html`) and `/en/` is a
+**CloudFront alias** to it; translations live under a real `<lang>/content/…` prefix with their
+own `versions.json`. A **CloudFront Function** (`infra/cloudfront/router.js`) auto-detects
+language on a prefix-less request (`cg_lang` cookie → `Accept-Language` → `en`) and **302**s to
+`/<lang>/`, aliases `/en/*`→`/*`, and rewrites `/<lang>/`→`…/index.html`. It's deployed via
+`infra/cloudfront/deploy-router.sh` (AWS CLI — **not** `terraform apply`; this checkout has no
+state for the live stack), with `hreflang` + `x-default` for SEO.
+
+```mermaid
+flowchart LR
+    classDef code fill:#ccfbf1,stroke:#0f766e,color:#053b37;
+    classDef judge fill:#fef3c7,stroke:#b45309,color:#5b3a02,stroke-width:3px;
+    classDef store fill:#eef2ff,stroke:#6366f1,color:#1e1b4b;
+    classDef sched fill:#dbeafe,stroke:#1d4ed8,color:#0b2447;
+    classDef live fill:#dcfce7,stroke:#15803d,color:#052e16;
+    EN["English edition<br/>research → write → images → compile"]:::code
+    JJ["rubric judge ★<br/>ONE verdict"]:::judge
+    TT["translate_paper<br/>de · es · it · ja · fr"]:::code
+    S3EN[("S3 root<br/>content/… (+ /en/ alias)")]:::store
+    S3L[("S3 &lt;lang&gt;/content/…<br/>own versions.json")]:::store
+    GATE2{"publish gate<br/>promote ALL langs · one verdict"}:::sched
+    RT{{"CloudFront Function<br/>detect → /&lt;lang&gt;/ · /en/*→/* · index rewrite"}}:::sched
+    SITE["craicgpt.ie/&lt;lang&gt;/"]:::live
+    EN --> JJ --> TT
+    EN --> S3EN
+    TT --> S3L
+    S3EN --> GATE2
+    S3L --> GATE2
+    GATE2 --> RT --> SITE
+```
+
+> **Honest attribution, extended:** each translation stamps `edition.translated_by` with the
+> real model — surfaced as a witty footer note + a link to the English original on the page,
+> and a short spoken apology at the top of the audio. A translation that can't be parsed
+> degrades to readable **English**, it never breaks the page.
+
 ---
 
 ## The daily workflow
@@ -271,15 +329,15 @@ sequenceDiagram
 
 | Stage | Where | What |
 |------|-------|------|
-| Generate | Conductor `craicgpt_daily_0500` @ 05:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + images → compile v3 |
+| Generate | Conductor `craicgpt_daily_0500` @ 05:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + images → compile v3 — **English once**; then `translate_paper` → de/es/it/ja/fr (prose only, images shared, not re-judged) |
 | Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.6 (research + writing + banter), HiDream-O1 (images), `qwen3-coder-next` (independent rubric judge), Qwen3-TTS (voice clones, direct call) |
 | Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent** local model (`qwen3-coder-next` — distinct from the writer) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
-| Narrate | **after the judge, on `.75` / M3** | per-article readings (Graham⇄Tom; parody items in their own voice clones) + the rubric-gated dad↔son podcast + a <180s TL;DR, all bookended by the **80s call-sign jingle** — additive audio written onto the draft (`generate/narration.py`) |
+| Narrate | **after the judge, on `.75` / M3** | per-article readings (Graham⇄Tom; parody items in their own voice clones) + the rubric-gated dad↔son podcast + a <180s TL;DR, all bookended by the **80s call-sign jingle** — additive audio written onto the draft (`generate/narration.py`). **Loops every language** (clones reused cross-lingually; a translated edition opens with a spoken "machine-translated by `<model>`" note) |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
 | Notify | engine notifier on `.75` → **both agents' Telegram bots** | 📰 on draft generated (with the rubric verdict), ✅ on published, ✋ on HELD (with reasons) — once per edition |
-| Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + browser-UA link-check + **the rubric `APPROVE`** (or a human directive) → publish live + CloudFront invalidation + frontend redeploy; any HOLD/invalid → Telegram; else retry |
+| Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + browser-UA link-check + **the rubric `APPROVE`** (or a human directive) → publish English live, then **promote every other language on the same verdict** (`_publish_translations_live`, isolated) + CloudFront invalidation + frontend redeploy; any HOLD/invalid → Telegram; else retry |
 | Override | `directive.json` in `preview/<date>/` | human-in-the-loop: force-publish over a HOLD, or remediate (drop the flagged article) — see below |
-| Live | `s3://…/content/…` + CloudFront | live at craicgpt.ie |
+| Live | EN at `s3://…/content/…` (+ `/en/` alias) · translations at `s3://…/<lang>/content/…` + CloudFront **language router** | live at craicgpt.ie/`<lang>`/ |
 
 > **Why a poll, not a chain?** Nothing pings anything. Generation drops the draft
 > *and its own rubric verdict*; the Conductor publish gate wakes on its own
@@ -330,17 +388,21 @@ and judgement stay in this engine, not in Conductor.
 ```
 content_pipeline/
   agent/            deep agent: editor_in_chief, subagents, tools, rubric_review (judge + podcast gate), hitl, trace
-  agent/cli.py      CLI: run / narrate / gate / validate / override / remediate / …
+  agent/cli.py      CLI: run / narrate / gate / validate / override / remediate / …  (all loop the languages)
+  agent/i18n_html.py  per-language frontend/<lang>/{index,about}.html (translated <head> + hreflang)
   research/         curation.py - dedupe, diversity, link-validate, topic cap
-  generate/         writer.py (articles) · images.py · personas.py (parody roster)
-                    audio.py + jingle.py (TTS voice clones + 80s call-sign) ·
-                    podcast_script.py + narration.py (the dad↔son show + TL;DR)
-  providers/        litellm.py - LiteLLM proxy client + local-first/frontier fallback
+  generate/         writer.py (articles, cross-box fallback) · images.py · personas.py (parody roster)
+                    translate.py (write-once → translate-many: compiled EN → de/es/it/ja/fr)
+                    audio.py + jingle.py (TTS voice clones + 80s call-sign · per-language phonetics + CJK chunking) ·
+                    podcast_script.py + narration.py (the dad↔son show + TL;DR · localised, looped per language)
+  providers/        litellm.py - LiteLLM proxy client + local-first/cross-box fallback
   compile.py        schema-v3 assembly + fun/AI interleaving
-  content_config.py env-driven config (routes, prefixes)
-frontend/           static site (S3+CloudFront): masonry paper + agent visualiser
+  content_config.py env-driven config (routes, prefixes, languages/source_language)
+infra/cloudfront/   router.js (edge language router) + deploy-router.sh (AWS-CLI deploy) + README
+frontend/           static site (S3+CloudFront): /<lang>/ masonry paper + language switcher + agent visualiser
+terraform/frontend/ S3 + CloudFront + ACM + Route53 (router carried as a NOT-APPLIED note — see infra/cloudfront)
 tests/              pytest suite (offline; network injected)
-docs/               LangChain tutorial chapters
+docs/               LangChain tutorial chapters (06 = audio · 07 = multilingual)
 ```
 
 The published `paper_content.json` schema is documented in `CLAUDE.md`.
@@ -395,7 +457,15 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
   still validates and renders without audio.
 - **Telegram notifications** — the engine fans draft-generated / published / HELD
   alerts to both agents' bots, so an editorial HOLD is never silent.
-- **AWS S3 + CloudFront** — static hosting; **boto3** publish.
+- **Multi-lingual — write-once, translate-many** — English is researched, written, judged
+  and link-checked **once**; every other language in **`CRAICGPT_LANGUAGES`**
+  (`en,de,es,it,ja,fr`) is a deterministic **translation of the compiled English edition**
+  (`generate/translate.py`), narrated cross-lingually, and promoted on the **single English
+  verdict**. Honest attribution extends to it: each page stamps `edition.translated_by`.
+- **AWS S3 + CloudFront** — static hosting; **boto3** publish. A **CloudFront Function**
+  (`infra/cloudfront/router.js`) routes the per-language URLs at the edge (auto-detect → 302
+  `/<lang>/`, `/en/*`→`/*` alias, index rewrite), deployed via AWS CLI (`deploy-router.sh`),
+  not `terraform apply`.
 - **pytest** — fully offline test suite.
 
 ---

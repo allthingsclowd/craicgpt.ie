@@ -152,6 +152,31 @@ deterministic "in the style of X" framing (no double-announce); and a guest **wh
 deployed** may speak **one** in-character banter line in their own voice — gated by the rubric
 like all banter, while the verbatim reading stays ungated.
 
+## Narration runs for every language
+
+Since the paper went **multi-lingual** (write-once, translate-many — see
+[`docs/07`](07-multilingual.md)), the narration pass runs **once per language**, not just for
+English. `narrate_paper(paper, language=…)` takes the edition's language (explicit override,
+else `edition.language`) and threads it through everything:
+
+- **The voice clones are reused cross-lingually** — Graham, Tom and each parody persona read
+  the *target-language* text from their **same English reference WAVs** (accept some accent
+  drift; review post-deploy). No new clones per language.
+- **The spoken-form fixes are localised.** `audio._phonetic` is per-language — the English
+  `craic → "crack"` / spoken-URL rules must *not* touch German or Japanese prose, so each
+  language has its own (English-fallback) map. `chunk_text` also splits on **CJK** sentence
+  punctuation (`。！？`), which carries no trailing space.
+- **A translated edition is honest in audio too.** Its podcast and TL;DR open with a short
+  spoken *"this was machine-translated from English by `<model>`"* note
+  (`podcast_script.translation_preamble`, naming the real `edition.translated_by`) — empty for
+  English, so it only ever rides a genuinely translated edition. The fixed podcast/TL;DR
+  framing (`_L10N`) and the date phrase are translated per language.
+- **The <180s TL;DR budget counts the right unit.** For spaceless CJK (`_CJK_LANGS`) the
+  word-budget becomes a **character** budget (`_speaking_units`), so the bulletin still lands
+  under 180 seconds in Japanese as reliably as in English.
+- **The banter is still gated — per language.** Each language's host links pass the **same**
+  `PODCAST_RUBRIC` before a word is voiced; nothing voiced in any language goes unjudged.
+
 ## The publish gate is autonomous — with a human window
 
 Once narrated, the edition flows to the **idempotent publish gate** (`review.gate`, polled by
@@ -165,12 +190,15 @@ page or dead links never auto-publish.
 
 ## Orchestration & integration
 
-- `content_pipeline/generate/narration.py` → `narrate_paper(paper)` ties it together
+- `content_pipeline/generate/narration.py` → `narrate_paper(paper, language=…)` ties it together
   (best-effort per-article audio like images; the gated podcast; trace events for the drawer).
-- `cli.py narrate --date <d> [--prefix preview|content] [--publish] [--live] [--limit N]`
-  loads a validated edition, enriches it, and (with `--publish`) uploads audio + the JSON.
+- `cli.py narrate --date <d> [--language <l>] [--prefix preview|content] [--publish] [--live] [--limit N]`
+  loads a validated edition (a translation language loads from its `<lang>/<prefix>/…` tree),
+  enriches it, and (with `--publish`) uploads audio + the JSON.
 - `publish.py` uploads local audio to `<prefix>/audio/…` and rewrites to CDN URLs — the same
   pattern as images (shorts have audio even though they have no image; the podcast too).
+  Translations publish under a per-language prefix; **audio is per-language, images are shared**
+  (a translation carries the absolute English image URLs, so `_is_local_path` skips re-upload).
 - `compile.py` carries `podcast` + `podcast_tldr` keys; `audio_url` is **additive and
   optional**, so editions without audio still validate.
 - The frontend (`main.js`) shows a subtle 🔊 *Listen* on each article (one shared sticky

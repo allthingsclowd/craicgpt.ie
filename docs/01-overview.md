@@ -44,33 +44,51 @@ site is both a working newspaper and a live deep-agents tutorial.
 └───────────────────────────────────────────────────────────────────────────┘
         │
         ▼  6. JUDGE (in-pipeline) — rubric_review.grade_edition: a deepagents
-           RubricMiddleware grades the finished edition (harmless/on-brand/
-           attributed) on an INDEPENDENT local judge (qwen3-coder-next, M3 :8087 —
+           RubricMiddleware grades the finished ENGLISH edition (harmless/on-brand/
+           attributed) ONCE on an INDEPENDENT local judge (qwen3-coder-next, M3 :8087 —
            distinct from the writer's qwen3.6), frontier fallback
         │
-        ▼  draft + images + verdict-rubric.json → S3 preview/ + status.json
+        ▼  7. TRANSLATE-MANY (deterministic) — for each other lang in CRAICGPT_LANGUAGES
+           (en,de,es,it,ja,fr): generate/translate.py translate_paper() turns the COMPILED
+           English edition into <lang> (prose only; URLs/images/credits kept verbatim;
+           images SHARED). NOT re-researched, NOT re-judged — translations inherit the EN verdict.
+        │
+        ▼  EN draft at root + per-lang <lang>/ drafts + verdict-rubric.json → S3 preview/ + status.json
         ▼
-  Narrate (after validation, Conductor task craicgpt_narrate) — generate/narration.py:
+  Narrate EVERY language (after validation, Conductor task craicgpt_narrate) — generate/narration.py:
   per-article readings (Graham & Tom ALTERNATING) + the dad↔son podcast (verbatim reads +
   rubric-gated "discussion" banter) + a deterministic <180s TL;DR bulletin, all topped &
-  tailed by our own 80s call-sign jingle (Apple sampled instruments; generate/jingle.py). Enriches the draft with
-  audio_url + podcast + podcast_tldr; the gate uploads the audio when it promotes live.
+  tailed by our own 80s call-sign jingle (Apple sampled instruments; generate/jingle.py). Voice
+  clones REUSED cross-lingually; a translated edition opens with a spoken "machine-translated by
+  <model>" note. Enriches each draft with audio_url + podcast + podcast_tldr.
         ▼
   Publish gate (Conductor cron @ 06–08 UTC → cli gate): the single rubric APPROVE
-  + host structural validation + browser-UA link-check → promote to content/ (live),
-  version it, invalidate CloudFront, sync the frontend. A judgement HOLD (rubric, but
-  structurally valid) escalates to Graham on Telegram + PASSIVELY auto-publishes after
-  CRAICGPT_HITL_PASSIVE_MINUTES (default 60) if he doesn't respond — never a broken page.
+  + host structural validation + browser-UA link-check → promote EN to content/ (live), then
+  promote ALL OTHER LANGUAGES on the SAME English verdict (isolated), version per language,
+  invalidate CloudFront, sync the frontend. A judgement HOLD (rubric, but structurally valid)
+  escalates to Graham on Telegram + PASSIVELY auto-publishes after CRAICGPT_HITL_PASSIVE_MINUTES
+  (default 60) if he doesn't respond — never a broken page.
         │
         ▼
-  S3 / CloudFront → craicgpt.ie  (static HTML/JS fetches paper_content.json,
-  renders the woven edition + a version picker + the "Under the Hood" trace)
+  S3 / CloudFront (edge language router — infra/cloudfront/router.js) → craicgpt.ie
+  English at the S3 root (/en/ is an alias); translations under <lang>/content/…. The CloudFront
+  Function auto-detects language on a prefix-less request (cg_lang cookie → Accept-Language → en,
+  302 → /<lang>/), aliases /en/* → /*, and rewrites /<lang>/ → /<lang>/index.html. The browser
+  fetches /<lang>/…/paper_content.json and renders the woven edition + a language switcher +
+  a version picker + the "Under the Hood" trace.
 ```
 
 Generation now **judges itself in-pipeline** (the rubric is the last build step), so the
 only remaining hop is the **publish gate**, **decoupled through S3 state** — nothing is
 physically chained, so it is independently retriable and idempotent (safe to poll every
 10 min).
+
+The paper is also **multi-lingual**, **write-once / translate-many**: only English runs the
+full research → write → judge pipeline; every other language in `CRAICGPT_LANGUAGES` is a
+deterministic **translation of the compiled English edition** that inherits the single English
+verdict, and a **CloudFront Function** routes the `/en/`-alias + `/<lang>/` URLs at the edge.
+See [`docs/07-multilingual.md`](07-multilingual.md) for the full pattern, the edge router, and
+the deploy/ops gotchas.
 
 ---
 
@@ -109,9 +127,11 @@ craicgpt.ie/
 │   │   ├── cli.py                 ← run / gate / validate / verdict / consensus / …
 │   │   ├── review.py              ← validate_paper, verdict exchange, gate consensus
 │   │   ├── rubric_review.py       ← in-pipeline RubricMiddleware judge (qwen3-coder-next, independent) → verdict-rubric.json
-│   │   └── publish.py             ← S3 publish + versioning + CloudFront invalidation
+│   │   ├── i18n_html.py           ← per-language frontend/<lang>/{index,about}.html (translated <head> + hreflang)
+│   │   └── publish.py             ← S3 publish (per-language prefix) + versioning + CloudFront invalidation
 │   ├── generate/                  ← deterministic writers + images
-│   │   ├── writer.py              ← AI section, fun story, editor's brief, About page
+│   │   ├── writer.py              ← AI section, fun story, editor's brief, About page (cross-box fallback)
+│   │   ├── translate.py           ← write-once → translate-many: compiled EN edition → de/es/it/ja/fr
 │   │   ├── images.py / image_styles.py
 │   │   └── personas.py
 │   ├── research/                  ← candidates & curation
@@ -123,8 +143,9 @@ craicgpt.ie/
 │   ├── content_config.py          ← all config from env (singleton content_cfg)
 │   └── notifications.py           ← Telegram lifecycle alerts
 │
-├── frontend/                      ← static HTML/CSS/JS (S3 hosted)
-├── terraform/frontend/            ← S3 + CloudFront + ACM + Route53
+├── frontend/                      ← static HTML/CSS/JS (S3 hosted): /<lang>/ paper + language switcher
+├── infra/cloudfront/              ← edge language router: router.js + deploy-router.sh (AWS-CLI deploy)
+├── terraform/frontend/            ← S3 + CloudFront + ACM + Route53 (router carried as a NOT-APPLIED note)
 └── docs/                          ← these tutorial files
 ```
 
@@ -188,3 +209,5 @@ Full list (integrity floors, feed window, Telegram, etc.) lives in
 3. **[03-langgraph-workflow.md](03-langgraph-workflow.md)** — `create_deep_agent`, the research→write harness, HITL & the trace
 4. **[04-multi-provider-setup.md](04-multi-provider-setup.md)** — one LiteLLM proxy, the grazlab fleet, `run_with_fallback`
 5. **[05-tools-and-agents.md](05-tools-and-agents.md)** — the `@tool` decorator, deepagents `SubAgent` delegation, deterministic-vs-LLM
+6. **[06-narration-and-audio.md](06-narration-and-audio.md)** — the narration pass: deterministic TTS + the rubric-gated podcast
+7. **[07-multilingual.md](07-multilingual.md)** — write-once translate-many, the CloudFront language router, deploy & ops
