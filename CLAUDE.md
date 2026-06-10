@@ -49,7 +49,7 @@ python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 # The publish gate: publish live on the rubric APPROVE verdict + host validation + link-check
 python -m content_pipeline.agent.cli gate --publish --date 2026-06-05
 
-# Narrate a validated edition: per-article audio + the rubric-gated dad↔son podcast,
+# Narrate a validated edition: per-article audio + the dad↔son podcast (banter ungated),
 # uploaded to S3 (preview/ unless --live). Runs on .75 or the M3 (calls the M3 TTS), NOT the laptop.
 python -m content_pipeline.agent.cli narrate --date 2026-06-05 --prefix content --publish
 
@@ -116,8 +116,8 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    ▼
 Narrate EVERY language (AFTER validation) — cli narrate --language <l> (Conductor task
    craicgpt_narrate): per-article readings with Graham & Tom ALTERNATING + the dad↔son podcast
-   (verbatim readings + transitional "discussion" banter GATED by the deepagents rubric — a
-   HELD banter is STRIPPED, not fatal: the podcast re-renders banter-less, hold on record) + a
+   (verbatim readings + transitional "discussion" banter — UNGATED since 2026-06-10, the
+   per-banter rubric gate was too strict; a rambling link is length-guard dropped) + a
    deterministic <180s TL;DR headline bulletin — all topped & tailed by our own 80s call-sign
    jingle (Apple sampled instruments, bounced offline; generate/jingle.py). Voice clones are
    REUSED cross-lingually; a translated edition's podcast/TL;DR open with a spoken
@@ -204,7 +204,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/agent/trace.py` | `TraceRecorder` + `extract_trace` → `context.agent_trace` for the "Under the Hood" drawer |
 | `content_pipeline/agent/cli.py` | CLI entry: `run` / `gate` / `validate` / `verdict` / `consensus` / `override` / … + the gate's link-check |
 | `content_pipeline/agent/review.py` | `validate_paper` (structural), verdict exchange, `gate`/`compute_consensus` (default required set = the single `rubric` judge); the HITL **passive-approval** (escalate → auto-publish after `CRAICGPT_HITL_PASSIVE_MINUTES`, fenced by structural validity) + the `force-publish`/`remove-and-publish`/`hold` directives |
-| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on an **independent** local model (`qwen3-coder-next`, M3 :8087 — Qwen3-Coder-Next 80B-A3B, distinct from the writer; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. Also `grade_podcast_script` — the SAME RubricMiddleware over `PODCAST_RUBRIC`, gating the podcast banter |
+| `content_pipeline/agent/rubric_review.py` | `grade_edition`: in-pipeline deepagents **RubricMiddleware** judge on an **independent** local model (`qwen3-coder-next`, M3 :8087 — Qwen3-Coder-Next 80B-A3B, distinct from the writer; frontier fallback) → `verdict-rubric.json`; replaced the two-VM consensus. (The podcast-banter gate `grade_podcast_script` was REMOVED 2026-06-10 — too strict.) |
 | `content_pipeline/agent/publish.py` | S3 publish (preview↔content), versioning, CloudFront invalidation. `publish_paper(language=…)` stores translations under `<lang>/content/…` (English stays at root); each language keeps its own `versions.json` |
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page). `_default_generate` now wraps generation in `run_with_fallback(local=write_model DGX, fallback=FALLBACK_TEXT_MODEL M3)` — a transient DGX connection drop crosses to the M3 instead of crashing a multi-minute run; translate/brief/about/banter inherit it |
 | `content_pipeline/generate/translate.py` | **Multi-lingual:** `translate_paper(paper, language)` translates a COMPILED English edition's prose into another language (reuses the writer's robust chat→JSON path), preserving URLs/images/credits/persona; stamps `edition.translated_by`; per-section English fallback on failure. Write-once, translate-many |
@@ -213,7 +213,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, **per-language** `_phonetic` (the English craic→"crack" / spoken-URL rules must not touch other prose; falls back to the English map) + `chunk_text` splits on CJK sentence punctuation (`。！？`), **mastering chain** (`_rms_normalize` per-chunk leveling → `_crossfade_concat` equal-power seams → `master_wav`: de-box EQ + two-pass EBU-R128 loudness + true-peak limiter; reserved `mode='apple'` Match-EQ seam), multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
 | `content_pipeline/generate/jingle.py` | The show's **80s call-sign** sting — our own Am–F–C–G hook voiced through Apple's sampled GM instruments, bounced offline to `assets/jingle_80s_{intro,outro}.wav` (renderer in `jingle_src/`); owned, zero-copyright. The stdlib *Whiskey in the Jar* Karplus-Strong synth remains as a graceful fallback |
 | `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script, **one clip per article** (each reader's `pre` link + verbatim reading + `post` hand-off-by-name in ONE TTS piece → far fewer transition seams): clean two-host cold-open (Graham + date, Tom breaks in) + ALTERNATING reads (Graham/Tom) + parody guests framed by FIXED `GUEST_WELCOME`/`GUEST_ACK`/`GUEST_SIGNOFF` templates (seniority host welcomes; guest reads in own voice) + only the host links are gated + Tom's minimal slang (`build_podcast_script`); plus the deterministic **<180s** `build_tldr_script` headline bulletin. **Multi-lingual:** the fixed framing (`_L10N`) + the date phrase are localised per language; a translated edition opens with `translation_preamble` (the spoken "machine-translated by `<model>`" note naming `edition.translated_by`); the TL;DR budget counts **characters** for spaceless CJK (`_CJK_LANGS`) instead of words |
-| `content_pipeline/generate/narration.py` | `narrate_paper(paper, language=…)` — the narration step: per-article audio (best-effort, alternating voices) + the rubric-gated podcast (a HELD banter degrades to the banter-less render — `include_banter=False` — never sinks the show) + the deterministic TL;DR bulletin + trace events. **Loops every language** (driven by `language` or `edition.language`); voice clones are reused cross-lingually; the banter is generated **and** rubric-gated per language |
+| `content_pipeline/generate/narration.py` | `narrate_paper(paper, language=…)` — the narration step: per-article audio (best-effort, alternating voices) + the podcast (banter UNGATED since 2026-06-10; render failure stays soft) + the deterministic TL;DR bulletin + trace events. **Loops every language** (driven by `language` or `edition.language`); voice clones are reused cross-lingually; the banter is generated in-language per edition |
 | `content_pipeline/generate/personas.py` | Parody-journalist roster (assigned day-stable to each fun item) + satire disclaimer + `persona_voice_key` (persona → voice-clone key the narrator resolves) + podcast hand-off helpers (`PERSONA_SENIORITY` / `introducer_for` — younger→Tom, older→Graham — and `real_name` to decode the punny byline) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
 | `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest (AI feeds; Irish-creator YouTube feeds) |
@@ -244,7 +244,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
   },
   "fun": [ { "title": "", "body": "", "source_url": "", "source": "<creator credit>", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "" } ],
   "about": { "title": "", "body": "" },
-  "podcast": { "audio_url": "", "transcript": "", "_voices": ["graham","tom"], "_text_model": "", "_tts_model": "", "rubric": {} },
+  "podcast": { "audio_url": "", "transcript": "", "_voices": ["graham","tom"], "_text_model": "", "_tts_model": "" },
   "podcast_tldr": { "audio_url": "", "transcript": "", "_voices": ["graham","tom"], "_kind": "tldr", "_tts_model": "" },
   "layout": ["ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0", "..."],
   "context": { "agent_trace": [ { "kind": "", "name": "", "detail": {} } ], "files": ["..."] }
@@ -407,5 +407,5 @@ See `docs/` for the deep-agent tutorial (rewritten for v3):
 3. `docs/03-langgraph-workflow.md` — `create_deep_agent`, the research/write harness, HITL & trace
 4. `docs/04-multi-provider-setup.md` — One LiteLLM proxy, the grazlab fleet, `run_with_fallback`
 5. `docs/05-tools-and-agents.md` — `@tool`, deepagents `SubAgent` delegation, deterministic-vs-LLM
-6. `docs/06-narration-and-audio.md` — the narration pass: deterministic TTS + the rubric-gated podcast
+6. `docs/06-narration-and-audio.md` — the narration pass: deterministic TTS + the (ungated) dad↔son podcast
 7. `docs/07-multilingual.md` — write-once translate-many, the CloudFront language router, deploy & ops

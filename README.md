@@ -91,10 +91,9 @@ flowchart TD
 
     subgraph NARR["🔊 NARRATE EVERY LANGUAGE — additive audio after the judge · on .75 / M3"]
         direction TB
-        NB["⑧ BANTER<br/>dad↔son discussion glue (LLM-written, per language)"]:::agent
-        NG["⑨ PODCAST GATE ★<br/>same RubricMiddleware — APPROVE before a word is voiced"]:::judge
-        NT["⑩ VOICE (deterministic)<br/>reads Graham⇄Tom · parody clones (REUSED cross-lingually) ·<br/>podcast + &lt;180s TL;DR · 80s call-sign jingle ·<br/>translated editions open with a spoken 'machine-translated' note"]:::code
-        NB --> NG --> NT
+        NB["⑧ BANTER<br/>dad↔son discussion glue (LLM-written, per language, ungated)"]:::agent
+        NT["⑨ VOICE (deterministic)<br/>reads Graham⇄Tom · parody clones (REUSED cross-lingually) ·<br/>podcast + &lt;180s TL;DR · 80s call-sign jingle ·<br/>translated editions open with a spoken 'machine-translated' note"]:::code
+        NB --> NT
     end
 
     subgraph FLEET["🤖 grazlab local fleet · one LiteLLM proxy, routed by name (TTS is a direct call)"]
@@ -193,10 +192,11 @@ its own chapter in [`docs/06`](docs/06-narration-and-audio.md). In brief:
   `generate/jingle_src/`).
 - **Where LangChain sits:** it isn't making the audio — it's doing the *judgement and
   routing* around it. `run_with_fallback` keeps banter generation local-first with an honest
-  fallback record, and the **same `deepagents` `RubricMiddleware`** that grades the edition
-  also grades the banter (`grade_podcast_script` over `PODCAST_RUBRIC`) — `APPROVE` before a
-  single word is voiced; `HOLD` drops the podcast and records the reason. The per-article
-  readings need no gate: they read text the edition rubric already passed.
+  fallback record. The banter ships **ungated** (the per-banter rubric gate was removed
+  2026-06-10 as too strict — its false holds cost more banter than they caught harm); the
+  finished edition is still rubric-judged, the banter prompt enforces the warm/PG register,
+  and a rambling link is dropped deterministically before it is voiced. The per-article
+  readings read text the edition rubric already passed.
 
 ```mermaid
 flowchart LR
@@ -205,16 +205,12 @@ flowchart LR
     classDef judge fill:#fef3c7,stroke:#b45309,color:#5b3a02,stroke-width:3px;
     classDef model fill:#f1f5f9,stroke:#64748b,color:#1e293b;
     EDI["graded edition"]:::code
-    BAN["banter (LLM-written)"]:::agent
-    GATE["PODCAST_RUBRIC ★<br/>same judge"]:::judge
+    BAN["banter (LLM-written, ungated)"]:::agent
     READ["verbatim reads<br/>Graham⇄Tom + parody clones"]:::code
     JING["80s call-sign jingle"]:::code
     TTS["Qwen3-TTS · M3 mlx-audio"]:::model
     MIX["stitched podcast + &lt;180s TL;DR<br/>audio_url · podcast · podcast_tldr"]:::live
-    HOLD["no podcast · reason recorded"]:::code
-    EDI --> BAN --> GATE
-    GATE -->|APPROVE| READ
-    GATE -.->|HOLD| HOLD
+    EDI --> BAN --> READ
     EDI --> READ
     JING --> MIX
     READ -. voiced by .-> TTS
@@ -304,8 +300,7 @@ sequenceDiagram
     E->>G: grade finished edition vs the rubric
     G-->>E: APPROVE / HOLD + per-criterion reasons
     E->>E: narrate — per-article reads (Graham⇄Tom) + parody clones
-    E->>G: grade dad↔son banter vs PODCAST_RUBRIC
-    G-->>E: APPROVE → voice podcast + TL;DR (+ 80s call-sign jingle)
+    E->>E: voice podcast + TL;DR (+ 80s call-sign jingle)
     E->>S: draft + images + audio + verdict-rubric.json (status=complete)
     E->>TG: 📰 draft generated (+ verdict)
     end

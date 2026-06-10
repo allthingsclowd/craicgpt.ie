@@ -474,7 +474,6 @@ def cmd_narrate(args) -> int:
         "articles_narrated": sum(1 for a in arts if a and a.get("audio_url")),
         "podcast": bool(paper.get("podcast")),
         "podcast_tldr": bool(paper.get("podcast_tldr")),
-        "podcast_hold": (paper.get("edition") or {}).get("podcast_hold"),
     }
     if getattr(args, "out", None):
         with open(args.out, "w", encoding="utf-8") as fh:

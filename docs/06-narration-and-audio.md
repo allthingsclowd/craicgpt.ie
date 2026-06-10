@@ -21,13 +21,13 @@ A podcast episode is built from three layers — and only one of them is allowed
 |------|----------------|--------------|
 | **80s call-sign jingle** bookend + a clean date-stamped cold-open (Graham + date, Tom breaks in) + the **fixed guest welcome / thanks / sign-off** templates | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `build_signature_intro` + `GUEST_*` |
 | Article **readings** — Graham & Tom **alternating** (a deployed parody guest reads its own) | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
-| Host **links** — ONE short *pre* (react to the previous bit) + *post* (wrap + hand to the next BY NAME), **woven into each host reader's single clip**; Tom's minimal, timeless slang | ❌ LLM-written | `write_model` via `run_with_fallback`, then **gated** |
+| Host **links** — ONE short *pre* (react to the previous bit) + *post* (wrap + hand to the next BY NAME), **woven into each host reader's single clip**; Tom's minimal, timeless slang | ❌ LLM-written | `write_model` via `run_with_fallback` (+ length guard) |
 
 **One clip per article.** Every short back-and-forth turn used to be its own TTS clip, and
 the *seams between clips* were where the clone degraded. So each article is now recorded as
 **ONE clip** — the reader's `pre` link + the verbatim reading + their `post` hand-off, in one
 voice — and a parody guest reads in their **own** voice between a fixed welcome and sign-off.
-Far fewer seams; only the host links are LLM-written, so they're still all the gate has to judge.
+Far fewer seams; only the host links are LLM-written — everything else is fixed text or verbatim.
 
 Reading the article *verbatim* matters: the edition rubric already passed that text, so the
 podcast introduces **no new claims and no attribution drift**.
@@ -96,7 +96,7 @@ path, model = audio.render_podcast([("graham", "…"), ("tom", "…")])  # multi
     > curve can't do — which drops in without touching a caller. The portable ffmpeg chain is
     > the deterministic baseline that runs on `.75` today.
 
-## The probabilistic layer, governed — `podcast_script.py` + `rubric_review.py`
+## The probabilistic layer — `podcast_script.py`
 
 `build_podcast_script(paper)` assembles the turns as **one clip per article**: signature
 intro → for each article a single reader clip *[pre link → verbatim reading → post hand-off]*
@@ -108,24 +108,22 @@ three) is what removes the transition seams the clone struggled with. A deployed
 is framed by **fixed templates** (`GUEST_WELCOME` by the seniority host, then `GUEST_ACK` +
 verbatim reading + `GUEST_SIGNOFF` in the guest's own voice) — no LLM, nothing to gate there.
 
-Only the host links pass the **same `deepagents` `RubricMiddleware`** the edition uses — a
-separate judge model scores it against `PODCAST_RUBRIC` (harmless, kind, age-appropriate for
-a 14-year-old, no defamation, on-brand) before a single word is voiced:
+The host links ship **ungated**. There *was* a per-banter rubric gate (the same
+`deepagents` `RubricMiddleware` the edition uses, over a `PODCAST_RUBRIC`) — it was
+**removed on 2026-06-10 as too strict**: in practice its false holds (sanctioned parody
+bylines read as mockery, non-English banter read as off-rubric, borderline tone calls)
+cost far more banter than they ever caught real harm. What still governs the banter:
 
-```python
-from content_pipeline.agent.rubric_review import grade_podcast_script
-verdict = grade_podcast_script(script["banter_text"])   # {"verdict": "APPROVE"|"HOLD", …}
-```
+- the **banter prompt** itself bakes in the register (warm, PG, cheeky-never-cruel,
+  Tom's minimal slang);
+- a **deterministic guard** (`_valid_link`) drops any link over 300 chars — one sentence
+  was asked for; rambling is the failure mode — before it is ever voiced;
+- the **finished edition** (every word the readings speak) is still rubric-judged
+  upstream by `grade_edition`.
 
-`APPROVE` → render the podcast. `HOLD` → the held banter is **stripped, never voiced** — the
-script is rebuilt with `include_banter=False` (the deterministic framing + verbatim readings,
-nothing left to gate) and *that* podcast ships, with the hold on record (`edition.podcast_hold`
-+ `podcast.rubric = {result: "banter_stripped", hold_reasons: […]}`). The gate condemns only
-the model-written links, so it only ever costs the links — local models writing banter for
-*translated* editions proved flaky enough (2026-06-10: es/it/ja/fr all held) that sinking the
-whole show over them was the wrong trade. Per-article readings need no gate — they read
-approved text. This is the rule from `CLAUDE.md` made concrete: *probabilistic judgement never
-replaces the deterministic guard, and never goes ungoverned either.*
+A history lesson worth keeping: the gate's last design iteration (PR #66) stripped a held
+banter instead of dropping the podcast — the right shape *if* you keep a gate. Graham's
+call was simpler: the judge had no business holding the show's own furniture.
 
 ## The TL;DR bulletin — `build_tldr_script` (deterministic)
 
@@ -154,8 +152,8 @@ generationally: `personas.introducer_for` sends the **younger** figures to **Tom
 **older** ones to **Graham** (`PERSONA_SENIORITY`), and `personas.real_name` decodes the punny
 byline so the host can say who they really are. When the banter introduces a guest we skip the
 deterministic "in the style of X" framing (no double-announce); and a guest **whose clone is
-deployed** may speak **one** in-character banter line in their own voice — gated by the rubric
-like all banter, while the verbatim reading stays ungated.
+deployed** may speak **one** in-character banter line in their own voice — ungated, like
+all banter, and dropped by the same length guard if it rambles.
 
 ## Narration runs for every language
 
@@ -179,8 +177,9 @@ else `edition.language`) and threads it through everything:
 - **The <180s TL;DR budget counts the right unit.** For spaceless CJK (`_CJK_LANGS`) the
   word-budget becomes a **character** budget (`_speaking_units`), so the bulletin still lands
   under 180 seconds in Japanese as reliably as in English.
-- **The banter is still gated — per language.** Each language's host links pass the **same**
-  `PODCAST_RUBRIC` before a word is voiced; nothing voiced in any language goes unjudged.
+- **The banter ships ungated in every language** (gate removed 2026-06-10) — written
+  in-language by the same prompt, length-guarded the same way; the edition each language
+  translates was rubric-judged once, in English.
 
 ## The publish gate is autonomous — with a human window
 
@@ -196,7 +195,7 @@ page or dead links never auto-publish.
 ## Orchestration & integration
 
 - `content_pipeline/generate/narration.py` → `narrate_paper(paper, language=…)` ties it together
-  (best-effort per-article audio like images; the gated podcast; trace events for the drawer).
+  (best-effort per-article audio like images; the podcast; trace events for the drawer).
 - `cli.py narrate --date <d> [--language <l>] [--prefix preview|content] [--publish] [--live] [--limit N]`
   loads a validated edition (a translation language loads from its `<lang>/<prefix>/…` tree),
   enriches it, and (with `--publish`) uploads audio + the JSON.

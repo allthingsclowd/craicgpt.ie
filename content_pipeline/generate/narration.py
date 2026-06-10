@@ -7,12 +7,14 @@ with audio:
   1. a per-article **reading** (accessibility: every piece is listenable) — the Editor's
      own sections in Graham's voice, the desk articles ALTERNATING Graham/Tom — setting
      ``audio_url`` on each item; and
-  2. the daily **dad↔son podcast** — built by :mod:`podcast_script`, its banter gated by
-     :func:`rubric_review.grade_podcast_script`, rendered by :func:`audio.render_podcast`.
+  2. the daily **dad↔son podcast** — built by :mod:`podcast_script` (LLM-written links
+     over verbatim readings), rendered by :func:`audio.render_podcast`. The banter ships
+     UNGATED (the per-banter rubric gate was removed 2026-06-10 as too strict — its false
+     holds cost more banter than they caught harm); the edition itself is still
+     rubric-judged upstream, and rambling links are dropped deterministically.
 
 Per-article audio is best-effort (a TTS hiccup nulls one item's ``audio_url``, like a
-failed image — it never holds the edition). The podcast is the one piece that can be HELD:
-if the LLM banter fails the rubric, no podcast is attached and the reason is recorded.
+failed image — it never holds the edition); a podcast render failure is equally soft.
 
 All heavy collaborators are injected so the wiring is unit-testable offline.
 """
@@ -58,15 +60,13 @@ def narrate_paper(
     narrate_article: Optional[Callable] = None,
     build_script: Optional[Callable] = None,
     build_tldr: Optional[Callable] = None,
-    grade: Optional[Callable] = None,
     render_podcast: Optional[Callable] = None,
 ) -> dict:
-    """Enrich ``paper`` in place with per-article audio + a gated podcast; return it.
+    """Enrich ``paper`` in place with per-article audio + the podcast; return it.
 
     Collaborators default to the real implementations but are injectable for tests:
       * ``narrate_article(item, voice=…) -> (path, model)``
       * ``build_script(paper, limit=…) -> {turns, script_text, banter_text, refs}``
-      * ``grade(banter_text) -> {"verdict", "reasons", …}``
       * ``render_podcast(turns) -> (path, model)``
     """
     # Lazy imports keep this module importable (and tested) without the TTS/LLM stack.
@@ -76,8 +76,6 @@ def narrate_paper(
         from content_pipeline.generate.podcast_script import build_podcast_script as build_script
     if build_tldr is None:
         from content_pipeline.generate.podcast_script import build_tldr_script as build_tldr
-    if grade is None:
-        from content_pipeline.agent.rubric_review import grade_podcast_script as grade
     if render_podcast is None:
         from content_pipeline.generate.audio import render_podcast as render_podcast
 
@@ -115,59 +113,30 @@ def narrate_paper(
             logger.warning("[narrate] reading failed for %r: %s", item.get("title"), exc)
             item["audio_url"] = None
 
-    # ── 2. The dad↔son podcast (banter gated before it's voiced) ──────────────
+    # ── 2. The dad↔son podcast (banter UNGATED — removed 2026-06-10) ──────────
+    # The per-banter rubric gate was retired as too strict: the judge's false holds
+    # (parody bylines, non-English banter, borderline tone calls) cost more banter than
+    # they ever caught real harm — the banter prompt itself enforces the warm/PG register,
+    # and the deterministic guard in podcast_script (_valid_link) still drops rambling
+    # links before they are voiced. The whole EDITION is still rubric-judged upstream.
     script = build_script(paper, limit=limit, language=lang)
-    banter = (script.get("banter_text") or "").strip()
-    verdict = grade(banter) if banter else {"verdict": "APPROVE", "reasons": [],
-                                            "result": "no_banter", "judge_model": None}
-
-    if verdict.get("verdict") == "APPROVE":
-        # The hold marker is per-run metadata — a re-narration whose banter now passes
-        # must not ship a stale podcast_hold from an earlier held run of the same draft.
-        (paper.get("edition") or {}).pop("podcast_hold", None)
-        try:
-            path, tts_model = render_podcast(script["turns"], language=lang)
-            paper["podcast"] = {
-                "audio_url": path,
-                "transcript": script.get("script_text", ""),
-                "_voices": ["graham", "tom"],
-                "_text_model": content_cfg.write_model,
-                "_tts_model": tts_model,
-                "rubric": verdict,
-            }
-        except Exception as exc:  # noqa: BLE001 — render failure → no podcast, never fatal
-            logger.warning("[narrate] podcast render failed: %s", exc)
-            paper["podcast"] = None
-    else:
-        # The HOLD only ever condemns the LLM-written links — the framing and the verbatim
-        # readings are deterministic and already edition-approved. So don't sink the whole
-        # podcast (#64: flaky translated banter was costing es/it/ja/fr their podcast):
-        # rebuild WITHOUT banter and ship that, exactly like the no_banter path. The hold
-        # stays on record (edition.podcast_hold + rubric.hold_reasons) for transparency.
-        logger.warning("[narrate] podcast banter HELD by rubric: %s — rendering banter-less",
-                       verdict.get("reasons"))
-        paper.setdefault("edition", {})["podcast_hold"] = verdict.get("reasons") or ["rubric HOLD"]
-        try:
-            stripped = build_script(paper, limit=limit, language=lang, include_banter=False)
-            path, tts_model = render_podcast(stripped["turns"], language=lang)
-            paper["podcast"] = {
-                "audio_url": path,
-                "transcript": stripped.get("script_text", ""),
-                "_voices": ["graham", "tom"],
-                "_text_model": None,            # nothing model-written survives the strip
-                "_tts_model": tts_model,
-                # Approved by construction (zero LLM text aboard), like no_banter — but
-                # honest about what was held and why.
-                "rubric": {"verdict": "APPROVE", "result": "banter_stripped",
-                           "hold_reasons": verdict.get("reasons") or [],
-                           "judge_model": verdict.get("judge_model")},
-            }
-        except Exception as exc:  # noqa: BLE001 — render failure → no podcast, never fatal
-            logger.warning("[narrate] banter-less podcast render failed: %s", exc)
-            paper["podcast"] = None
+    # Drafts narrated in the gated era may carry edition.podcast_hold — stale now.
+    (paper.get("edition") or {}).pop("podcast_hold", None)
+    try:
+        path, tts_model = render_podcast(script["turns"], language=lang)
+        paper["podcast"] = {
+            "audio_url": path,
+            "transcript": script.get("script_text", ""),
+            "_voices": ["graham", "tom"],
+            "_text_model": content_cfg.write_model,
+            "_tts_model": tts_model,
+        }
+    except Exception as exc:  # noqa: BLE001 — render failure → no podcast, never fatal
+        logger.warning("[narrate] podcast render failed: %s", exc)
+        paper["podcast"] = None
 
     # ── 2b. The <180s TL;DR headline bulletin (deterministic; same jingle) ────
-    # No LLM banter → nothing to gate; it's independent of the main podcast's verdict.
+    # Fully deterministic (titles + glosses) and independent of the main podcast.
     tldr = build_tldr(paper, limit=limit, language=lang)
     paper["podcast_tldr"] = None
     if tldr and tldr.get("turns"):
@@ -186,31 +155,21 @@ def narrate_paper(
             paper["podcast_tldr"] = None
 
     # ── 3. Trace the audio build for "Under the Hood" — the deterministic readings
-    #       vs the probabilistic, rubric-gated podcast (the teaching split, Goal 5).
+    #       vs the LLM-written banter (the teaching split, Goal 5).
     trace = paper.setdefault("context", {}).setdefault("agent_trace", [])
     n_audio = sum(1 for it in targets if it.get("audio_url"))
     trace.append({"kind": "audio", "name": "narrate articles",
                   "detail": {"info": f"{n_audio} article(s) read by Graham & Tom (alternating) — "
                                      "deterministic TTS: chunk → synth → stitch → S3"}})
-    pod_rubric = (paper.get("podcast") or {}).get("rubric") or {}
-    if paper.get("podcast") and pod_rubric.get("result") == "banter_stripped":
-        trace.append({"kind": "podcast", "name": "daily podcast — banter held, stripped",
-                      "detail": {"info": "banter held by rubric ("
-                                         + "; ".join(verdict.get("reasons") or [])
-                                         + ") — shipped the deterministic framing + verbatim "
-                                           "readings without it"}})
-    elif paper.get("podcast"):
+    if paper.get("podcast"):
         trace.append({"kind": "podcast", "name": "daily podcast",
-                      "detail": {"info": f"dad↔son banter passed the rubric "
-                                         f"({verdict.get('judge_model')}); rendered Graham + Tom "
-                                         "over verbatim readings"}})
-    elif verdict.get("verdict") == "APPROVE":
-        trace.append({"kind": "podcast", "name": "daily podcast — render failed",
-                      "detail": {"info": "banter passed the rubric but the audio render failed"}})
+                      "detail": {"info": "rendered Graham + Tom — LLM-written links over "
+                                         "verbatim readings (ungated; the edition itself is "
+                                         "rubric-judged upstream)"}})
     else:
-        trace.append({"kind": "podcast", "name": "daily podcast — held",
-                      "detail": {"info": "banter held by rubric: "
-                                         + "; ".join(verdict.get("reasons") or [])}})
+        trace.append({"kind": "podcast", "name": "daily podcast — render failed",
+                      "detail": {"info": "the audio render failed; the edition ships without "
+                                         "the main podcast"}})
     if paper.get("podcast_tldr"):
         trace.append({"kind": "podcast", "name": "TL;DR headline bulletin",
                       "detail": {"info": "a <180s two-voice headline round-up — "
