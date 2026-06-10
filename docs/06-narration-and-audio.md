@@ -117,10 +117,15 @@ from content_pipeline.agent.rubric_review import grade_podcast_script
 verdict = grade_podcast_script(script["banter_text"])   # {"verdict": "APPROVE"|"HOLD", …}
 ```
 
-`APPROVE` → render the podcast. `HOLD` → no podcast is attached and the reason is recorded
-(`edition.podcast_hold`). Per-article readings need no gate — they read approved text.
-This is the rule from `CLAUDE.md` made concrete: *probabilistic judgement never replaces the
-deterministic guard, and never goes ungoverned either.*
+`APPROVE` → render the podcast. `HOLD` → the held banter is **stripped, never voiced** — the
+script is rebuilt with `include_banter=False` (the deterministic framing + verbatim readings,
+nothing left to gate) and *that* podcast ships, with the hold on record (`edition.podcast_hold`
++ `podcast.rubric = {result: "banter_stripped", hold_reasons: […]}`). The gate condemns only
+the model-written links, so it only ever costs the links — local models writing banter for
+*translated* editions proved flaky enough (2026-06-10: es/it/ja/fr all held) that sinking the
+whole show over them was the wrong trade. Per-article readings need no gate — they read
+approved text. This is the rule from `CLAUDE.md` made concrete: *probabilistic judgement never
+replaces the deterministic guard, and never goes ungoverned either.*
 
 ## The TL;DR bulletin — `build_tldr_script` (deterministic)
 

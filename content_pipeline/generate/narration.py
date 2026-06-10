@@ -136,9 +136,32 @@ def narrate_paper(
             logger.warning("[narrate] podcast render failed: %s", exc)
             paper["podcast"] = None
     else:
-        logger.warning("[narrate] podcast HELD by rubric: %s", verdict.get("reasons"))
-        paper["podcast"] = None
+        # The HOLD only ever condemns the LLM-written links — the framing and the verbatim
+        # readings are deterministic and already edition-approved. So don't sink the whole
+        # podcast (#64: flaky translated banter was costing es/it/ja/fr their podcast):
+        # rebuild WITHOUT banter and ship that, exactly like the no_banter path. The hold
+        # stays on record (edition.podcast_hold + rubric.hold_reasons) for transparency.
+        logger.warning("[narrate] podcast banter HELD by rubric: %s — rendering banter-less",
+                       verdict.get("reasons"))
         paper.setdefault("edition", {})["podcast_hold"] = verdict.get("reasons") or ["rubric HOLD"]
+        try:
+            stripped = build_script(paper, limit=limit, language=lang, include_banter=False)
+            path, tts_model = render_podcast(stripped["turns"], language=lang)
+            paper["podcast"] = {
+                "audio_url": path,
+                "transcript": stripped.get("script_text", ""),
+                "_voices": ["graham", "tom"],
+                "_text_model": None,            # nothing model-written survives the strip
+                "_tts_model": tts_model,
+                # Approved by construction (zero LLM text aboard), like no_banter — but
+                # honest about what was held and why.
+                "rubric": {"verdict": "APPROVE", "result": "banter_stripped",
+                           "hold_reasons": verdict.get("reasons") or [],
+                           "judge_model": verdict.get("judge_model")},
+            }
+        except Exception as exc:  # noqa: BLE001 — render failure → no podcast, never fatal
+            logger.warning("[narrate] banter-less podcast render failed: %s", exc)
+            paper["podcast"] = None
 
     # ── 2b. The <180s TL;DR headline bulletin (deterministic; same jingle) ────
     # No LLM banter → nothing to gate; it's independent of the main podcast's verdict.
@@ -166,7 +189,14 @@ def narrate_paper(
     trace.append({"kind": "audio", "name": "narrate articles",
                   "detail": {"info": f"{n_audio} article(s) read by Graham & Tom (alternating) — "
                                      "deterministic TTS: chunk → synth → stitch → S3"}})
-    if paper.get("podcast"):
+    pod_rubric = (paper.get("podcast") or {}).get("rubric") or {}
+    if paper.get("podcast") and pod_rubric.get("result") == "banter_stripped":
+        trace.append({"kind": "podcast", "name": "daily podcast — banter held, stripped",
+                      "detail": {"info": "banter held by rubric ("
+                                         + "; ".join(verdict.get("reasons") or [])
+                                         + ") — shipped the deterministic framing + verbatim "
+                                           "readings without it"}})
+    elif paper.get("podcast"):
         trace.append({"kind": "podcast", "name": "daily podcast",
                       "detail": {"info": f"dad↔son banter passed the rubric "
                                          f"({verdict.get('judge_model')}); rendered Graham + Tom "
