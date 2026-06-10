@@ -593,7 +593,7 @@ const TRACE_BLURB = {
   fallback: 'A resilient fallback from the local model to a frontier safety net.',
   rubric: 'deepagents Rubrics: a separate judge model grades the finished edition against a checklist before it can publish.',
   audio: 'Deterministic narration — each article is chunked, synthesised on the M3 voice clone, stitched and uploaded. No LLM in this leg.',
-  podcast: 'The dad↔son show: verbatim readings (deterministic) wrapped in LLM-written banter that a deepagents rubric must pass before it is ever voiced.',
+  podcast: 'The dad↔son show: verbatim readings (deterministic) wrapped in LLM-written banter — voiced as written; the edition itself passed the rubric upstream.',
   note: 'A milestone the harness recorded.',
 };
 
