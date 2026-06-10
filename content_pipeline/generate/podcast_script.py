@@ -378,6 +378,21 @@ def _text_field(value: Any) -> str:
     return ""
 
 
+# A link is ONE sentence (the prompt insists); on translated editions the local model
+# sometimes rambles meta-commentary into the field instead (#64). Anything past this cap
+# is dropped deterministically — better a clean hand-off-less seam than voiced rambling.
+_MAX_LINK_CHARS = 300
+
+
+def _valid_link(text: str) -> str:
+    """The link text if it is plausibly a one-liner, else ``""`` (dropped, logged)."""
+    if len(text) > _MAX_LINK_CHARS:
+        logger.warning("[podcast] dropping over-long banter link (%d chars > %d)",
+                       len(text), _MAX_LINK_CHARS)
+        return ""
+    return text
+
+
 def _script_text(turns: list[Turn]) -> str:
     """Render turns as a speaker-tagged transcript (also the downloadable transcript)."""
     return "\n".join(f"{who.upper()}: {text}" for who, text in turns)
@@ -411,7 +426,8 @@ def _edition_language(paper: dict, language: Optional[str]) -> str:
 
 
 def build_podcast_script(paper: dict, *, generate: Optional[Generate] = None,
-                         limit: Optional[int] = None, language: Optional[str] = None) -> dict:
+                         limit: Optional[int] = None, language: Optional[str] = None,
+                         include_banter: bool = True) -> dict:
     """Assemble the dad↔son podcast script for ``paper`` — the "one clip per article" model.
 
     Each article becomes ONE rendered clip: the reader's opening link + the VERBATIM
@@ -439,8 +455,10 @@ def build_podcast_script(paper: dict, *, generate: Optional[Generate] = None,
     # ONE LLM call drafts the host links (pre/post) for every HOST-read article (keeps Tom's
     # character consistent), in the edition's language. Guests are framed by fixed templates,
     # so the LLM skips them. The links are gated per language (grade_podcast_script).
+    # ``include_banter=False`` skips the LLM entirely — the deterministic skeleton (framing +
+    # verbatim readings) with nothing to gate; the narrator's fallback when a banter is HELD.
     banter_by_ref: dict[str, dict] = {}
-    if any(p["role"] == "host" for p in plan):
+    if include_banter and any(p["role"] == "host" for p in plan):
         gen = generate or _default_generate
         try:
             data = gen(_banter_prompt(lang).format(digest=_digest(plan)))
@@ -466,7 +484,8 @@ def build_podcast_script(paper: dict, *, generate: Optional[Generate] = None,
             turns.append((p["voice"], "\n\n".join([guest_ack(lang), reading, guest_signoff(lang)])))
         else:
             b = banter_by_ref.get(p["ref"], {})
-            pre, post = _text_field(b.get("pre")), _text_field(b.get("post"))
+            pre = _valid_link(_text_field(b.get("pre")))
+            post = _valid_link(_text_field(b.get("post")))
             banter_snippets += [s for s in (pre, post) if s]   # only the LLM text is gated
             body = reading
             if p.get("persona"):   # parody item with NO deployed clone → host reads in character

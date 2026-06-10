@@ -328,3 +328,37 @@ def test_tldr_japanese_budgets_by_characters_and_notes_translation():
     assert ps._tldr_budget(180, "ja") == int((180 - ps.TLDR_JINGLE_SECONDS) * ps.TLDR_BUDGET_CPS)
     assert ps._speaking_units("これはテスト", "ja") == 6            # chars, not one "word"
     assert ps._speaking_units("two words", "en") == 2
+
+
+# --- banter hardening (#64: translated banter flakiness) ---------------------
+def test_include_banter_false_skips_the_llm_entirely():
+    calls = []
+
+    def _spy(prompt):
+        calls.append(prompt)
+        return {"items": []}
+
+    res = ps.build_podcast_script(SAMPLE, generate=_spy, include_banter=False)
+    assert calls == []                              # no LLM call at all
+    assert res["banter_text"] == ""                 # nothing for the rubric to gate
+    # the deterministic skeleton is intact: framing + every verbatim reading
+    script = res["script_text"]
+    for body in ("huge memory", "story about chips", "brief thing", "class sketch"):
+        assert body in script
+
+
+def test_overlong_banter_link_is_dropped_not_voiced():
+    """A 'link' should be ONE sentence; a rambling/meta paragraph (what the local model
+    sometimes emits for translated editions) is dropped deterministically so it never
+    reaches the rubric judge or the TTS."""
+    ramble = "yap " * 200  # way past the one-sentence cap
+
+    def _meta_generate(prompt):
+        return {"items": [
+            {"ref": "ai.headliner", "pre": ramble, "post": "Over to you, Tom."},
+        ]}
+
+    res = ps.build_podcast_script(SAMPLE, generate=_meta_generate)
+    assert ramble.strip() not in res["script_text"]
+    assert ramble.strip() not in res["banter_text"]
+    assert "Over to you, Tom." in res["banter_text"]   # the sane link survives

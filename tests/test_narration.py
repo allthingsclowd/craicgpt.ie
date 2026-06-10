@@ -79,7 +79,7 @@ def test_attaches_tldr_headline_bulletin():
     assert "GRAHAM:" in paper["podcast_tldr"]["transcript"]   # the bulletin transcript
 
 
-def test_holds_podcast_when_banter_fails_the_gate():
+def test_held_banter_is_never_voiced_and_the_hold_is_recorded():
     def _hold(text, **kw):
         return {"verdict": "HOLD", "reasons": ["too cruel"], "judge_model": "judge"}
 
@@ -90,11 +90,11 @@ def test_holds_podcast_when_banter_fails_the_gate():
         return ("/tmp/podcast.mp3", "tts-model")
 
     paper = narration.narrate_paper(
-        _sample(), narrate_article=_fake_article, build_script=_fake_build,
+        _sample(), narrate_article=_fake_article, build_script=_build_respecting_banter,
         grade=_hold, render_podcast=_render_spy)
-    assert paper["podcast"] is None
-    # the held main-podcast banter is never voiced; the independent TL;DR still renders
-    assert all(not any("Welcome." in t for _, t in turns) for turns in rendered)
+    # the held banter never reaches the TTS (the podcast itself degrades — see the
+    # banter-stripped tests below); the hold stays on record
+    assert all(not any("BANTER!" in t for _, t in turns) for turns in rendered)
     assert "too cruel" in paper["edition"]["podcast_hold"]
 
 
@@ -187,3 +187,58 @@ def test_narrate_paper_threads_the_edition_language():
                             grade=_approve, render_podcast=_fake_render)
     assert captured["build_lang"] == "de"
     assert captured["article_lang"] == "de"
+
+
+# --- #64: a held banter degrades to the banter-less podcast ------------------
+def _build_respecting_banter(paper, include_banter=True, **kw):
+    if include_banter:
+        return {"turns": [("graham", "Welcome."), ("tom", "BANTER!")],
+                "script_text": "GRAHAM: Welcome.\nTOM: BANTER!",
+                "banter_text": "BANTER!", "refs": ["ai.headliner"]}
+    return {"turns": [("graham", "Welcome."), ("graham", "Just the readings.")],
+            "script_text": "GRAHAM: Welcome.\nGRAHAM: Just the readings.",
+            "banter_text": "", "refs": ["ai.headliner"]}
+
+
+def test_held_banter_degrades_to_banterless_podcast():
+    """The rubric holding the LLM banter must not sink the whole podcast — the framing
+    and verbatim readings are deterministic and already approved. Strip, re-render, ship
+    (what the no_banter path always did), and keep the hold reasons for transparency."""
+    def _hold(text, **kw):
+        return {"verdict": "HOLD", "reasons": ["meta-commentary, not banter"],
+                "judge_model": "judge"}
+
+    rendered = []
+
+    def _render_spy(turns, **kw):
+        rendered.append(turns)
+        return ("/tmp/podcast.mp3", "tts-model")
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_build_respecting_banter,
+        grade=_hold, render_podcast=_render_spy)
+    assert paper["podcast"]["audio_url"] == "/tmp/podcast.mp3"   # podcast still ships
+    assert "BANTER!" not in paper["podcast"]["transcript"]       # held text never voiced
+    assert all(not any("BANTER!" in t for _, t in turns) for turns in rendered)
+    assert "Just the readings." in paper["podcast"]["transcript"]
+    # honest metadata: what ships is approved-by-construction, the hold is on record
+    assert paper["podcast"]["rubric"]["verdict"] == "APPROVE"
+    assert paper["podcast"]["rubric"]["result"] == "banter_stripped"
+    assert "meta-commentary, not banter" in paper["edition"]["podcast_hold"]
+
+
+def test_banterless_fallback_render_failure_is_soft():
+    def _hold(text, **kw):
+        return {"verdict": "HOLD", "reasons": ["bad"], "judge_model": "judge"}
+
+    def _render_only_tldr(turns, **kw):
+        # the main-podcast renders (banter or stripped) fail; the TL;DR path still works
+        if any("Just the readings." in t or "BANTER!" in t for _, t in turns):
+            raise RuntimeError("tts down")
+        return ("/tmp/tldr.mp3", "tts-model")
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_fake_article, build_script=_build_respecting_banter,
+        grade=_hold, render_podcast=_render_only_tldr)
+    assert paper["podcast"] is None                      # soft, like every render failure
+    assert "bad" in paper["edition"]["podcast_hold"]
