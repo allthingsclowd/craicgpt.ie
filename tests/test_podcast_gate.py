@@ -57,3 +57,12 @@ def test_podcast_rubric_sanctions_the_parody_personas():
     assert "parody" in r and "satire" in r
     assert "ronald dump" in r          # a concrete example the judge can anchor on
     assert "do not fail" in r
+
+
+def test_podcast_rubric_judges_translated_banter_in_its_own_language():
+    """2026-06-10: a judge run held the JAPANESE banter because 'the rubric assumes
+    English-language content'. Translated editions are first-class — the rubric must say
+    a non-English banter is normal and judged on the same criteria."""
+    r = rr.PODCAST_RUBRIC.lower()
+    assert "japanese" in r                       # languages spelled out for the judge
+    assert "not in english" in r                 # the explicit don't-fail-for-language rule
