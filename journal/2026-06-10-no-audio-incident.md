@@ -55,3 +55,32 @@ new sequential loop), grep for every consumer of that stage's *completion timing
 windows, poll schedules, timeouts — and re-verify each.** Local to this repo's docs/memory
 for now (captured in the project memory's incident note); if it bites a second time it
 becomes a skill.
+
+---
+
+## Afternoon addendum — the banter saga, and the gate that didn't survive it
+
+Fixing #64 ("translated banter emits placeholders → podcast dropped") turned into a
+live demonstration of judge non-determinism. Four PRs in:
+
+- **#66** — a held banter degrades to the banter-less podcast (strip, don't sink) + a
+  deterministic 300-char guard on links. Proven in production the same hour.
+- **#67** — clear the stale `podcast_hold` a re-run leaves behind.
+- **#68 / #69** — two rubric scopings, each found by watching a real hold land: the judge
+  held banter for naming the sanctioned parody bylines ('Ronald Dump' et al.), then held
+  the Japanese banter for *not being English*.
+
+Then the judge held the Italian banter a third way (a borderline tone call), and Graham
+made the call the data supported: **"remove that gate as that's too strict" → PR #70.**
+Three distinct false-hold modes in one afternoon vs zero real harms caught. The banter now
+ships as written — governed by the prompt's register, the length guard, and the edition
+rubric upstream. `grade_podcast_script` / `PODCAST_RUBRIC` are gone.
+
+**Final state:** all six languages live with 18/18 readings + full banter podcast + TL;DR,
+no holds. **The lesson:** an LLM judge over another LLM's *style* (not facts, not safety
+of approved text) buys you mostly variance; every layer that actually protected the show
+today was deterministic.
+
+One process stumble worth owning: a `git add -A` briefly committed an untracked personal
+PDF to the feature branch — caught pre-PR, commit amended, remote branch replaced. Stage
+files explicitly; `-A` in a repo with personal clutter is a footgun.
