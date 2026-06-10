@@ -122,6 +122,9 @@ def narrate_paper(
                                             "result": "no_banter", "judge_model": None}
 
     if verdict.get("verdict") == "APPROVE":
+        # The hold marker is per-run metadata — a re-narration whose banter now passes
+        # must not ship a stale podcast_hold from an earlier held run of the same draft.
+        (paper.get("edition") or {}).pop("podcast_hold", None)
         try:
             path, tts_model = render_podcast(script["turns"], language=lang)
             paper["podcast"] = {
