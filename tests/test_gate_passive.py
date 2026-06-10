@@ -16,7 +16,7 @@ def test_minutes_since_parses_and_handles_garbage():
 
 
 def _wire(monkeypatch, *, status, verdicts):
-    monkeypatch.setattr(cli, "_edition_generated_at", lambda d, p: None)
+    monkeypatch.setattr(cli, "_edition_paper", lambda d, p: None)
     monkeypatch.setattr(cli, "_already_live", lambda d: False)
     monkeypatch.setattr(cli, "_host_validate", lambda d: (True, []))
     monkeypatch.setattr(review, "read_status", lambda d, **k: status)

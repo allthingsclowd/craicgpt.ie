@@ -124,25 +124,84 @@ def test_cmd_narrate_enriches_and_reports(monkeypatch, capsys):
 
 
 # --- content-aware already-live (versioning idempotency) --------------------
+def _mini_paper(generated_at, *, narrated=False):
+    """A minimal edition: 1 headliner + 1 fun item, optionally audio-enriched."""
+    audio = "/tmp/audio/x.mp3" if narrated else None
+    return {
+        "generated_at": generated_at,
+        "ai": {"headliner": {"title": "h", "audio_url": audio},
+               "subarticles": [], "shorts": []},
+        "fun": [{"title": "f", "audio_url": audio}],
+        "podcast": {"audio_url": audio} if narrated else None,
+        "podcast_tldr": None,
+    }
+
+
 def test_already_live_is_content_aware(monkeypatch):
     """The gate republishes when the draft differs from what's live (incl. a stale
     cross-date object), but is a no-op when the live edition IS the current draft."""
     from content_pipeline.agent import cli
 
-    gens = {}
-    monkeypatch.setattr(cli, "_edition_generated_at", lambda date, prefix: gens.get(prefix))
+    papers = {}
+    monkeypatch.setattr(cli, "_edition_paper", lambda date, prefix: papers.get(prefix))
+    # The local draft mirrors the preview (un-narrated) in these scenarios.
+    monkeypatch.setattr(cli, "_load_draft", lambda date, language=None: papers["preview"])
 
     # Stale cross-content live (incident takedown) vs a newer draft → NOT live → republish.
-    gens.update(content="2026-06-03T21:46:00Z", preview="2026-06-04T11:50:00Z")
+    papers.update(content=_mini_paper("2026-06-03T21:46:00Z"),
+                  preview=_mini_paper("2026-06-04T11:50:00Z"))
     assert cli._already_live("2026-06-04") is False
 
     # The current edition is already the latest → already-live → skip (no dup version).
-    gens.update(content="2026-06-04T11:50:00Z", preview="2026-06-04T11:50:00Z")
+    papers.update(content=_mini_paper("2026-06-04T11:50:00Z"),
+                  preview=_mini_paper("2026-06-04T11:50:00Z"))
     assert cli._already_live("2026-06-04") is True
 
     # Nothing live yet → not live.
-    gens.update(content=None, preview="2026-06-04T11:50:00Z")
+    papers.update(content=None, preview=_mini_paper("2026-06-04T11:50:00Z"))
     assert cli._already_live("2026-06-04") is False
+
+
+def test_already_live_is_narration_aware(monkeypatch):
+    """Narration enriches the LOCAL draft after generation; `generated_at` does not
+    change. If the gate promoted the edition audio-less before narrate finished
+    (the 2026-06-10 race), the next poll must see the narrated draft as NEW and
+    republish — else the audio is stranded on disk forever."""
+    from content_pipeline.agent import cli
+
+    gen = "2026-06-10T05:00:02Z"
+    papers = {"content": _mini_paper(gen), "preview": _mini_paper(gen)}
+    local = {"paper": _mini_paper(gen, narrated=True)}
+    monkeypatch.setattr(cli, "_edition_paper", lambda date, prefix: papers.get(prefix))
+    monkeypatch.setattr(cli, "_load_draft", lambda date, language=None: local["paper"])
+
+    # Same generated_at, but the local draft gained audio the live edition lacks
+    # → NOT already-live → the gate re-promotes (audio reaches the site).
+    assert cli._already_live("2026-06-10") is False
+
+    # Once the narrated draft IS live, polls go back to no-op (no version churn).
+    papers["content"] = _mini_paper(gen, narrated=True)
+    assert cli._already_live("2026-06-10") is True
+
+    # A draft that LOST narration (or a fresh un-narrated restage) must never
+    # un-publish live audio — equal-or-less enrichment stays already-live.
+    local["paper"] = _mini_paper(gen)
+    assert cli._already_live("2026-06-10") is True
+
+
+def test_already_live_survives_unreadable_local_draft(monkeypatch):
+    """If the local draft can't be read (gate on another host, file gone), fall back
+    to the plain generated_at comparison — never crash the poll."""
+    from content_pipeline.agent import cli
+
+    gen = "2026-06-10T05:00:02Z"
+    monkeypatch.setattr(cli, "_edition_paper",
+                        lambda date, prefix: _mini_paper(gen))
+
+    def _boom(date, language=None):
+        raise OSError("no draft anywhere")
+    monkeypatch.setattr(cli, "_load_draft", _boom)
+    assert cli._already_live("2026-06-10") is True
 
 
 # --- multi-lingual CLI primitives -------------------------------------------
