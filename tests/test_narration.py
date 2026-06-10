@@ -242,3 +242,15 @@ def test_banterless_fallback_render_failure_is_soft():
         grade=_hold, render_podcast=_render_only_tldr)
     assert paper["podcast"] is None                      # soft, like every render failure
     assert "bad" in paper["edition"]["podcast_hold"]
+
+
+def test_approved_banter_clears_a_stale_hold_from_a_prior_run():
+    """Re-narrating a draft whose previous run was held must not ship the old
+    podcast_hold next to an approved podcast — the hold is per-run metadata."""
+    paper = _sample()
+    paper["edition"] = {"podcast_hold": ["meta-commentary, not banter"]}
+    paper = narration.narrate_paper(
+        paper, narrate_article=_fake_article, build_script=_fake_build,
+        grade=_approve, render_podcast=_fake_render)
+    assert paper["podcast"]["rubric"]["verdict"] == "APPROVE"
+    assert "podcast_hold" not in paper["edition"]
