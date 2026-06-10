@@ -46,3 +46,14 @@ def test_uses_the_podcast_rubric_not_the_edition_rubric(monkeypatch):
     monkeypatch.setattr(rr, "_grade_once", _capture)
     rr.grade_podcast_script("GRAHAM: Morning.")
     assert seen["rubric"] == rr.PODCAST_RUBRIC
+
+
+def test_podcast_rubric_sanctions_the_parody_personas():
+    """The judge must be told the punny parody bylines are house satire (2026-06-10: a
+    judge run held the banter SOLELY for naming 'Ronald Dump' et al. — a false positive
+    the rubric scoping prevents). The contract we can test offline: the scoping note is
+    actually in the rubric the judge receives."""
+    r = rr.PODCAST_RUBRIC.lower()
+    assert "parody" in r and "satire" in r
+    assert "ronald dump" in r          # a concrete example the judge can anchor on
+    assert "do not fail" in r
