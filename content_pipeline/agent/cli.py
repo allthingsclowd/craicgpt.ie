@@ -522,36 +522,67 @@ def cmd_verdict(args) -> int:
     return 0
 
 
-def _edition_generated_at(date_iso: str, prefix: str) -> Optional[str]:
-    """The ``generated_at`` of the edition currently at ``<prefix>/<date>``, or None."""
+def _edition_paper(date_iso: str, prefix: str) -> Optional[dict]:
+    """The edition JSON currently at ``<prefix>/<date>``, or None if absent/unreadable."""
     from content_pipeline.agent.publish import _default_s3, s3_key
     from content_pipeline.content_config import content_cfg
 
     try:
         obj = _default_s3().get_object(Bucket=content_cfg.s3_bucket,
                                        Key=s3_key(date_iso, prefix))
-        return json.loads(obj["Body"].read()).get("generated_at")
+        return json.loads(obj["Body"].read())
     except Exception:  # noqa: BLE001 — missing key / unreadable → None
         return None
 
 
+def _narration_score(paper: dict) -> int:
+    """How audio-enriched an edition is: narrated items + the podcast + the TL;DR.
+
+    Used only for ORDERING (is the draft more narrated than what's live?), so a simple
+    count is enough — narration never swaps one item's audio for another's."""
+    ai = paper.get("ai") or {}
+    items = [ai.get("headliner"), *(ai.get("subarticles") or []),
+             *(ai.get("shorts") or []), *(paper.get("fun") or [])]
+    n = sum(1 for it in items if (it or {}).get("audio_url"))
+    return n + (1 if paper.get("podcast") else 0) + (1 if paper.get("podcast_tldr") else 0)
+
+
 def _already_live(date_iso: str) -> bool:
-    """True only if the LIVE edition is already the CURRENT draft (same generated_at).
+    """True only if the LIVE edition is already the CURRENT draft — same
+    ``generated_at`` AND at least as audio-enriched as the local draft.
 
     Content-aware idempotency: editions are versioned, so 'live' means 'this exact
     edition is the latest', not merely 'something exists at the key'. The gate
     therefore republishes (revs a new version) when the draft differs from what's
     live — including a STALE cross-date object left by an incident takedown — but
-    will NOT re-mint a version on every poll of an unchanged edition."""
+    will NOT re-mint a version on every poll of an unchanged edition.
+
+    Narration-aware (2026-06-10): narrate enriches the LOCAL draft in place AFTER
+    generation and does not touch ``generated_at``, so on a slow morning the gate's
+    06:00 poll can promote the edition audio-less minutes before narrate finishes.
+    Comparing ``generated_at`` alone then strands the finished audio on disk forever
+    ("already-live" every subsequent poll). So when the timestamps match, also ask:
+    did the local draft gain narration the live edition lacks? If yes → not live →
+    the next poll re-promotes (same version id, audio included). Equal-or-less
+    enrichment stays already-live, so a draft can never UN-publish live audio, and
+    re-publishing an unchanged edition still mints no new version."""
     from content_pipeline.content_config import content_cfg
 
-    live = _edition_generated_at(date_iso, content_cfg.content_prefix)
-    if not live:
+    live = _edition_paper(date_iso, content_cfg.content_prefix)
+    if not live or not live.get("generated_at"):
         return False
-    draft = _edition_generated_at(date_iso, content_cfg.preview_prefix)
-    if not draft:
+    draft = _edition_paper(date_iso, content_cfg.preview_prefix)
+    if not draft or not draft.get("generated_at"):
         return True  # nothing to compare against → treat live as authoritative
-    return live == draft
+    if live["generated_at"] != draft["generated_at"]:
+        return False
+    # Same edition — but the gate publishes the LOCAL draft (narrate only enriches
+    # the /tmp copy, never S3 preview), so that is what live must be compared with.
+    try:
+        local = _load_draft(date_iso)
+    except Exception:  # noqa: BLE001 — no local/preview draft reachable → don't churn
+        return True
+    return _narration_score(local) <= _narration_score(live)
 
 
 def cmd_consensus(args) -> int:
@@ -688,7 +719,7 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
     # The version under consideration = the current preview draft's generated_at.
     # Read THIS version's verdicts (so the gate consenses on what it will actually
     # publish, not a stale earlier version) and key the alerts to it.
-    draft_gen = _edition_generated_at(date_iso, content_cfg.preview_prefix)
+    draft_gen = (_edition_paper(date_iso, content_cfg.preview_prefix) or {}).get("generated_at")
     vid = _version_id(draft_gen) if draft_gen else None
 
     status = review.read_status(date_iso)
