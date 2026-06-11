@@ -35,9 +35,10 @@ from content_pipeline.content_config import content_cfg
 logger = logging.getLogger(__name__)
 
 # Minimums — below these the edition is structurally broken, not just light.
+# The fun desk has NO count floor (Graham, 2026-06-11): a thin — even empty — fun
+# desk publishes with what it has; each item present is still fully checked.
 MIN_SUBARTICLES = 2
 MIN_SHORTS = 8
-MIN_FUN = 4
 
 # The verdict(s) the gate requires by default. The two-VM consensus
 # ("openclaw", "hermes") is retired in favour of a single in-pipeline rubric judge
@@ -79,8 +80,6 @@ def validate_paper(paper: dict[str, Any]) -> dict[str, Any]:
         reasons.append(f"too few subarticles: {len(subs)} (need >= {MIN_SUBARTICLES})")
     if len(shorts) < MIN_SHORTS:
         reasons.append(f"too few AI shorts: {len(shorts)} (need >= {MIN_SHORTS})")
-    if len(fun) < MIN_FUN:
-        reasons.append(f"too few fun stories: {len(fun)} (need >= {MIN_FUN})")
 
     # Every AI text item needs title + body + a real source link.
     for label, items in (("subarticle", subs), ("short", shorts)):

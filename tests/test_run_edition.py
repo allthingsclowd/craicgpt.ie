@@ -247,3 +247,80 @@ def test_run_edition_records_hold_if_grader_raises():
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()), grade=boom)
     assert paper["edition"]["rubric"]["verdict"] == "HOLD"
     assert any("judge unreachable" in r for r in paper["edition"]["rubric"]["reasons"])
+
+
+# ── 2026-06-11: never hold the paper over the fun desk ───────────────────────
+def _ai_cands(n=15):
+    return [{"title": f"AI cand {i}", "summary": "s", "source_url": f"https://ai/{i}"}
+            for i in range(n)]
+
+
+def _ai_write(prompt):
+    if "AI editor" in prompt:
+        return {
+            "headliner": {"title": "Big AI Thing", "standfirst": "sf", "body": "b",
+                          "source_url": "https://ai/0"},
+            "subarticles": [{"title": f"sub{i}", "body": "b", "source_url": "https://ai/1"}
+                            for i in range(2)],
+            "shorts": [{"title": f"short{i}", "body": "b", "source_url": "https://ai/2"}
+                       for i in range(10)],
+        }
+    return {"title": "Rewritten in voice", "body": "...", "source_url": ""}
+
+
+def test_run_edition_publishes_a_thin_fun_desk_instead_of_holding():
+    """Graham (2026-06-11): worst case, publish with what you have — a thin fun
+    desk must never hold the whole paper. (The no-repeat rule is untouched.)"""
+    fun_c = [{"title": "Only sketch", "summary": "s", "source_url": "https://f/0"},
+             {"title": "Only ride-out", "summary": "s", "source_url": "https://f/1"}]
+    paper = run_edition("2026-06-02", generated_at="t",
+                        agent=_ResearchAgent(fun_c, _ai_cands()),
+                        write_generate=_ai_write,
+                        link_fetch=lambda url: 200,
+                        recent_keys=set(),
+                        ai_feed_fetch=lambda url: None,
+                        image_generate=lambda p: ("/tmp/i.png", "flux"))
+    assert len(paper["fun"]) == 2                      # what we have, published
+    infos = [e for e in paper["context"]["agent_trace"] if e["kind"] == "tool"]
+    assert any("thin" in str(e).lower() for e in infos)  # the shortfall is traced
+
+
+def test_run_edition_publishes_with_zero_fun_when_the_pool_is_empty():
+    paper = run_edition("2026-06-02", generated_at="t",
+                        agent=_ResearchAgent([], _ai_cands()),
+                        write_generate=_ai_write,
+                        link_fetch=lambda url: 200,
+                        recent_keys=set(),
+                        ai_feed_fetch=lambda url: None,
+                        image_generate=lambda p: ("/tmp/i.png", "flux"))
+    assert paper["fun"] == []
+    assert paper["ai"]["headliner"]["title"] == "Big AI Thing"  # the paper still ships
+    assert all(not r.startswith("fun.") for r in paper["layout"])
+
+
+def test_run_edition_retries_a_flaky_fun_harvest(monkeypatch):
+    """The 2026-06-11 outage: one transient harvest failure at 05:00 killed the
+    day's paper. The harvest is now retried before any fallback."""
+    from content_pipeline.agent import editor_in_chief as eic
+
+    calls = {"n": 0}
+
+    def flaky_harvest(**kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise RuntimeError("transient DNS wobble")
+        return [{"title": f"Recovered upload {i}", "summary": "s",
+                 "source_url": f"https://yt/{i}", "source": f"Creator {i}",
+                 "_creator": f"Creator {i}"} for i in range(6)]
+
+    monkeypatch.setattr(eic.feeds, "harvest_fun_candidates", flaky_harvest)
+    monkeypatch.setattr(eic, "_HARVEST_RETRY_DELAY_S", 0)
+    paper = run_edition("2026-06-02", generated_at="t",
+                        agent=_ResearchAgent([], _ai_cands()),
+                        write_generate=_ai_write,
+                        link_fetch=lambda url: 200,
+                        recent_keys=set(),
+                        ai_feed_fetch=lambda url: "ignored-by-stub",
+                        image_generate=lambda p: ("/tmp/i.png", "flux"))
+    assert calls["n"] == 3                              # two failures, then success
+    assert len(paper["fun"]) == 5                       # written from the recovered pool

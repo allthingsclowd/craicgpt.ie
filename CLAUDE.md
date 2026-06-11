@@ -12,8 +12,12 @@ refreshingly free of doom. Each morning it generates a fresh edition with two de
 
 1. An **AI-landscape desk** — what changed in the AI world in the last 24 hours
    (1 headliner + 2 subarticles + 10 shorts), in Graham's house voice.
-2. A **fun desk** — an Irish-creator digest that credits real creators (Foil Arms
-   and Hog, The 2 Johnnies, Graham Norton…) rewritten as 5 short pieces.
+2. A **Craic & Throttle desk** — a creator digest that credits real creators:
+   Irish AND British comedians (deliberate bias for female comedians — Sarah
+   Millican, Katherine Ryan, Rosie Jones…) plus ALL things Honda motorcycles
+   (official Honda moto channels + UK bike press filtered to Honda), rewritten as
+   up to 5 short pieces. Freshness-first (24h → 48h → 96h ladder, ranked by view
+   count); a thin desk publishes short — it NEVER holds the paper.
 
 It is built **open-source-first**: the work is done by local models on the grazlab
 homelab fleet (reached through one **LiteLLM proxy**), with a frontier model as a
@@ -85,9 +89,11 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │      tools: web_search (Serper API), fetch_page, validate_link
    │
    ├─ 2. HARVEST + CURATE (deterministic) — merge curated RSS/Atom feeds
-   │      (research/ai_sources.py, research/fun_sources.py), then drop grim/
-   │      political, recently-published, duplicate and UNREACHABLE-source stories.
-   │      HOLD the whole edition (EditionHeld) if a desk is below its integrity floor.
+   │      (research/ai_sources.py, research/fun_sources.py — harvests RETRIED ×3),
+   │      then drop grim/political, recently-published, duplicate and
+   │      UNREACHABLE-source stories. HOLD the whole edition (EditionHeld) only if
+   │      the AI desk is below its integrity floor — the fun desk is a TARGET, not
+   │      a floor (thin/empty publishes with what we have, traced honestly).
    │
    ├─ 3. WRITE (deterministic) — generate/writer.py turns candidates into prose
    │      (AI section in one JSON call; each fun story in Graham's voice, crediting
@@ -216,7 +222,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/generate/narration.py` | `narrate_paper(paper, language=…)` — the narration step: per-article audio (best-effort, alternating voices) + the podcast (banter UNGATED since 2026-06-10; render failure stays soft) + the deterministic TL;DR bulletin + trace events. **Loops every language** (driven by `language` or `edition.language`); voice clones are reused cross-lingually; the banter is generated in-language per edition |
 | `content_pipeline/generate/personas.py` | Parody-journalist roster (assigned day-stable to each fun item) + satire disclaimer + `persona_voice_key` (persona → voice-clone key the narrator resolves) + podcast hand-off helpers (`PERSONA_SENIORITY` / `introducer_for` — younger→Tom, older→Graham — and `real_name` to decode the punny byline) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
-| `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest (AI feeds; Irish-creator YouTube feeds) |
+| `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest. Fun desk (Craic & Throttle): Irish + British comedians (female-first) + Honda moto channels + Honda-filtered UK bike press (`FUN_FEED_FILTERS`); 24/48/96h freshness ladder, ranked by YouTube view count (`_views`) |
 | `content_pipeline/research/recency.py` | Exclude stories from the last few live editions |
 | `content_pipeline/compile.py` | `build_paper` (schema v3) + `build_layout` (interleaves fun among AI shorts) |
 | `content_pipeline/providers/litellm.py` | `get_litellm_llm` (ChatOpenAI → LiteLLM proxy) + `run_with_fallback` (local-first→frontier) |
@@ -256,7 +262,8 @@ step adds them after validation; an edition without audio still validates and re
 show and the TL;DR both top & tail with our own **80s call-sign jingle** (Apple sampled
 instruments, bounced offline); `podcast_tldr` is a deterministic, word-budgeted **<180s** two-voice headline bulletin.
 
-Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **5 fun**. Each
+Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **up to 5 fun**
+(a thin pool publishes short — the fun desk never holds the paper). Each
 fun item is **either credited** (`source` = creator name, no disclaimer) **or parody**
 (`satire_disclaimer`) — never neither (enforced by `review.validate_paper`).
 Live editions are stored at `s3://<bucket>/content/<YYYY>/<MM>/<DD>/paper_content.json`
@@ -319,7 +326,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `CRAICGPT_SOURCE_LANGUAGE` (always generated natively; the rest are translations) | No | `en` |
 | `FALLBACK_TEXT_MODEL` (local cross-box) | No | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
 | `SERPER_API_KEY` | Yes (web_search) | — |
-| `MIN_AI_SOURCES` / `MIN_FUN_SOURCES` | No | `11` / `4` |
+| `MIN_AI_SOURCES` (hard floor) / `MIN_FUN_SOURCES` (target only since 2026-06-11) | No | `11` / `4` |
 | `AI_FEED_HOURS` | No | `48` |
 | `S3_BUCKET` | Yes (publish) | `craicgpt-ie-production` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | Yes (live publish) | — |

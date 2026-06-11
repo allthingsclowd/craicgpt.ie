@@ -422,7 +422,7 @@ function funCard(item) {
   art.className = `card card--fun ${isAd ? 'card--ad' : ''}`;
   // Credited Irish-creator digest → show the creator; legacy parody → show the persona.
   const funCredit = item.source || item.persona || '';
-  art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `FUN DESK · ${funCredit}`, 'gold'));
+  art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `CRAIC & THROTTLE · ${funCredit}`, 'gold'));
   const img = imageEl(item);
   if (img) art.append(img);
   art.append(headline(item.title, false));
