@@ -521,3 +521,14 @@ def test_gate_ignores_a_consumed_directive():
     g = review.gate("2026-06-03", verdicts=_HOLD2, status=COMPLETE,
                     already_live=False, valid=True, directive=directive)
     assert g["action"] == "hold"
+
+
+def test_thin_fun_desk_is_still_valid():
+    """Graham (2026-06-11): a thin — even empty — fun desk never invalidates the
+    edition; the paper publishes with what it has. Per-item checks still apply."""
+    p = good_paper()
+    p["fun"] = p["fun"][:2]
+    res = review.validate_paper(p)
+    assert res["valid"] is True, res["reasons"]
+    p["fun"] = []
+    assert review.validate_paper(p)["valid"] is True

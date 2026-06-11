@@ -45,6 +45,7 @@ class FeedItem:
     url: str
     source: str
     published: Optional[datetime] = None
+    views: Optional[int] = None  # YouTube media:statistics views — None when unstated
 
 
 def _default_fetch_text(url: str) -> Optional[str]:
@@ -105,6 +106,7 @@ def parse_feed(xml_text: str, source: str) -> list[FeedItem]:
         if _local(node.tag) not in ("item", "entry"):  # RSS <item> / Atom <entry>
             continue
         title = summary = url = guid = pub = ""
+        views: Optional[int] = None
         for child in node:
             t = _local(child.tag)
             if t == "title":
@@ -123,10 +125,19 @@ def parse_feed(xml_text: str, source: str) -> list[FeedItem]:
                 guid = _text(child)
             elif t in ("pubdate", "published", "updated", "date") and not pub:
                 pub = _text(child)
+        # YouTube nests <media:statistics views="N"> two levels down inside
+        # <media:group><media:community> — grab it wherever it sits in the entry.
+        for sub in node.iter():
+            if _local(sub.tag) == "statistics" and sub.get("views"):
+                try:
+                    views = int(sub.get("views"))
+                except ValueError:
+                    views = None
+                break
         url = url or (guid if guid.startswith("http") else "")
         if title and url:
-            items.append(FeedItem(title=title, summary=summary[:500],
-                                  url=url.strip(), source=source, published=_parse_dt(pub)))
+            items.append(FeedItem(title=title, summary=summary[:500], url=url.strip(),
+                                  source=source, published=_parse_dt(pub), views=views))
     return items
 
 
@@ -170,10 +181,30 @@ def harvest_ai_candidates(*, since_hours: int = 48, max_per_feed: int = 4,
     ]
 
 
-def harvest_fun_candidates(*, since_hours: int = 48, max_per_feed: int = 2,
-                           fetch: Optional[FetchText] = None) -> list[dict]:
-    """Harvest the curated Irish-creator feeds as fun-candidate dicts ready to merge
-    into the fun desk pool: ``{title, summary, source_url, source, _creator}``.
+# Graham's freshness rule (2026-06-11): prefer the last 24 h; widen only when the
+# pool is thin (weekends are quieter). The pool target is what makes "thin" concrete:
+# enough candidates that CHOOSING the day's five is the hard part.
+FUN_FRESHNESS_LADDER_HOURS: tuple[int, ...] = (24, 48, 96)
+FUN_MIN_POOL = 8
+
+
+def harvest_fun_candidates(*, since_hours: Optional[int] = None, max_per_feed: int = 2,
+                           fetch: Optional[FetchText] = None,
+                           feeds_list: Optional[list] = None,
+                           min_pool: Optional[int] = None) -> list[dict]:
+    """Harvest the curated creator feeds as fun-candidate dicts ready to merge into
+    the fun desk pool: ``{title, summary, source_url, source, _creator, _views}``.
+
+    Freshness ladder (Graham, 2026-06-11): one fetch pass over the widest window,
+    then client-side banding — keep the 24 h band if it already holds ``min_pool``
+    candidates, else widen to 48 h, then 96 h. Passing ``since_hours`` explicitly
+    pins a single window instead (legacy/operator use). Within the chosen band the
+    candidates are RANKED by YouTube view count (highest first; unstated views keep
+    feed order at the back) so curation picks the most-watched fresh items.
+
+    Press feeds are keyword-filtered: ``fun_sources.FUN_FEED_FILTERS`` maps a source
+    name to a required keyword (e.g. the bike-press RSS only contributes Honda
+    items); creator channels pass through unfiltered.
 
     ATTRIBUTION (Graham's hard rule): ``source_url`` is the creator's own video URL
     (straight from the feed entry — never invented), and ``source`` carries the
@@ -183,9 +214,38 @@ def harvest_fun_candidates(*, since_hours: int = 48, max_per_feed: int = 2,
     url on its ``Story`` objects. ``max_per_feed`` defaults to 2 (a creator uploads a
     handful a week — we only want their freshest), so no single creator dominates.
     """
+    from content_pipeline.research.fun_sources import FUN_FEED_FILTERS
+
+    ladder = (since_hours,) if since_hours is not None else FUN_FRESHNESS_LADDER_HOURS
+    target = FUN_MIN_POOL if min_pool is None else min_pool
+    items = harvest(feeds_list if feeds_list is not None else FUN_FEEDS,
+                    since_hours=ladder[-1], max_per_feed=max_per_feed, fetch=fetch)
+
+    # Press feeds contribute only their keyword matches (title or summary).
+    def _passes(it: FeedItem) -> bool:
+        kw = FUN_FEED_FILTERS.get(it.source)
+        return (not kw) or kw.lower() in f"{it.title} {it.summary}".lower()
+
+    items = [it for it in items if _passes(it)]
+
+    # Band: the narrowest ladder rung whose pool meets the target (else the widest).
+    now = datetime.now(timezone.utc)
+    band = items
+    for hours in ladder:
+        cutoff = now - timedelta(hours=hours)
+        rung = [it for it in items if it.published is None or it.published >= cutoff]
+        if len(rung) >= target or hours == ladder[-1]:
+            band = rung
+            if hours != ladder[0]:
+                logger.info("[feeds] fun pool thin at %dh — widened to %dh (%d items)",
+                            ladder[0], hours, len(rung))
+            break
+
+    # Most-watched first; unstated views keep their (newest-first) order at the back.
+    band = sorted(band, key=lambda it: (it.views is None, -(it.views or 0)))
+
     return [
         {"title": it.title, "summary": it.summary, "source_url": it.url,
-         "source": it.source, "_creator": it.source}
-        for it in harvest(FUN_FEEDS, since_hours=since_hours,
-                          max_per_feed=max_per_feed, fetch=fetch)
+         "source": it.source, "_creator": it.source, "_views": it.views}
+        for it in band
     ]

@@ -1,17 +1,19 @@
 """
 content_pipeline/research/fun_sources.py
 ========================================
-Curated Irish-creator registry — the fun desk's primary source pool.
+Curated creator registry — the Craic & Throttle desk's primary source pool.
 
-Graham's call (June 2026): the fun section becomes an **Irish-creator digest**.
-Instead of trawling the open web for "good news" (which the agentic researcher
-under-gathered and occasionally fabricated, see the 2026-06-04 HOLD), we harvest
-the *recent uploads* of a hand-picked roster of Irish comedians, sketch groups,
-streamers and gift shops. Every one publishes a free, dated YouTube Atom feed —
-real URLs, fresh items daily, no LLM under-searching, no 429s. Exactly the model
-this codebase prefers (``deciding-deterministic-vs-llm``). Harvested items SEED
-the fun candidate pool; the writer then rewrites each in Graham's house voice and
-the same validate / recency / floor pipeline applies.
+Graham's calls: June 2026 — the fun section becomes a creator digest (harvest a
+hand-picked roster's recent uploads instead of trawling the open web, which
+under-gathered and occasionally fabricated, see the 2026-06-04 HOLD). 2026-06-11 —
+the roster EXPANDS beyond Irish creators: **British comedians (with a deliberate
+bias for female comedians)** and **ALL things Honda motorcycles** (official Honda
+moto channels + UK bike-press RSS keyword-filtered to Honda). Every source
+publishes a free, dated RSS/Atom feed — real URLs, fresh items daily, no LLM
+under-searching, no 429s. Exactly the model this codebase prefers
+(``deciding-deterministic-vs-llm``). Harvested items SEED the fun candidate pool;
+the writer then rewrites each in Graham's house voice and the same validate /
+recency pipeline applies (the desk count is a target, never a floor).
 
 ATTRIBUTION (Graham's hard rule): **credit the creator**. Each item's
 ``source_url`` is the creator's own video URL (straight from their feed — never
@@ -72,5 +74,70 @@ _BRANDS: list[tuple[str, str]] = [
 ]
 
 # The full harvest set. Order doesn't matter — harvest caps per-feed and the
+# ── British comedians — FEMALE-FIRST (Graham's 2026-06-11 bias) ───────────────────
+# Acts with no active personal channel are covered by their OFFICIAL podcast/show
+# channel (credit the channel name — it IS the creator credit). All feeds verified
+# live 2026-06-11 (HTTP 200, entries present, recent uploads).
+_BRIT_FEMALE_COMEDIANS: list[tuple[str, str]] = [
+    ("Sarah Millican", "https://www.youtube.com/feeds/videos.xml?channel_id=UCsJd3oh_1pgv5gN7DwYxwqQ"),
+    ("Katherine Ryan", "https://www.youtube.com/feeds/videos.xml?channel_id=UCtn5D6gXAzr5mRkuNwbJPtg"),
+    ("Rosie Jones", "https://www.youtube.com/feeds/videos.xml?channel_id=UCsqXEi_M22X6seJM2yTS0VA"),
+    ("Ignore That Feeling (Fern Brady & Alison Spittle)", "https://www.youtube.com/feeds/videos.xml?channel_id=UCtVUDIntTxokVtpV7GWXf0g"),
+    ("Big Kick Energy (Maisie Adam & Suzi Ruffell)", "https://www.youtube.com/feeds/videos.xml?channel_id=UCMgOyzY6h6JjhSLQCdAV10w"),
+    ("Catherine Bohart", "https://www.youtube.com/feeds/videos.xml?channel_id=UCw9a6NNBtjzXpM8_AloWLPQ"),
+]
+
+# ── British comedy — shows, podcasts & the lads ────────────────────────────────────
+_BRIT_COMEDY: list[tuple[str, str]] = [
+    ("Taskmaster", "https://www.youtube.com/feeds/videos.xml?channel_id=UCT5C7yaO3RVuOgwP8JVAujQ"),
+    ("Off Menu (Ed Gamble & James Acaster)", "https://www.youtube.com/feeds/videos.xml?channel_id=UCgFAyHxA0MBioGICaiU6amA"),
+    ("Michael McIntyre", "https://www.youtube.com/feeds/videos.xml?channel_id=UCUFrBvQ96A-KeU6NgpemQXA"),
+    ("Romesh Ranganathan", "https://www.youtube.com/feeds/videos.xml?channel_id=UCxXd7HRiscuMWX3tlkjBHxA"),
+    ("The Romesh Ranganathan Show", "https://www.youtube.com/feeds/videos.xml?channel_id=UClEwNmkntT7j4aNTBHBLNug"),
+    ("Live At The Apollo", "https://www.youtube.com/feeds/videos.xml?channel_id=UCodptbjdNf75jEmin8sFZrg"),
+    ("BBC Comedy Greats", "https://www.youtube.com/feeds/videos.xml?channel_id=UC7foTxErVJKorAitAcJuqDA"),
+]
+
+# ── Honda motorcycles — official channels (Graham rides these) ─────────────────────
+# NB: the real Honda UK channel is "HondaVideo" (mixed cars+bikes → keyword-filtered
+# below); the @hondaukmootorcycles channel claiming "Official Honda UK Motorcycles"
+# is an impersonator/clip-farm — verified and rejected 2026-06-11.
+_HONDA_MOTO: list[tuple[str, str]] = [
+    ("Honda Motorcycles Europe", "https://www.youtube.com/feeds/videos.xml?channel_id=UCEIR3GF5KiYoOVLIWCTnX-w"),
+    ("Honda UK", "https://www.youtube.com/feeds/videos.xml?channel_id=UC2AZ6JaAKk9n5CjBOPUCh7A"),
+    ("Honda Racing HRC", "https://www.youtube.com/feeds/videos.xml?channel_id=UCmG3C3Z2IVZmsj8yj7PJljA"),
+    ("Honda Powersports", "https://www.youtube.com/feeds/videos.xml?channel_id=UCg5wc0GIeSaBlKBOSD5MWVw"),
+]
+
+# ── UK bike press (general feeds — Honda items only, via FUN_FEED_FILTERS) ─────────
+_BIKE_PRESS: list[tuple[str, str]] = [
+    ("MCN", "https://www.motorcyclenews.com/news/rss/"),
+    ("Visordown", "https://www.visordown.com/rss"),
+    ("Superbike News", "https://superbike-news.co.uk/feed/"),
+    ("MoreBikes", "https://www.morebikes.co.uk/feed/"),
+]
+
+# ── Comedian blogs with live RSS (rare beasts) ─────────────────────────────────────
+_COMEDY_BLOGS: list[tuple[str, str]] = [
+    ("Stewart Lee", "https://www.stewartlee.co.uk/feed/"),
+    ("Sarah Millican's blog", "https://sarahmillican.co.uk/feed/"),
+]
+
+# Press feeds are GENERAL outlets — only their keyword matches may enter the fun
+# pool (source name -> required keyword, matched case-insensitively against
+# title+summary). Creator channels are never filtered; Honda UK's mixed cars+bikes
+# channel only contributes its motorcycle uploads.
+FUN_FEED_FILTERS: dict[str, str] = {
+    "MCN": "honda",
+    "Visordown": "honda",
+    "Superbike News": "honda",
+    "MoreBikes": "honda",
+    "Honda UK": "motorcycle",
+}
+
 # curation step picks the final N afterwards.
-FUN_FEEDS: list[tuple[str, str]] = _GROUPS + _COMEDIANS + _STREAMERS + _BRANDS
+FUN_FEEDS: list[tuple[str, str]] = (
+    _GROUPS + _COMEDIANS + _STREAMERS + _BRANDS
+    + _BRIT_FEMALE_COMEDIANS + _BRIT_COMEDY
+    + _HONDA_MOTO + _BIKE_PRESS + _COMEDY_BLOGS
+)

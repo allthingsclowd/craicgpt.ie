@@ -274,6 +274,31 @@ def _cap_animal_stories(stories: list, limit: int = 1) -> list:
     return others + animals[:limit]
 
 
+# One transient feed-harvest failure at 05:00 must not cost the day's paper
+# (2026-06-11): retry a few times with a short pause before any fallback. The
+# delay is a module constant so tests can zero it.
+_HARVEST_RETRY_DELAY_S = 20
+
+
+def _harvest_with_retry(harvest, *, attempts: int = 3, desc: str = "feeds") -> list:
+    """Run a zero-arg harvest callable up to ``attempts`` times; an exception OR an
+    empty result triggers a retry (both presented identically on 2026-06-11).
+    Returns the first non-empty result, else [] — never raises."""
+    result: list = []
+    for i in range(attempts):
+        try:
+            result = harvest() or []
+        except Exception as exc:  # noqa: BLE001 — harvest is best-effort
+            logger.warning("[run_edition] %s harvest attempt %d/%d failed: %s",
+                           desc, i + 1, attempts, exc)
+            result = []
+        if result:
+            return result
+        if i < attempts - 1:
+            time.sleep(_HARVEST_RETRY_DELAY_S)
+    return result
+
+
 def _curate_fun(fun_candidates: list, *, fetch, exclude_keys: Optional[set] = None) -> list:
     """Build Story objects from the fun candidates and curate to N: grim/political
     filter, recency exclusion, dedupe, LINK VALIDATION (drops unreachable sources
@@ -641,16 +666,14 @@ def run_edition(
         # piece. Best-effort; if the harvest is dry we fall back to any agent fun
         # candidates so the desk degrades rather than starves.
         fun_credit: dict[str, str] = {}
-        try:
-            fun_c = feeds.harvest_fun_candidates(
-                since_hours=content_cfg.fun_feed_hours, fetch=ai_feed_fetch)
-            if fun_c:
-                logger.info("[run_edition] %d fun candidates from Irish-creator feeds", len(fun_c))
-                trace.tool_call("harvest_fun_feeds", f"{len(fun_c)} items",
-                                result="curated Irish-creator uploads")
-        except Exception as exc:  # noqa: BLE001 — harvest is best-effort
-            logger.warning("[run_edition] fun feed harvest failed (%s); agent candidates only", exc)
-            fun_c = []
+        # RETRIED harvest (2026-06-11: one transient failure at 05:00 cost the whole
+        # day's paper) — a flaky DNS/network moment self-heals before any fallback.
+        fun_c = _harvest_with_retry(
+            lambda: feeds.harvest_fun_candidates(fetch=ai_feed_fetch), desc="fun feeds")
+        if fun_c:
+            logger.info("[run_edition] %d fun candidates from creator feeds", len(fun_c))
+            trace.tool_call("harvest_fun_feeds", f"{len(fun_c)} items",
+                            result="curated comedy + Honda-moto uploads, freshest-first")
         if not fun_c:  # degrade to the agent's fun candidates rather than starve
             fun_c = _read_candidates(files, "/research/fun_candidates.json")
         for c in fun_c:
@@ -661,16 +684,15 @@ def run_edition(
         # dated items — so it never starves on the agent's yield alone (2026-06-04:
         # the agent wrote only 7 → HELD). Best-effort; merged then de-duped /
         # link-validated / recency-filtered downstream like any candidate.
-        try:
-            harvested = feeds.harvest_ai_candidates(
-                since_hours=content_cfg.ai_feed_hours, fetch=ai_feed_fetch)
-            if harvested:
-                logger.info("[run_edition] +%d AI candidates from curated feeds", len(harvested))
-                trace.tool_call("harvest_ai_feeds", f"{len(harvested)} items",
-                                result="curated RSS/Atom sources")
-            ai_c = ai_c + harvested
-        except Exception as exc:  # noqa: BLE001 — harvest is best-effort
-            logger.warning("[run_edition] AI feed harvest failed (%s); agent candidates only", exc)
+        harvested = _harvest_with_retry(
+            lambda: feeds.harvest_ai_candidates(
+                since_hours=content_cfg.ai_feed_hours, fetch=ai_feed_fetch),
+            desc="AI feeds")
+        if harvested:
+            logger.info("[run_edition] +%d AI candidates from curated feeds", len(harvested))
+            trace.tool_call("harvest_ai_feeds", f"{len(harvested)} items",
+                            result="curated RSS/Atom sources")
+        ai_c = ai_c + harvested
         search_fails = _search_failures(result.get("messages", []))
         if not ai_c and not fun_c:
             reasons = ["no research candidates were gathered"]
@@ -703,10 +725,6 @@ def run_edition(
                 f"only {len(ai_valid)} usable AI source(s) — need "
                 f">= {content_cfg.min_ai_sources} (from {len(ai_c)} candidate(s); "
                 f"{len(ai_dropped)} dropped as grim / recent / dupe / unreachable)")
-        if len(fun_picks) < content_cfg.min_fun_sources:
-            held.append(
-                f"only {len(fun_picks)} usable fun source(s) — need "
-                f">= {content_cfg.min_fun_sources} (from {len(fun_c)} candidate(s))")
         if held:
             if recent_keys:
                 held.append(f"(fresh-only: stories from the last {n_recent or 'few'} "
@@ -715,6 +733,19 @@ def run_edition(
                 held.append("web search degraded: " + "; ".join(search_fails))
             logger.error("[run_edition] HOLDING %s — %s", date_iso, "; ".join(held))
             raise EditionHeld(held)
+        # The fun desk floor is SOFT (Graham, 2026-06-11): a thin — even empty — fun
+        # pool must never hold the whole paper. Publish with what we have, say so
+        # honestly, and let tomorrow's pool refill. The no-repeat rule is NOT relaxed
+        # to fill the gap, and fabrication remains structurally impossible.
+        if len(fun_picks) < content_cfg.min_fun_sources:
+            logger.warning(
+                "[run_edition] fun desk thin: %d usable (target %d, from %d candidate(s))"
+                " — publishing with what we have",
+                len(fun_picks), content_cfg.min_fun_sources, len(fun_c))
+            trace.tool_call(
+                "fun_desk_thin", f"{len(fun_picks)} item(s) (target "
+                f"{content_cfg.min_fun_sources})",
+                result="publishing short — the fun desk never holds the paper")
 
         trace.vfs("read", f"/research/ai_candidates.json "
                           f"({len(ai_c)} candidates, {len(ai_valid)} usable)")

@@ -5,7 +5,8 @@ These cover the deterministic defenses in editor_in_chief.run_edition:
   * _validate_ai_candidates drops grim/political, duplicate, unreachable, and
     recently-published candidates (the AI desk previously had NO curation);
   * run_edition HOLDs (EditionHeld) when too few real, fresh sources survive on
-    either desk, naming the cause (incl. 'web search degraded' / 'fresh-only');
+    the AI desk, naming the cause (incl. 'web search degraded' / 'fresh-only');
+    the fun desk is a TARGET (2026-06-11) — thin publishes short, never holds;
   * _search_failures surfaces the web_search SEARCH_FAILED sentinel so the HOLD
     can say WHY search failed.
 All offline (link fetch + recency injected; writer/image stubbed).
@@ -96,12 +97,15 @@ def test_run_edition_holds_when_ai_below_floor():
     assert "AI source" in str(exc.value)
 
 
-def test_run_edition_holds_when_fun_below_floor():
-    agent = _ResearchAgent(_fun(2), _ai(13))  # 2 fun < min 4
-    with pytest.raises(EditionHeld) as exc:
-        run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
-                    link_fetch=lambda url: 200, recent_keys=set(), ai_feed_fetch=_NOFEED, image_generate=_IMG)
-    assert "fun source" in str(exc.value)
+def test_run_edition_publishes_short_when_fun_below_target():
+    # Graham (2026-06-11): the fun desk is a TARGET, not a floor — a thin pool
+    # publishes with what it has rather than holding the paper. (The AI floor and
+    # the link/fabrication guardrails below are unchanged.)
+    agent = _ResearchAgent(_fun(2), _ai(13))  # 2 fun < target 4
+    paper = run_edition("2026-06-02", generated_at="t", agent=agent, write_generate=_writer,
+                        link_fetch=lambda url: 200, recent_keys=set(),
+                        ai_feed_fetch=_NOFEED, image_generate=_IMG)
+    assert len(paper["fun"]) == 2
 
 
 def test_run_edition_holds_when_links_unreachable():

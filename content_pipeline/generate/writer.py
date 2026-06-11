@@ -135,8 +135,9 @@ _AI_PROMPT = (
 )
 
 _FUN_PROMPT = (
-    "Rewrite this recent video from the Irish creator {source} as a punchy Craic "
-    "Gazette fun piece, written in GRAHAM'S house voice: Irish, witty, gently "
+    "Rewrite this recent item from the creator {source} as a punchy piece for the "
+    "Craic Gazette's CRAIC & THROTTLE desk (comedy + Honda motorcycles), written in "
+    "GRAHAM'S house voice: Irish, witty, gently "
     "cynical — 'the Scripting Paddy'. You are NOT impersonating {source}; you are "
     "Graham riffing on what they've just put out and pointing readers their way.\n"
     "Max 130 words, PG-13, warm. NAME-CHECK and CREDIT the creator ({source}) in the "
@@ -150,8 +151,9 @@ _FUN_PROMPT = (
 # carries both the creator credit (``source``) and a satire disclaimer (the voice is
 # the parody). Keeps URL fidelity — the creator's real link, never invented.
 _FUN_PERSONA_PROMPT = (
-    "Write a punchy Craic Gazette fun piece about this recent video from the Irish "
-    "creator {source}, but written ENTIRELY in the unmistakable comic voice of "
+    "Write a punchy piece for the Craic Gazette's CRAIC & THROTTLE desk (comedy + "
+    "Honda motorcycles) about this recent item from the creator {source}, written "
+    "ENTIRELY in the unmistakable comic voice of "
     "{persona}.\n"
     "VOICE — {persona}: {voice_brief}\n"
     "Commit fully to {persona}'s tone, rhythm and catchphrases — this is an obvious "
@@ -196,7 +198,7 @@ def write_fun_story(
     persona: Optional[str] = None,
     generate: Optional[Generate] = None,
 ) -> dict:
-    """Rewrite one Irish creator's recent item, crediting them.
+    """Rewrite one creator's recent item (comedy or Honda moto), crediting them.
 
     ATTRIBUTION (Graham's hard rule): ``source`` is the CREATOR'S NAME — it is
     name-checked in the copy and returned on the ``source`` field as the credit /
