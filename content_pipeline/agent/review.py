@@ -407,6 +407,53 @@ def remove_items(paper: dict, titles: Iterable[str]) -> tuple[dict, list[dict]]:
     paper["ai"] = ai
     if "fun" in paper:
         paper["fun"] = _filter(paper.get("fun"), "fun")
+    # Rebuild the index-based layout so it doesn't dangle/misrender after a drop.
+    if dropped:
+        from content_pipeline.compile import recompile_layout
+
+        recompile_layout(paper)
+    return paper, dropped
+
+
+def drop_refs(paper: dict, refs: Iterable[str]) -> tuple[dict, list[dict]]:
+    """Drop list-section items by LAYOUT REF (``ai.subarticles.N`` / ``ai.shorts.N`` /
+    ``fun.N``) and rebuild the layout. Ref-based (vs :func:`remove_items`' title match)
+    so the per-article gate drops EXACTLY the flagged item with no collateral. The
+    ``ai.headliner`` ref is never dropped here (a fabricated headliner is handled
+    separately — promote or hard-hold). Returns ``(new_paper, dropped)``."""
+    import copy
+
+    paper = copy.deepcopy(paper)
+    ai = paper.get("ai") or {}
+    # Collect indices to drop per section, descending so removal doesn't reindex.
+    buckets: dict[str, list[int]] = {"ai.subarticles": [], "ai.shorts": [], "fun": []}
+    dropped: list[dict] = []
+    for ref in refs:
+        parts = str(ref).split(".")
+        if parts[:2] == ["ai", "subarticles"] and len(parts) == 3:
+            buckets["ai.subarticles"].append(int(parts[2]))
+        elif parts[:2] == ["ai", "shorts"] and len(parts) == 3:
+            buckets["ai.shorts"].append(int(parts[2]))
+        elif parts[0] == "fun" and len(parts) == 2:
+            buckets["fun"].append(int(parts[1]))
+        # ai.headliner (or anything else) is intentionally ignored here.
+
+    def _drop(items: list, idxs: list[int], section: str) -> list:
+        keep = list(items or [])
+        for i in sorted(set(idxs), reverse=True):
+            if 0 <= i < len(keep):
+                dropped.append({"section": section, "title": (keep[i] or {}).get("title", "")})
+                keep.pop(i)
+        return keep
+
+    ai["subarticles"] = _drop(ai.get("subarticles"), buckets["ai.subarticles"], "ai.subarticles")
+    ai["shorts"] = _drop(ai.get("shorts"), buckets["ai.shorts"], "ai.shorts")
+    paper["ai"] = ai
+    paper["fun"] = _drop(paper.get("fun"), buckets["fun"], "fun")
+    if dropped:
+        from content_pipeline.compile import recompile_layout
+
+        recompile_layout(paper)
     return paper, dropped
 
 

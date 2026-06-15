@@ -202,11 +202,18 @@ def cmd_run(args) -> int:
     # written to S3 so the gate can consense on it. A local `run` (no --publish-draft)
     # skips the live judge call.
     grade = None
+    remediate = None
     if getattr(args, "publish_draft", False):
+        from content_pipeline.agent.article_review import auto_remediate
         from content_pipeline.agent.rubric_review import grade_edition
         grade = grade_edition
+        # Per-article gate: drop fabricated/dead-link articles + publish the valid
+        # rest (a fabricated headliner promotes a valid story; unfixable → EditionHeld
+        # HARD hold). Runs before grade + narration so both see the cleaned edition.
+        remediate = auto_remediate
     try:
-        paper = run_edition(date_iso, generated_at=gen, recent_keys=recent_keys, grade=grade)
+        paper = run_edition(date_iso, generated_at=gen, recent_keys=recent_keys,
+                            grade=grade, remediate=remediate)
     except EditionHeld as held:
         reasons = held.reasons or ["edition held"]
         logging.error("[cli] edition %s HELD — nothing published: %s",

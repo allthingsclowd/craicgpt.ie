@@ -588,6 +588,7 @@ def run_edition(
     image_generate=None,
     write_generate=None,
     grade=None,
+    remediate=None,
 ) -> dict:
     """Run an edition and return a schema-v3 paper dict.
 
@@ -810,6 +811,33 @@ def run_edition(
         about=about,
         context={"agent_trace": agent_trace, "files": list(files)},
     )
+
+    # PER-ARTICLE GATE (runs BEFORE the edition rubric so the rubric grades a clean
+    # paper, and BEFORE narration so the podcast covers only what's published). It
+    # drops fabricated / dead-link articles and republishes the valid rest; an
+    # unfixable case (fabricated headliner with nothing to promote, an ungraded
+    # edition, or a result below the structural floors) raises EditionHeld — a HARD
+    # hold that routes through status=failed, which the gate never publishes. This is
+    # the fix for the 2026-06-15 hole where a structurally-valid but fabricated edition
+    # passive-published. Injectable (like `grade`) so unit tests stay offline.
+    if remediate is not None:
+        rem = remediate(paper)
+        if rem.get("action") == "hold":
+            logger.error("[run_edition] per-article gate HARD-HOLD %s — %s",
+                         date_iso, "; ".join(rem.get("reasons") or []))
+            raise EditionHeld(rem.get("reasons") or ["per-article gate held the edition"])
+        if rem.get("dropped") or rem.get("promoted"):
+            paper = rem["paper"]
+            paper["context"]["agent_trace"].append({
+                "kind": "remediation",
+                "name": f"Per-article gate — dropped {len(rem.get('dropped') or [])}"
+                        + (", promoted headliner" if rem.get("promoted") else ""),
+                "detail": {"dropped": rem.get("dropped") or [],
+                           "promoted": rem.get("promoted"),
+                           "info": "; ".join(rem.get("reasons") or [])},
+            })
+            logger.info("[run_edition] per-article gate cleaned %s: dropped=%s promoted=%s",
+                        date_iso, rem.get("dropped"), rem.get("promoted"))
 
     # Re-coupled review: a separate JUDGE model grades the FINISHED edition against
     # the publish rubric (replacing the old two-VM consensus). We grade the compiled

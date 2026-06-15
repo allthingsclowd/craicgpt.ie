@@ -129,6 +129,20 @@ def build_paper(
     }
 
 
+def recompile_layout(paper: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild ``paper["layout"]`` from the CURRENT item counts (in place) and return
+    the paper. Call this after dropping/promoting articles — the layout is index-based
+    (``ai.shorts.3``, ``fun.1``), so a stale layout would dangle or render the wrong
+    item once a list shrinks. Pure: no clock, no network."""
+    ai = paper.get("ai") or {}
+    paper["layout"] = build_layout(
+        len(ai.get("subarticles") or []),
+        len(ai.get("shorts") or []),
+        len(paper.get("fun") or []),
+    )
+    return paper
+
+
 def resolve_ref(paper: dict[str, Any], ref: str) -> Optional[Any]:
     """Resolve a ``layout`` reference (e.g. ``ai.shorts.3``, ``fun.0``) to its item.
 
