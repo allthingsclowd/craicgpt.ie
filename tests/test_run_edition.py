@@ -249,6 +249,37 @@ def test_run_edition_records_hold_if_grader_raises():
     assert any("judge unreachable" in r for r in paper["edition"]["rubric"]["reasons"])
 
 
+def test_run_edition_per_article_gate_drops_and_traces():
+    # The per-article gate (when wired) replaces the paper with the cleaned one and
+    # records a `remediation` trace event. Stub keeps it offline.
+    def fake_remediate(paper):
+        cleaned = {**paper}
+        cleaned["fun"] = paper["fun"][:-1]  # pretend we dropped the last fun item
+        return {"action": "publish", "paper": cleaned, "dropped": ["fun.4"],
+                "promoted": None, "reasons": ["dropped fun.4: fabricated claim"]}
+
+    paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
+                        remediate=fake_remediate)
+    assert [e["kind"] for e in paper["context"]["agent_trace"]].count("remediation") == 1
+    ev = next(e for e in paper["context"]["agent_trace"] if e["kind"] == "remediation")
+    assert ev["detail"]["dropped"] == ["fun.4"]
+
+
+def test_run_edition_per_article_gate_hard_hold_raises():
+    # An unfixable per-article verdict HARD-holds via EditionHeld (→ status=failed →
+    # gate never publishes / never passive-publishes). This is the 2026-06-15 fix.
+    from content_pipeline.agent.editor_in_chief import EditionHeld
+
+    def fake_remediate(paper):
+        return {"action": "hold", "severity": "hard", "dropped": [], "promoted": None,
+                "reasons": ["fabricated headliner and no valid story to promote"]}
+
+    with pytest.raises(EditionHeld) as exc:
+        run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
+                    remediate=fake_remediate)
+    assert any("fabricated headliner" in r for r in exc.value.reasons)
+
+
 # ── 2026-06-11: never hold the paper over the fun desk ───────────────────────
 def _ai_cands(n=15):
     return [{"title": f"AI cand {i}", "summary": "s", "source_url": f"https://ai/{i}"}
