@@ -954,8 +954,34 @@ def cmd_deploy_frontend(args) -> int:
     return 0
 
 
+def _attach_run_logfile(*, now=None):
+    """Tee all logging to a dated file (``<log_dir>/run-<UTC-date>.log``) so each run
+    is inspectable on the host — the Conductor worker doesn't persist our stdout, which
+    is why the 2026-06-16 feed collapse was invisible. Best-effort + returns the path
+    (or None) for tests; never breaks the run."""
+    import datetime as _dt
+    from pathlib import Path
+
+    try:
+        log_dir = Path(content_cfg.log_dir)
+        if not log_dir.is_absolute():
+            log_dir = Path(__file__).resolve().parents[2] / log_dir  # repo root / logs
+        log_dir.mkdir(parents=True, exist_ok=True)
+        day = (now or _dt.datetime.now(_dt.timezone.utc)).strftime("%Y-%m-%d")
+        path = log_dir / f"run-{day}.log"
+        fh = logging.FileHandler(path, encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger().addHandler(fh)
+        logging.info("[cli] run log → %s", path)
+        return path
+    except Exception as exc:  # noqa: BLE001 — logging must never sink a run
+        logging.warning("[cli] could not attach run logfile: %s", exc)
+        return None
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    _attach_run_logfile()
     args = build_parser().parse_args(argv)
     if args.command == "run":
         return cmd_run(args)
