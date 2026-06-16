@@ -109,12 +109,19 @@ _HONDA_MOTO: list[tuple[str, str]] = [
     ("Honda Powersports", "https://www.youtube.com/feeds/videos.xml?channel_id=UCg5wc0GIeSaBlKBOSD5MWVw"),
 ]
 
-# ── UK bike press (general feeds — Honda items only, via FUN_FEED_FILTERS) ─────────
+# ── Bike press (general feeds — Honda items only, via FUN_FEED_FILTERS) ────────────
+# Diversified 2026-06-16 (was MoreBikes-heavy): adding verified outlets so the moto
+# slice never collapses to one feed and carries strong Honda / CB1000GT coverage.
+# All URLs verified to return 200 + Honda items at build time; MCN 301-redirects to
+# its live RSS (httpx follow_redirects handles it).
 _BIKE_PRESS: list[tuple[str, str]] = [
     ("MCN", "https://www.motorcyclenews.com/news/rss/"),
     ("Visordown", "https://www.visordown.com/rss"),
     ("Superbike News", "https://superbike-news.co.uk/feed/"),
     ("MoreBikes", "https://www.morebikes.co.uk/feed/"),
+    ("RideApart", "https://www.rideapart.com/rss/articles/all/"),
+    ("Adventure Bike Rider", "https://www.adventurebikerider.com/feed/"),
+    ("Devitt", "https://www.devittinsurance.com/blog/feed/"),
 ]
 
 # ── Comedian blogs with live RSS (rare beasts) ─────────────────────────────────────
@@ -132,6 +139,9 @@ FUN_FEED_FILTERS: dict[str, str] = {
     "Visordown": "honda",
     "Superbike News": "honda",
     "MoreBikes": "honda",
+    "RideApart": "honda",
+    "Adventure Bike Rider": "honda",
+    "Devitt": "honda",
     "Honda UK": "motorcycle",
 }
 
@@ -141,3 +151,34 @@ FUN_FEEDS: list[tuple[str, str]] = (
     + _BRIT_FEMALE_COMEDIANS + _BRIT_COMEDY
     + _HONDA_MOTO + _BIKE_PRESS + _COMEDY_BLOGS
 )
+
+# CB1000GT bias (Graham, 2026-06-16): the new Honda sports-tourer arriving in the UK
+# this year — boost it to the top of the moto slice. Used by feeds.harvest_fun_candidates.
+CB1000GT_KEYWORDS: tuple[str, ...] = ("cb1000gt", "cb1000 gt", "cb1000")
+
+# NON-COMEDY sources = the motorcycle outlets/brands (press + Honda channels). Used to
+# detect when the fun desk has lost its COMEDIAN/creator content and shipped a
+# motorcycle-only "comedy" desk (the 2026-06-16 silent collapse) → alert, don't ship quietly.
+NON_COMEDY_SOURCES: frozenset[str] = frozenset(
+    {name for name, _ in _BIKE_PRESS} | {name for name, _ in _HONDA_MOTO}
+)
+
+
+def is_comedy_source(name: str | None) -> bool:
+    """True if a published fun item's credit is a comedian/creator (not a bike
+    outlet/brand). Press + Honda-channel credits are motorcycle filler, not comedy."""
+    return bool(name) and name not in NON_COMEDY_SOURCES
+
+
+def fun_desk_alert(fun_items: list[dict] | None, date_iso: str) -> str | None:
+    """Return an alert string when the fun desk shipped with NO comedian/creator
+    items (motorcycle/press only) — the 2026-06-16 silent collapse — else None. The
+    fun desk has no count floor (it publishes thin on purpose), so this is how a
+    creators-missing edition gets surfaced instead of shipping quietly."""
+    items = fun_items or []
+    if any(is_comedy_source((f or {}).get("source")) for f in items):
+        return None
+    return (f"🎭 CraicGPT fun desk — NO comedian items for {date_iso}: the comedy/"
+            f"creator feeds produced nothing; the desk shipped {len(items)} motorcycle/"
+            f"press item(s) only. Likely a transient feed-harvest failure — check the "
+            f"[feeds] WARN logs for skipped feeds.")
