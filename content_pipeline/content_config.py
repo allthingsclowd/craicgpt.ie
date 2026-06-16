@@ -209,6 +209,12 @@ class ContentConfig:
         default_factory=lambda: os.getenv("CRAICGPT_IMAGE_DIR", "/tmp/craicgpt-images")
     )
 
+    # Durable per-run log dir. The Conductor worker on .75 doesn't persist the cli
+    # subprocess stdout, so a transient feed failure (the [feeds] WARNINGs) was
+    # invisible (2026-06-16). The cli tees all logging to <log_dir>/run-<date>.log.
+    # Relative paths resolve to the repo root (→ /opt/craicgpt.ie/logs on .75).
+    log_dir: str = field(default_factory=lambda: os.getenv("CRAICGPT_LOG_DIR", "logs"))
+
     # ── Internationalisation (multi-lingual editions) ─────────────────────────
     # TUTORIAL: write-once, translate-many.
     # ONE English edition is researched, written and judged; it is then TRANSLATED
