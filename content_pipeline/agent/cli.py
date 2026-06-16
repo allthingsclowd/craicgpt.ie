@@ -250,6 +250,14 @@ def cmd_run(args) -> int:
         ymd = "/".join(date_iso.split("-"))
         _notify_safe("generated", date_iso, vid=vid,
                      draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json")
+        # Alert if the comedian desk came up empty (motorcycle/press only) — the desk
+        # has no floor, so this would otherwise ship silently (2026-06-16).
+        from content_pipeline.research.fun_sources import fun_desk_alert
+
+        _alert = fun_desk_alert(paper.get("fun"), date_iso)
+        if _alert:
+            logging.warning("[cli] %s", _alert)
+            _notify_safe("fun_no_comedy", date_iso, text=_alert, vid=vid)
 
         # ── Multi-lingual: translate the published English preview into each other
         #    language and publish each as its OWN preview draft, sharing the English
@@ -293,6 +301,9 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
                 version=kw.get("version"), vid=kw.get("vid"))
         elif event == "held":
             notifications.notify_held(date_iso, kw.get("reasons") or [], vid=kw.get("vid"))
+        elif event == "fun_no_comedy":
+            # Once-per-edition alert that the comedian desk came up empty.
+            notifications.notify_once("fun_no_comedy", date_iso, kw["text"], vid=kw.get("vid"))
     except Exception as exc:  # noqa: BLE001
         logging.warning("[cli] notify %s failed: %s", event, exc)
 

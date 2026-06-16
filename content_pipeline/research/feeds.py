@@ -48,8 +48,22 @@ class FeedItem:
     views: Optional[int] = None  # YouTube media:statistics views — None when unstated
 
 
-def _default_fetch_text(url: str) -> Optional[str]:
-    """Fetch a feed over HTTPS with a browser UA. Non-200/error → None (skip)."""
+class _TransientFetch(Exception):
+    """A retryable feed-fetch failure (timeout / 429 / 5xx) — distinct from a
+    permanent one (404/403) which we don't bother retrying."""
+
+
+# HTTP statuses worth a retry: rate-limit + transient server errors. A burst of
+# ~30 youtube.com/feeds requests can momentarily trip 429 (the 2026-06-16 silent
+# fun-desk collapse), and one retry with backoff recovers it instead of dropping
+# the creator for the whole day.
+_RETRYABLE_STATUS = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def _fetch_text_once(url: str) -> Optional[str]:
+    """ONE fetch attempt. Returns text on 200; None on a PERMANENT failure
+    (404/403/other non-200); raises :class:`_TransientFetch` on a retryable one
+    (network error / 429 / 5xx)."""
     import httpx
 
     from content_pipeline.content_config import WEB_USER_AGENT
@@ -59,9 +73,42 @@ def _default_fetch_text(url: str) -> Optional[str]:
             "User-Agent": WEB_USER_AGENT,
             "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
         })
-        return r.text if r.status_code == 200 else None
-    except Exception:  # noqa: BLE001 — dead feed / network / TLS → treat as absent
-        return None
+    except Exception as exc:  # noqa: BLE001 — network/TLS/timeout → retryable
+        raise _TransientFetch(f"{type(exc).__name__}: {exc}") from exc
+    if r.status_code == 200:
+        return r.text
+    if r.status_code in _RETRYABLE_STATUS:
+        raise _TransientFetch(f"HTTP {r.status_code}")
+    return None  # permanent (e.g. 404/403) — caller skips this feed
+
+
+def _retrying_fetch(once, url: str, *, attempts: int = 3, base_delay: float = 1.0,
+                    sleep=None) -> Optional[str]:
+    """Retry ``once(url)`` on transient failures with exponential backoff, LOGGING
+    each failure (so a feed never fails silently again). ``once`` returns text/None
+    terminally and raises :class:`_TransientFetch` to signal a retry. Injectable
+    ``once``/``sleep`` keep it unit-testable offline."""
+    import time as _time
+
+    sleep = sleep or _time.sleep
+    for i in range(attempts):
+        try:
+            return once(url)  # 200 text OR permanent None — both terminal
+        except _TransientFetch as exc:
+            if i < attempts - 1:
+                logger.warning("[feeds] transient fetch failure %s (%s) — retry %d/%d",
+                               url, exc, i + 1, attempts - 1)
+                sleep(base_delay * (2 ** i))
+            else:
+                logger.warning("[feeds] GAVE UP on %s after %d attempts: %s",
+                               url, attempts, exc)
+    return None
+
+
+def _default_fetch_text(url: str) -> Optional[str]:
+    """Fetch a feed over HTTPS with a browser UA, retrying transient failures.
+    Non-200/permanent → None (the feed is skipped)."""
+    return _retrying_fetch(_fetch_text_once, url)
 
 
 def _local(tag: str) -> str:
@@ -153,9 +200,11 @@ def harvest(feeds: Optional[list] = None, *, since_hours: int = 48,
     cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
     out: list[FeedItem] = []
     ok_feeds = 0
+    failed: list[str] = []
     for source, url in feeds:
         parsed = parse_feed(fetcher(url) or "", source)
         if not parsed:
+            failed.append(source)  # fetch failed OR feed returned nothing parseable
             continue
         ok_feeds += 1
         kept = 0
@@ -166,6 +215,11 @@ def harvest(feeds: Optional[list] = None, *, since_hours: int = 48,
             kept += 1
             if kept >= max_per_feed:
                 break
+    if failed:
+        # Name the dead/empty feeds — a silent collapse (2026-06-16: the comedian
+        # roster vanished, leaving a motorcycle-only "comedy" desk) must be visible.
+        logger.warning("[feeds] %d/%d feeds returned NO items: %s",
+                       len(failed), len(feeds), failed)
     logger.info("[feeds] harvested %d items from %d/%d feeds (last %dh)",
                 len(out), ok_feeds, len(feeds), since_hours)
     return out
@@ -241,8 +295,19 @@ def harvest_fun_candidates(*, since_hours: Optional[int] = None, max_per_feed: i
                             ladder[0], hours, len(rung))
             break
 
-    # Most-watched first; unstated views keep their (newest-first) order at the back.
-    band = sorted(band, key=lambda it: (it.views is None, -(it.views or 0)))
+    # CB1000GT bias (Graham, 2026-06-16): the new Honda sports-tourer just landing in
+    # the UK leads the moto slice. Tier 0 = an explicit CB1000GT mention, tier 1 = the
+    # wider CB1000 family, tier 2 = everything else; within a tier, most-watched first
+    # (unstated views to the back).
+    def _cb_rank(it: FeedItem) -> int:
+        text = f"{it.title} {it.summary}".lower()
+        if "cb1000gt" in text or "cb1000 gt" in text:
+            return 0
+        if "cb1000" in text:
+            return 1
+        return 2
+
+    band = sorted(band, key=lambda it: (_cb_rank(it), it.views is None, -(it.views or 0)))
 
     return [
         {"title": it.title, "summary": it.summary, "source_url": it.url,
