@@ -123,6 +123,45 @@ def test_cmd_narrate_enriches_and_reports(monkeypatch, capsys):
     assert report["podcast"] is True
 
 
+def test_text_is_live(monkeypatch):
+    from content_pipeline.agent import cli
+
+    monkeypatch.setattr(cli, "_edition_paper", lambda date, prefix: {"generated_at": "t"})
+    assert cli._text_is_live("2026-06-17") is True
+    monkeypatch.setattr(cli, "_edition_paper", lambda date, prefix: None)
+    assert cli._text_is_live("2026-06-17") is False
+
+
+def test_cmd_narrate_publishes_live_only_when_text_live(monkeypatch, capsys):
+    """Incremental audio: narrate --publish --live re-publishes a language LIVE only
+    when the gate already promoted the text; a held edition stays in preview."""
+    import json as _json
+
+    from content_pipeline.agent import cli
+
+    enriched = {"ai": {"headliner": {"title": "H", "audio_url": "u"}, "subarticles": [],
+                       "shorts": []}, "fun": [], "podcast": None, "edition": {}}
+    monkeypatch.setattr(cli, "_load_edition", lambda *a, **k: {
+        "ai": {"headliner": {"title": "H"}, "subarticles": [], "shorts": []}, "fun": []})
+    monkeypatch.setattr("content_pipeline.generate.narration.narrate_paper",
+                        lambda paper, **kw: enriched)
+    captured = {}
+    monkeypatch.setattr(
+        "content_pipeline.agent.publish.publish_paper",
+        lambda paper, date, live=False, language=None: captured.update(live=live) or "key")
+
+    monkeypatch.setattr(cli, "_text_is_live", lambda date: False)  # gate held → preview
+    cli.cmd_narrate(build_parser().parse_args(
+        ["narrate", "--date", "2026-06-17", "--publish", "--live"]))
+    assert captured["live"] is False
+    _json.loads(capsys.readouterr().out)  # drain
+
+    monkeypatch.setattr(cli, "_text_is_live", lambda date: True)  # gate published → live
+    cli.cmd_narrate(build_parser().parse_args(
+        ["narrate", "--date", "2026-06-17", "--publish", "--live"]))
+    assert captured["live"] is True
+
+
 # --- content-aware already-live (versioning idempotency) --------------------
 def _mini_paper(generated_at, *, narrated=False):
     """A minimal edition: 1 headliner + 1 fun item, optionally audio-enriched."""
