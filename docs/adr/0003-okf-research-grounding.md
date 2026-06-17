@@ -54,3 +54,24 @@ The judge remains independent: the bundle is *research*, not the writer's reason
   writer's qwen3.6 "INTERIM"; the live default is the independent `qwen3-coder-next`).
 - Format only — no dependency on Google's `enrichment-agent` or the `mdcode`/`kcmd`
   toolchain.
+
+## Addendum (2026-06-17) — extend grounding to the per-article gate + publish the remainder
+
+The first cut grounded only the **edition rubric** (`grade_edition`). The **per-article
+fabrication gate** (`agent/article_review.py`) was a separate, ungrounded path, so it
+still graded prose against the model's training data — and on 2026-06-17 it false-HELD
+a TRUE story ("SpaceX acquires Cursor, $60B"), holding the whole edition.
+
+- The OKF bundle now rides on `paper["edition"]["okf"]` **before the gates**, so
+  `article_review.auto_remediate` → `grade_articles` → `_labelled_view` prepend each
+  article's **GROUND TRUTH** (matched by `source_url`) and `_FABRICATION_PROMPT` flags
+  only prose that **contradicts or invents beyond** it — phrased identically to geek's
+  `research/article_gate.py`.
+- **Publish the valid remainder.** `_pick_promotion` required an *http* image, but
+  images are local paths until `publish_paper` (after the gate) — so promotion always
+  failed and any dropped headliner hard-held the edition. It now accepts a **present**
+  image (local or http); `validate_paper(require_http_images=False)` is used at gate
+  time (the publish gate still enforces http post-upload); and if a promoted lead lacks
+  an image, `run_edition` regenerates one. Hard-hold only when nothing valid remains.
+- Parity: geek already had both behaviours — this brings craicgpt level. See both
+  repos' `docs/content-generation-and-validation.md`.

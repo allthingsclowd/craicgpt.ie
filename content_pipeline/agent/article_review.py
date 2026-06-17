@@ -38,19 +38,53 @@ logger = logging.getLogger(__name__)
 # only ever DROP an article on a clear, on-its-face fabrication; a false drop loses
 # a good story, a false keep ships a hallucination, so we bias toward keeping unless
 # the judge is confident.
+#
+# GROUNDED (2026-06-17): each article is preceded by its GROUND TRUTH — the
+# code-verified, link-validated research it was written from (the OKF bundle). The
+# judge checks the prose against THAT, not its training data, so a true-but-recent
+# story (e.g. a fresh acquisition newer than the model's cutoff) is no longer
+# false-flagged. Phrased to match geek's research/article_gate.py.
 _FABRICATION_PROMPT = (
     "You are CraicGPT's fact-integrity sub-editor. Below are today's articles, each "
-    "tagged with a [ref]. Some MAY contain FABRICATED claims about real, named "
-    "entities — invented events, products, orders or quotes presented as factual "
-    "news (a hallucination), even when the source link looks real. Identify ONLY the "
-    "articles with a clear, on-its-face fabrication. Do NOT flag an article merely "
-    "because you cannot verify it, because it is brief, or because it is light satire "
-    "that is obviously comedic. When in doubt, DO NOT flag it.\n\n"
+    "tagged with a [ref] and, where available, preceded by its GROUND TRUTH — the "
+    "code-verified, link-validated research the article was written from. The ground "
+    "truth is AUTHORITATIVE: its events are REAL and its source resolves, even if they "
+    "are newer than anything you have seen — never question whether a story 'really "
+    "happened' when its ground truth backs it.\n\n"
+    "Flag an article ONLY if its prose CONTRADICTS or INVENTS BEYOND its ground truth: "
+    "a named event, product, order, quote or figure that the ground truth does not "
+    "support, presented as factual news. Do NOT flag an article merely because you "
+    "cannot personally verify it, because it is brief, or because it is light satire "
+    "that is obviously comedic (a [marked parody] item is never a fabrication). When "
+    "in doubt, DO NOT flag it.\n\n"
     "Reply with JSON ONLY, no prose, in exactly this shape:\n"
     '{\"fabricated\": [{\"ref\": \"<the ref>\", \"reason\": \"<one short clause>\"}]}\n'
     "If nothing is clearly fabricated, reply {\"fabricated\": []}.\n\n"
     "ARTICLES:\n"
 )
+
+
+def _okf_ground_truth_index(paper: dict) -> dict[str, str]:
+    """Map each article's ``source_url`` → a compact GROUND TRUTH string built from the
+    OKF bundle riding on ``paper["edition"]["okf"]`` (concept ``resource`` == the
+    article's ``source_url``). Empty when no bundle is present (ungrounded fallback).
+    Mirrors geek's ``research/article_gate.py:_ground_truth``."""
+    data = (paper.get("edition") or {}).get("okf")
+    if not data:
+        return {}
+    from content_pipeline.okf import bundle_from_json
+
+    try:
+        concepts = bundle_from_json(data).concepts
+    except Exception:  # noqa: BLE001 — grounding is best-effort, never sink the gate
+        return {}
+    index: dict[str, str] = {}
+    for c in concepts:
+        if not c.resource:
+            continue
+        parts = [p for p in [c.title, f"source: {c.resource}", (c.body or "").strip()] if p]
+        index[c.resource] = " | ".join(parts[:2]) + ("\n" + parts[2] if len(parts) > 2 else "")
+    return index
 
 
 def article_refs(paper: dict) -> list[str]:
@@ -65,20 +99,26 @@ def article_refs(paper: dict) -> list[str]:
     return refs
 
 
-def _labelled_view(paper: dict, *, budget: int = 8000) -> str:
-    """One labelled block per article: ``[ref] TITLE — src=host\\nBODY`` so the judge
-    can return refs. Fun items note their parody flag (comedic ≠ fabrication)."""
+def _labelled_view(paper: dict, *, budget: int = 12000) -> str:
+    """One labelled block per article, each preceded by its OKF GROUND TRUTH (when the
+    research bundle is on the paper) so the judge checks the prose against the
+    code-verified research rather than its training data:
+    ``[ref] TITLE — src=host\\nGROUND TRUTH: …\\nARTICLE: BODY``. Fun items note their
+    parody flag (comedic ≠ fabrication)."""
     from content_pipeline.compile import resolve_ref
 
+    ground = _okf_ground_truth_index(paper)
     lines: list[str] = []
     for ref in article_refs(paper):
         it = resolve_ref(paper, ref) or {}
         tag = ""
         if ref.startswith("fun.") and it.get("satire_disclaimer"):
             tag = " [marked parody]"
+        gt = ground.get(it.get("source_url", ""))
+        truth = f"GROUND TRUTH: {gt}\n" if gt else ""
         lines.append(
             f"[{ref}] {_clip(it.get('title'), 140)} — src={_host(it.get('source_url'))}{tag}\n"
-            f"{_clip(it.get('body'), 320)}"
+            f"{truth}ARTICLE: {_clip(it.get('body'), 320)}"
         )
     view = "\n\n".join(lines)
     return view if len(view) <= budget else view[: budget - 1] + "…"
@@ -158,11 +198,14 @@ def grade_articles(paper: dict, *, judge_model: Optional[str] = None,
 
 def _pick_promotion(paper: dict, bad: dict) -> Optional[tuple]:
     """Choose a surviving, non-bad article to promote to headliner when the real
-    headliner is fabricated. A headliner needs title+body+source_url+IMAGE, so only
-    subarticles/fun qualify (shorts carry no image). Prefer a subarticle (lead-grade),
+    headliner is fabricated. A headliner needs title+body+source_url+an image; the
+    image only needs to be PRESENT (a local path is fine — images upload to https in
+    ``publish_paper`` AFTER this gate, so requiring http here would reject every valid
+    subarticle/fun image and force a needless hard-hold — the 2026-06-17 bug). Both
+    subarticles and fun carry images (shorts don't). Prefer a subarticle (lead-grade),
     then a fun item. Returns ``(ref, obj)`` or None."""
     from content_pipeline.compile import resolve_ref
-    from content_pipeline.agent.review import _is_http_url, _nonempty
+    from content_pipeline.agent.review import _has_image, _is_http_url, _nonempty
 
     ai = paper.get("ai") or {}
     candidates = ([f"ai.subarticles.{i}" for i in range(len(ai.get("subarticles") or []))]
@@ -172,7 +215,8 @@ def _pick_promotion(paper: dict, bad: dict) -> Optional[tuple]:
             continue
         it = resolve_ref(paper, ref) or {}
         if (_nonempty(it, "title") and _nonempty(it, "body")
-                and _is_http_url(it.get("source_url")) and _is_http_url(it.get("image_url"))):
+                and _is_http_url(it.get("source_url"))
+                and _has_image(it, require_http=False)):
             return ref, it
     return None
 
@@ -250,8 +294,10 @@ def auto_remediate(paper: dict, *, link_ok=None, grade=None,
     dropped = sorted(bad)
 
     # 5. The cleaned edition must still clear the structural floors, else HARD hold
-    #    (never publish a too-thin paper).
-    v = validate_paper(paper)
+    #    (never publish a too-thin paper). Gate-time: images are still LOCAL paths
+    #    (uploaded to https only in publish_paper, after this gate), so don't demand
+    #    http images here — the publish gate re-validates with http after upload.
+    v = validate_paper(paper, require_http_images=False)
     if not v["valid"]:
         return {"action": "hold", "severity": "hard", "dropped": dropped, "promoted": promoted,
                 "reasons": [f"after dropping {dropped or '[]'}"

@@ -1,5 +1,9 @@
 # 01 — System Overview
 
+> **Detailed pipeline walkthrough:** [`content-generation-and-validation.md`](content-generation-and-validation.md)
+> walks every stage — retrieve → select & prioritise → generate → OKF-ground →
+> validate & judge (3 layers) → publish — with the function names and the diagram.
+
 ## What is The Craic Gazette?
 
 The Craic Gazette is an AI-powered Irish daily newspaper — fun, witty, and refreshingly
