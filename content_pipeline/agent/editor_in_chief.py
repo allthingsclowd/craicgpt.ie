@@ -820,6 +820,13 @@ def run_edition(
         context={"agent_trace": agent_trace, "files": list(files)},
     )
 
+    # The OKF research bundle rides on the paper BEFORE the gates so BOTH the
+    # per-article gate AND the edition rubric ground on the same code-verified,
+    # link-validated research (never the judge's training data); it also persists with
+    # the edition as provenance of what grounded the verdicts.
+    if okf_bundle is not None:
+        paper.setdefault("edition", {})["okf"] = bundle_to_json(okf_bundle)
+
     # PER-ARTICLE GATE (runs BEFORE the edition rubric so the rubric grades a clean
     # paper, and BEFORE narration so the podcast covers only what's published). It
     # drops fabricated / dead-link articles and republishes the valid rest; an
@@ -836,6 +843,13 @@ def run_edition(
             raise EditionHeld(rem.get("reasons") or ["per-article gate held the edition"])
         if rem.get("dropped") or rem.get("promoted"):
             paper = rem["paper"]
+            # If a promoted lead lost its image (image-gen had failed upstream),
+            # generate a fresh one so the edition still publishes a complete headliner
+            # rather than holding the valid remainder (Graham, 2026-06-17).
+            hl = (paper.get("ai") or {}).get("headliner") or {}
+            if rem.get("promoted") and not str(hl.get("image_url") or "").strip():
+                _generate_images({"headliner": hl}, [], date_iso,
+                                 generate=image_generate, image_model=image_model)
             paper["context"]["agent_trace"].append({
                 "kind": "remediation",
                 "name": f"Per-article gate — dropped {len(rem.get('dropped') or [])}"
@@ -852,10 +866,6 @@ def run_edition(
     # paper, attach the verdict, and record a `rubric` trace event so the "Under the
     # Hood" drawer shows it. Best-effort: a grader crash yields a HOLD verdict (the
     # gate surfaces it) rather than sinking generation.
-    if okf_bundle is not None:
-        # The bundle rides with the edition: grading_view reads it here, and it
-        # persists alongside the paper as provenance of what grounded the verdict.
-        paper.setdefault("edition", {})["okf"] = bundle_to_json(okf_bundle)
     if grade is not None:
         try:
             verdict = grade(paper)

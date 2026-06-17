@@ -56,9 +56,22 @@ def _nonempty(item: dict, key: str) -> bool:
     return isinstance(v, str) and bool(v.strip())
 
 
-def validate_paper(paper: dict[str, Any]) -> dict[str, Any]:
+def _has_image(item: dict, *, require_http: bool) -> bool:
+    """An image is present. At PUBLISH time it must be an http(s) URL (post-upload);
+    at GATE time (``require_http=False``) a non-empty LOCAL path counts — images are
+    only uploaded + rewritten to https in ``publish_paper``, AFTER the per-article
+    gate runs, so the gate would otherwise reject every (still-local) image."""
+    u = item.get("image_url")
+    return _is_http_url(u) if require_http else (isinstance(u, str) and bool(u.strip()))
+
+
+def validate_paper(paper: dict[str, Any], *, require_http_images: bool = True) -> dict[str, Any]:
     """Deterministic 'technically valid' check. Returns
-    ``{"valid": bool, "reasons": [str], "counts": {...}}`` — never raises."""
+    ``{"valid": bool, "reasons": [str], "counts": {...}}`` — never raises.
+
+    ``require_http_images`` is True at publish time (images are uploaded https URLs)
+    and False at GATE time inside :func:`article_review.auto_remediate`, where images
+    are still local paths."""
     reasons: list[str] = []
     ai = paper.get("ai") or {}
     headliner = ai.get("headliner") or {}
@@ -72,7 +85,7 @@ def validate_paper(paper: dict[str, Any]) -> dict[str, Any]:
             reasons.append(f"headliner missing {key}")
     if not _is_http_url(headliner.get("source_url")):
         reasons.append("headliner missing a valid http source_url")
-    if not _is_http_url(headliner.get("image_url")):
+    if not _has_image(headliner, require_http=require_http_images):
         reasons.append("headliner missing an image_url")
 
     # Counts.
@@ -101,7 +114,7 @@ def validate_paper(paper: dict[str, Any]) -> dict[str, Any]:
             reasons.append(f"fun {i} missing title/body")
         if not _is_http_url(it.get("source_url")):
             reasons.append(f"fun {i} missing a valid http source_url")
-        if not _is_http_url(it.get("image_url")):
+        if not _has_image(it, require_http=require_http_images):
             reasons.append(f"fun {i} missing an image_url")
         if not (_nonempty(it, "source") or _nonempty(it, "satire_disclaimer")):
             reasons.append(f"fun {i} is neither credited (source) nor marked as "
