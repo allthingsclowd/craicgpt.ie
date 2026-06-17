@@ -7,22 +7,26 @@ This replaces the old two-VM (openclaw + hermes) approval consensus with a singl
 LLM judge that grades the finished edition against an explicit rubric, run via
 ``content_cfg.judge_model``.
 
-THE JUDGE IS THE WRITER'S qwen3.6 on the DGX (June 2026, INTERIM) — local and reliable (it
-drives the RubricMiddleware reviewer-agent loop to a clean stop), but NOT independent
-(the author marks its own homework). Making the judge independent is the goal; it is
-paused on a model problem, recorded here so it can be fixed offline.
+THE JUDGE IS INDEPENDENT: ``content_cfg.judge_model`` defaults to
+``m3/mlx/qwen3-coder-next-4bit`` — a *different* model family from the writer
+(qwen3.6 on the DGX), so it is a genuine second opinion, not the author marking its
+own homework. It runs locally, drives the ``RubricMiddleware`` reviewer-agent loop to
+a clean stop, and falls back ONCE to the frontier route on a grader error.
 
-Why not gemma-4-12b-it-nothink (the intended independent judge)
---------------------------------------------------------------
-Gemma 4 12B is a *different* family from the writer (so it WOULD be a genuine second
-opinion) and on the ``-nothink`` route tool-calls cleanly and fast PER CALL (~1s, no
-reasoning preamble). BUT ``RubricMiddleware`` runs a reviewer **deep-agent loop**, and a
-12B does not terminate it: on a real edition one ``grade_edition`` invoke made **490+ LLM
-calls with no verdict** (a frontier model or the 35B writer replies once and stops). That
-would also hang the autonomous run past its task timeout, so the judge is reverted to
-qwen3.6-35b until the gemma loop is fixed or a capable (~30B+) non-writer local route
-exists. (The reasoning-ENABLED ``m3/mlx/gemma-4-12b-it`` is worse still — a multi-thousand
--token reasoning stream on top of the loop.)
+OKF GROUNDING (June 2026)
+-------------------------
+The judge once HELD legitimate editions because it graded the prose against its own
+TRAINING DATA — a fresh story it hadn't seen read as "made up" or "unverifiable", and
+the failures got worse whenever the judge model was swapped. The edition's curated,
+link-validated research is now serialized as an Open Knowledge Format (OKF v0.1)
+bundle (``content_pipeline/okf/``) and threaded into the grader's transcript as
+ground truth, so it confirms the desk is substantive and real instead of guessing.
+The bundle rides on ``paper["edition"]["okf"]``; :func:`grading_view` prepends the
+flattened bundle. See ``docs/adr/0003-okf-research-grounding.md``.
+
+(History: a 12B judge such as gemma-4-12b-it-nothink does NOT terminate the
+RubricMiddleware reviewer loop — one ``grade_edition`` invoke once made 490+ LLM calls
+with no verdict — which is why the judge is a ~30B+ non-writer route, not a 12B.)
 
 Switching the judge
 -------------------
@@ -72,6 +76,7 @@ import logging
 from typing import Any, Optional
 
 from content_pipeline.content_config import content_cfg
+from content_pipeline.okf import bundle_from_json, flatten_for_judge
 from content_pipeline.providers.litellm import get_litellm_llm
 
 logger = logging.getLogger(__name__)
@@ -84,12 +89,14 @@ logger = logging.getLogger(__name__)
 # nicety the writer owns; gating on it would block the paper from ever auto-publishing.
 EDITION_RUBRIC = (
     "HOW TO JUDGE (read first). This is a PUBLISH-SAFETY gate, not a fact-check and not "
-    "a style review. Judge ONLY what is visibly present in the edition below. You cannot "
-    "browse the web or verify external facts, sources, or whether a credited creator is "
-    "genuine — so NEVER fail an item because you 'cannot verify' a claim, a source or "
-    "comedic intent. Fail a criterion ONLY for a clear, on-its-face violation; when in "
-    "doubt, PASS. (The truth of claims and the reachability of links are checked "
-    "separately by code — not by you.)\n"
+    "a style review. When an OKF RESEARCH BUNDLE is provided above the edition, it is "
+    "your verification source: it is the code-verified, link-validated research the "
+    "stories were written from, so treat it as AUTHORITATIVE — the stories ARE "
+    "substantive and real, even if they cover events newer than you've seen. NEVER fail "
+    "an item because you 'cannot verify' a claim, a source, or comedic intent; the "
+    "bundle and code already verified those. Fail a criterion ONLY for a clear, "
+    "on-its-face violation visible in the edition; when in doubt, PASS. (The reachability "
+    "of links is checked separately by code — not by you.)\n"
     "- Harmless: nothing hateful, grim, gory, sexual or genuinely cruel. A fun paper. "
     "Political topics appear only as light, even-handed satire, never partisan "
     "campaigning. (Dry or plain prose is FINE — do not fail an item for tone alone.)\n"
@@ -134,15 +141,42 @@ def _clip(text: str, n: int) -> str:
     return t if len(t) <= n else t[: n - 1] + "…"
 
 
+def _okf_grounding(paper: dict, *, budget: int) -> str:
+    """The edition's OKF research bundle (if it rode along on
+    ``paper["edition"]["okf"]``), flattened into one budgeted ground-truth block."""
+    data = (paper.get("edition") or {}).get("okf")
+    if not data:
+        return ""
+    try:
+        return flatten_for_judge(bundle_from_json(data), budget=budget)
+    except Exception:  # noqa: BLE001 — grounding is best-effort; never sink the grade
+        return ""
+
+
 def grading_view(paper: dict, *, budget: int = 3500) -> str:
-    """Render a COMPACT, judgement-focused view of the edition for the grader.
+    """Render the grader's transcript: the OKF research bundle (code-verified ground
+    truth, when present) followed by a COMPACT, judgement-focused view of the edition.
 
     The grader truncates each transcript message to a few thousand chars, so we
     can't hand it the whole paper JSON (images, trace, full bodies). Instead we
     surface exactly what the rubric judges: each item's title, a short body
     snippet, and — for fun items — the parody/attribution flags. Fun pieces get
     the most detail (they carry the parody/legal risk); AI shorts get just titles.
+    The OKF bundle lets the judge confirm the desk is substantive and real rather
+    than guessing from training data.
     """
+    content = _edition_view(paper, budget=budget)
+    okf_block = _okf_grounding(paper, budget=1800)
+    if not okf_block:
+        return content
+    return (
+        "OKF RESEARCH BUNDLE — code-verified, link-validated research the stories "
+        "were written from (authoritative; the desk IS substantive and real):\n"
+        f"{okf_block}\n\nEDITION TO CHECK:\n{content}"
+    )
+
+
+def _edition_view(paper: dict, *, budget: int = 3500) -> str:
     ai = paper.get("ai") or {}
     fun = paper.get("fun") or []
     lines: list[str] = []
@@ -225,7 +259,8 @@ def _grade_once(model_name: str, view: str, *, rubric: str = EDITION_RUBRIC,
     return captured[-1] if captured else None
 
 
-def grade_edition(paper: dict, *, judge_model: Optional[str] = None,
+def grade_edition(paper: dict, *, okf: Optional[dict] = None,
+                  judge_model: Optional[str] = None,
                   fallback_model: Optional[str] = None) -> dict:
     """Grade the compiled edition against :data:`EDITION_RUBRIC` and return a verdict.
 
@@ -238,6 +273,10 @@ def grade_edition(paper: dict, *, judge_model: Optional[str] = None,
     """
     judge = judge_model or content_cfg.judge_model
     fallback = fallback_model or content_cfg.fallback_text_model
+    # An explicitly-passed bundle overrides whatever rode on the paper (used by
+    # tests); otherwise grading_view reads paper["edition"]["okf"] directly.
+    if okf is not None:
+        paper = {**paper, "edition": {**(paper.get("edition") or {}), "okf": okf}}
     view = grading_view(paper)
 
     used = judge

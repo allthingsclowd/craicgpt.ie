@@ -41,12 +41,18 @@ site is both a working newspaper and a live deep-agents tutorial.
 │   3. WRITE      deterministic: generate/writer.py → prose (LiteLLM Qwen3.6)  │
 │   4. IMAGES     deterministic: generate/images.py (LiteLLM image route)      │
 │   5. COMPILE    compile.py → schema-v3 paper_content.json                    │
+│   5b. OKF       deterministic: content_pipeline/okf builds the curated        │
+│                 research as an Open Knowledge Format bundle (one concept per   │
+│                 candidate) → rides on paper["edition"]["okf"] as judge ground  │
+│                 truth                                                          │
 └───────────────────────────────────────────────────────────────────────────┘
         │
         ▼  6. JUDGE (in-pipeline) — rubric_review.grade_edition: a deepagents
            RubricMiddleware grades the finished ENGLISH edition (harmless/on-brand/
            attributed) ONCE on an INDEPENDENT local judge (qwen3-coder-next, M3 :8087 —
-           distinct from the writer's qwen3.6), frontier fallback
+           distinct from the writer's qwen3.6), frontier fallback. GROUNDED ON THE
+           OKF BUNDLE: the judge checks against the code-verified research, not its
+           training data, so fresh stories aren't false-flagged as "made up"
         │
         ▼  7. TRANSLATE-MANY (deterministic) — for each other lang in CRAICGPT_LANGUAGES
            (en,de,es,it,ja,fr): generate/translate.py translate_paper() turns the COMPILED

@@ -41,6 +41,7 @@ from content_pipeline.generate.personas import (
     assign_personas,
     persona_byline,
 )
+from content_pipeline.okf import build_craicgpt_bundle, bundle_to_json
 from content_pipeline.generate.writer import (
     loads_lenient,
     write_about,
@@ -643,6 +644,9 @@ def run_edition(
     files = result.get("files", {})
     trace.model_route("research-brain", content_cfg.brain_model)
 
+    # The OKF research bundle (built from the curated candidates in the real path)
+    # grounds the rubric judge so it stops false-flagging fresh stories as "made up".
+    okf_bundle = None
     raw = _extract_file(files, EDITION_FILE)
     if raw:
         # Shortcut: a full edition was already written (e.g. an injected test agent).
@@ -754,6 +758,10 @@ def run_edition(
                           f"({len(fun_c)} candidates, {len(fun_picks)} picked)")
         logger.info("[run_edition] writing from %d AI + %d fun usable candidates",
                     len(ai_valid), len(fun_picks))
+        # Serialize the curated, link-validated research as the OKF bundle that
+        # grounds the rubric judge (the stories are written FROM these candidates,
+        # so every published claim has a backing concept).
+        okf_bundle = build_craicgpt_bundle(ai_valid, fun_picks, date=date_iso)
         trace.model_route("write", content_cfg.write_model)
         _t0 = time.perf_counter()
         ai = write_ai_section(
@@ -844,6 +852,10 @@ def run_edition(
     # paper, attach the verdict, and record a `rubric` trace event so the "Under the
     # Hood" drawer shows it. Best-effort: a grader crash yields a HOLD verdict (the
     # gate surfaces it) rather than sinking generation.
+    if okf_bundle is not None:
+        # The bundle rides with the edition: grading_view reads it here, and it
+        # persists alongside the paper as provenance of what grounded the verdict.
+        paper.setdefault("edition", {})["okf"] = bundle_to_json(okf_bundle)
     if grade is not None:
         try:
             verdict = grade(paper)
