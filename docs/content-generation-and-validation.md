@@ -117,15 +117,29 @@ gates** so both grounded gates read the same research. Concepts join to articles
   a publish-**safety** check (harmless / on-brand / attributed / substantive), not a
   fact re-check.
 
-## 6 · Publish — `agent/publish.py`, `agent/cli.py`, `agent/review.py`
+## 6 · Publish (text-first) — `agent/publish.py`, `agent/cli.py`, `agent/review.py`
 
-`publish_paper(paper, date, live=False)` uploads images to S3 (rewriting `image_url`
-local→`https`) and writes the draft to `preview/` plus a `verdict-rubric.json`. The
-decoupled **`craicgpt_publish_gate`** (idempotent poll, `review.gate`) promotes to
-`content/` (live) on the rubric **APPROVE** + host structural re-validation (now with
-http images) + browser-UA link-check; a judgement HOLD escalates to Graham on Telegram
-and passively auto-publishes after the HITL window (a human directive can
-force/remove/hold). Translations and the rubric-gated podcast are additive tails.
+Workflow order is **`generate → gate → narrate`**: the gate runs **before** narration
+so the edition **text goes live in minutes**. `publish_paper(paper, date, live=…)`
+uploads images (rewriting `image_url` local→`https`) and writes the draft to `preview/`
+plus `verdict-rubric.json`; the **`craicgpt_publish_gate`** (`review.gate`) promotes
+**all languages' text** to `content/` (live) on the rubric **APPROVE** + host
+re-validation + browser-UA link-check (`_publish_translations_live`). A HOLD escalates
+to Graham and passively auto-publishes after the HITL window (human directive can
+force/remove/hold). The decoupled `craicgpt_publish_gate_poll` (06-08 UTC) is the
+idempotent safety net.
+
+## 7 · Audio — incremental, post-publish, per-language (English first)
+
+`craicgpt_narrate` runs **after** the gate. For each language (source/English first),
+`cli narrate --publish --live` renders the per-article readings + dad↔son podcast +
+TL;DR and **re-publishes that language's edition live the moment its audio is done** —
+so audio trickles in (English within minutes, other languages as they finish) with no
+wait for full completion. `cmd_narrate` only goes live when the gate already published
+the text (`_text_is_live`); a held edition stays in preview for the poll. Best-effort
++ isolated: one slow/failed language never blocks the live text or the others. The
+frontend re-fetches the edition JSON `no-cache`, so each re-publish surfaces that
+language's per-article `audio_url`s + podcast.
 
 ## Why this shape
 

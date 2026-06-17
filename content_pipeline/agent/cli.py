@@ -499,9 +499,14 @@ def cmd_narrate(args) -> int:
         summary["out"] = args.out
     if getattr(args, "publish", False):
         from content_pipeline.agent.publish import publish_paper
-        live = getattr(args, "live", False)
+        # Incremental audio: re-publish LIVE only if the gate already promoted the text
+        # (so audio fills in on the live edition the moment it's encoded). If the edition
+        # is held, only enrich the preview draft — never publish audio-first — and let
+        # the poll/HITL promote it later (audio included).
+        live = bool(getattr(args, "live", False)) and _text_is_live(args.date)
         summary["published_key"] = publish_paper(paper, args.date, live=live, language=language)
         summary["live"] = live
+        summary["text_live"] = _text_is_live(args.date)
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
@@ -600,6 +605,21 @@ def _already_live(date_iso: str) -> bool:
     except Exception:  # noqa: BLE001 — no local/preview draft reachable → don't churn
         return True
     return _narration_score(local) <= _narration_score(live)
+
+
+def _text_is_live(date_iso: str) -> bool:
+    """True if the gate has already promoted this edition's TEXT live (the English
+    content-prefix edition exists). The gate publishes English + all translations
+    atomically on APPROVE, so English-live is a sufficient 'gate approved' signal.
+
+    Unlike :func:`_already_live` this is deliberately NOT narration-aware: narrate uses
+    it to decide whether to re-publish audio LIVE (gate APPROVE'd the text → enrich the
+    live edition incrementally) or only enrich the preview draft (gate HELD → never go
+    live audio-first; the poll/HITL promotes later, audio included)."""
+    from content_pipeline.content_config import content_cfg
+
+    live = _edition_paper(date_iso, content_cfg.content_prefix)
+    return bool(live and live.get("generated_at"))
 
 
 def cmd_consensus(args) -> int:
