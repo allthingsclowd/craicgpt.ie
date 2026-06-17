@@ -195,6 +195,20 @@ def test_crossfade_concat_single_chunk_is_identity():
     assert audio._crossfade_concat([a]) == a
 
 
+@pytest.mark.skipif(not audio.find_ffmpeg(), reason="needs ffmpeg")
+def test_overlap_mix_brings_the_voice_in_over_the_jingle_tail():
+    # The voice enters overlap_sec before the (1.5s) jingle ends, mixed on top — so the
+    # head is SHORTER than a sequential join by ~overlap_sec (no dead air, no gap).
+    jingle = _sine_wav(8000, seconds=1.5)
+    speech = _sine_wav(6000, seconds=1.0)
+    head = audio._overlap_mix(jingle, speech, overlap_sec=0.5)
+    assert head is not None
+    seq = _frames(jingle) + _frames(speech)
+    overlap_frames = int(0.5 * 24000)
+    assert _frames(head) < seq                       # the seam overlaps, not butt-joins
+    assert abs(_frames(head) - (seq - overlap_frames)) < int(0.1 * 24000)
+
+
 def test_master_wav_is_a_noop_on_subsecond_clips():
     clip = _wav(seconds=0.05)                           # too short to master -> unchanged
     assert audio.master_wav(clip) == clip               # keeps unit tests offline & deterministic

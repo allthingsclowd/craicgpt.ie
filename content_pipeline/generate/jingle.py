@@ -45,10 +45,13 @@ from typing import Optional
 from content_pipeline.content_config import content_cfg
 from content_pipeline.generate.audio import find_ffmpeg
 
-# ── The 80s call-sign assets (the live sting) ─────────────────────────────────
+# ── The show-sting assets (the live sting) ────────────────────────────────────
+# The "Ride of the Valkyries" full-fat arena-synth sting (Wagner, public-domain
+# composition; our own performance via the system DLS GM bank → zero copyright).
+# Shared with the Geek-with-the-Peak show. Regenerate from jingle_src/gen_pd_more.py.
 _ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
-INTRO_ASSET = os.path.join(_ASSET_DIR, "jingle_80s_intro.wav")   # full mix → tops the show
-OUTRO_ASSET = os.path.join(_ASSET_DIR, "jingle_80s_outro.wav")   # stripped resolve → signs off
+INTRO_ASSET = os.path.join(_ASSET_DIR, "jingle_valkyries_intro.wav")  # rising brass call → tops the show
+OUTRO_ASSET = os.path.join(_ASSET_DIR, "jingle_valkyries_outro.wav")  # B-minor reveal → signs off
 
 
 def _load_asset(path: str) -> Optional[bytes]:

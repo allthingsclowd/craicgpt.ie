@@ -1,5 +1,13 @@
 # CraicGPT call-sign — renderer sources
 
+> **Current sting (2026-06): "Ride of the Valkyries"** — a full-fat arena-synth
+> render of Wagner's call (a **public-domain** composition; our own performance via
+> the system DLS GM bank → zero copyright). Composed in `gen_pd_more.py`
+> (`valkyries()` + `valkyries_outro()`), rendered with `synth.swift`, conformed to
+> `../assets/jingle_valkyries_{intro,outro}.wav`. **Shared with the Geek-with-the-Peak
+> show.** Both podcasts now crossfade the voice in over the jingle's fading tail
+> (`audio._overlap_mix`). The original 80s hook below is retained as history.
+
 The show's audio sting (the music that tops and tails every podcast) is an
 **original 80s synth-pop hook** — *Am–F–C–G at 124 BPM*, pulsing octave synth
 bass, gated-style drum groove, synth-brass stabs, a soaring saw lead and a

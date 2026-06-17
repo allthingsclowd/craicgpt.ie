@@ -631,6 +631,44 @@ def _conform_and_fade(wav_bytes: bytes, target: bytes, *, fade_in: float = 0.0,
                 os.remove(p)
 
 
+def _overlap_mix(intro: bytes, speech: bytes, *, overlap_sec: float = 1.6) -> Optional[bytes]:
+    """Mix the speech ONSET on top of the jingle's fading tail (no dead air): the voice
+    enters ``overlap_sec`` before the (faded-out) intro ends and plays at full level over
+    it. ffmpeg ``amix`` with ``normalize=0`` keeps the voice from being ducked; the
+    intro's own ``fade_out`` makes its last notes recede under the voice. Returns the
+    mixed head, or ``None`` (caller falls back to a plain sequential join)."""
+    ff = find_ffmpeg()
+    if not ff:
+        return None
+    try:
+        with wave.open(io.BytesIO(intro), "rb") as j:
+            jr, jc, jn = j.getframerate(), j.getnchannels(), j.getnframes()
+        intro_len = jn / float(jr)
+        delay_ms = int(max(0.0, intro_len - overlap_sec) * 1000)
+        delay = "|".join([str(delay_ms)] * max(1, jc))
+        in_i = in_s = out_p = None
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fi:
+            fi.write(intro)
+            in_i = fi.name
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fs:
+            fs.write(speech)
+            in_s = fs.name
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as fo:
+            out_p = fo.name
+        fc = (f"[1:a]adelay={delay}[s];"
+              f"[0:a][s]amix=inputs=2:duration=longest:normalize=0[a]")
+        cmd = [ff, "-y", "-i", in_i, "-i", in_s, "-filter_complex", fc, "-map", "[a]", out_p]
+        subprocess.run(cmd, check=True, capture_output=True)
+        with open(out_p, "rb") as fh:
+            return fh.read()
+    except Exception:  # noqa: BLE001 — best-effort; fall back to a sequential join
+        return None
+    finally:
+        for p in (locals().get("in_i"), locals().get("in_s"), locals().get("out_p")):
+            if p and os.path.exists(p):
+                os.remove(p)
+
+
 def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = None,
                    speak: Optional[Speak] = None, base_url: Optional[str] = None,
                    model: Optional[str] = None, gap_sec: float = DEF_GAP_SEC,
@@ -679,9 +717,16 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
         jw_in = jingle_wav if jingle_wav is not None else _default_jingle()
         jw_out = outro_wav if outro_wav is not None else (
             jingle_wav if jingle_wav is not None else _default_outro_jingle())
-        intro = _conform_and_fade(jw_in, speech, fade_out=1.2)
+        # Intro: fade the jingle's tail and CROSSFADE the voice in over it (no gap) —
+        # the voice rides on top of the last fading notes. Falls back to a sequential
+        # join if the overlap-mix is unavailable (no ffmpeg / mix error).
+        intro = _conform_and_fade(jw_in, speech, fade_out=1.8)
         outro = _conform_and_fade(jw_out, speech, fade_in=0.6, fade_out=1.3)
-        final = ([intro] if intro else []) + [speech] + ([outro] if outro else [])
+        head = _overlap_mix(intro, speech, overlap_sec=1.6) if intro else None
+        if head is not None:
+            final = [head] + ([outro] if outro else [])
+        else:
+            final = ([intro] if intro else []) + [speech] + ([outro] if outro else [])
 
     out_dir = out_dir or content_cfg.audio_dir
     os.makedirs(out_dir, exist_ok=True)
