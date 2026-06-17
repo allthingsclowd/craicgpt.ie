@@ -4,9 +4,10 @@ The newest build step turns the finished paper into **sound**: a per-article rea
 accessibility (every piece is listenable), a daily **dad↔son podcast** where Graham and Tom —
 his curious, cheeky 14-year-old — **take turns** reading the articles and banter around them
 as a flowing discussion, and a fast **under-180-second TL;DR** headline bulletin. Both shows
-are topped and tailed by our own **80s call-sign jingle** (Apple sampled instruments,
-bounced offline). It runs **after validation**, on a long-running box (the Conductor host
-`.75` or the M3), never the laptop.
+are topped and tailed by the shared **"Ride of the Valkyries" show sting** (a public-domain
+composition voiced through Apple's sampled instruments, bounced offline) — and the sting
+**crosses into the voice** so there's no dead-air gap. It runs **after validation**, on a
+long-running box (the Conductor host `.75` or the M3), never the laptop.
 
 It's also the cleanest worked example of this codebase's whole thesis:
 
@@ -19,7 +20,7 @@ A podcast episode is built from three layers — and only one of them is allowed
 
 | Layer | Deterministic? | Who makes it |
 |------|----------------|--------------|
-| **80s call-sign jingle** bookend + a clean date-stamped cold-open (Graham + date, Tom breaks in) + the **fixed guest welcome / thanks / sign-off** templates | ✅ bounced Apple-instrument asset / fixed text | `generate/jingle.py` + `build_signature_intro` + `GUEST_*` |
+| **Valkyries show sting** bookend (crossfaded into the cold-open) + a clean date-stamped cold-open (Graham + date, Tom breaks in) + the **fixed guest welcome / thanks / sign-off** templates | ✅ bounced public-domain-composition asset / fixed text | `generate/jingle.py` + `build_signature_intro` + `GUEST_*` |
 | Article **readings** — Graham & Tom **alternating** (a deployed parody guest reads its own) | ✅ verbatim — the exact, already-rubric-approved article body | the harness |
 | Host **links** — ONE short *pre* (react to the previous bit) + *post* (wrap + hand to the next BY NAME), **woven into each host reader's single clip**; Tom's minimal, timeless slang | ❌ LLM-written | `write_model` via `run_with_fallback` (+ length guard) |
 
@@ -32,30 +33,60 @@ Far fewer seams; only the host links are LLM-written — everything else is fixe
 Reading the article *verbatim* matters: the edition rubric already passed that text, so the
 podcast introduces **no new claims and no attribution drift**.
 
-## The jingle is ours, not a licence — `generate/jingle.py`
+## The sting is ours, not a licence — `generate/jingle.py`
 
-There is no "music model" in the loop. The hook is **our own composition** — an 80s
-synth-pop call sign (*Am–F–C–G* at 124 BPM: pulsing octave synth bass, gated-style drums,
-synth-brass stabs, a saw lead and a polysynth pad) — voiced through **Apple's built-in
-sampled GM instruments** (the `gs_instruments.dls` bank that ships with macOS / drives
-GarageBand) and **bounced offline** via AVFoundation. Our notes + real sampled instruments =
-recognisable, professional, **zero copyright/royalties**. `render_podcast` tops & tails the
-show with it — the full mix fades into the cold-open, a stripped, resolved tag fades back
-under the sign-off (best-effort — it drops gracefully without `ffmpeg`).
+There is no "music model" in the loop. The hook is a **full-fat arena-synth orchestration of
+Wagner's "Ride of the Valkyries"** (the rising B-minor brass call over a galloping bass and
+drums at 138 BPM) — a **public-domain composition** (Wagner, 1856) voiced through **Apple's
+built-in sampled GM instruments** (the `gs_instruments.dls` bank that ships with macOS /
+drives GarageBand) and **bounced offline** via AVFoundation. A PD melody + real sampled
+instruments performed *by us* = recognisable, cinematic, **zero copyright/royalties**.
+`render_podcast` tops & tails the show with it.
+
+**This is the *shared* show sting** — the **same bytes** open the Geek with the Peak
+cybersecurity podcast. One asset, two shows.
+
+**The sting crosses *into* the voice — no dead air.** The old 80s call-sign was butt-joined
+before the speech, so it played out in full (including its fade tail) and *then* the voice
+started — a silent gap. Now `_overlap_mix` brings the cold-open in **over** the jingle's
+faded-out tail: the speech is delayed by `(intro_len − overlap)` and mixed with
+`amix … normalize=0` so the voice rides at full level while the last notes recede beneath it.
+A stripped, resolved tag fades back under the sign-off. All best-effort — no `ffmpeg` or a
+format mismatch falls back to the sequential join, and a missing asset drops the sting (never
+silence, never a crash).
 
 Unlike the rest of the pipeline you can't reproduce Apple's DLS samples in stdlib Python, so
-the sting is a **committed WAV asset** (`assets/jingle_80s_{intro,outro}.wav`, 24 kHz mono to
-match the TTS stitch). It stays *owned and reproducible* because the full renderer ships in
-`generate/jingle_src/` (Swift + AVFoundation + the arrangement JSON) — regenerate the bytes
-from scratch on any Mac. The pure-stdlib *Whiskey in the Jar* Karplus–Strong synth is retained
-in `jingle.py` only as a **graceful fallback** if the asset ever goes missing (never silence).
-Same deterministic-vs-probabilistic split as everything else: a jingle needs no judgement, so
-no LLM goes near it.
+the sting is a **committed WAV asset** (`assets/jingle_valkyries_{intro,outro}.wav`, 24 kHz
+mono 16-bit to match the TTS stitch). It stays *owned and reproducible* because the full
+renderer ships in `generate/jingle_src/` (Swift + AVFoundation + the arrangement JSON:
+`gen_pd_more.py` emits `arr/pd-valkyries{,-outro}.json`, `synth.swift` renders them) —
+regenerate the bytes from scratch on any Mac. **The how-to is captured as a reusable skill,
+`composing-tunes-with-swift-dls`**, so any M3/Swift agent can craft future stings the same
+way. Same deterministic-vs-probabilistic split as everything else: a sting needs no
+judgement, so no LLM goes near it.
 
-> **On copyright:** this is deliberately *not* a sound-alike of a specific hit — we ruled out
-> both Stairway *and* the Close Encounters five-note motif (still in copyright). An **original**
-> melody on licence-clean Apple instruments is on-brand, recognisable, and can't be confused
-> with anyone's song.
+```mermaid
+flowchart LR
+    SCRIPT["build_podcast_script —<br/>cold-open + per-article reader clips + outro"]:::det
+    TTS["render_podcast — TTS per turn,<br/>RMS-level + crossfade-stitch + master"]:::det
+    SPEECH(["spoken track"]):::asset
+    JING["jingle intro/outro<br/>(shared Valkyries asset, PD)"]:::asset
+    FADE["conform + fade the tail"]:::det
+    MIX["_overlap_mix —<br/>voice enters over the fading tail"]:::det
+    OUT(["episode MP3 — sting ⤳ voice ▸ outro"]):::asset
+
+    SCRIPT --> TTS --> SPEECH
+    JING --> FADE --> MIX
+    SPEECH --> MIX --> OUT
+    classDef det fill:#e8f0ff,stroke:#3367d6;
+    classDef asset fill:#eafbea,stroke:#2e8b57;
+```
+
+> **On copyright:** the *composition* is public-domain (Wagner died in 1883), and the *audio*
+> is our own DLS-bank performance — so there's no recording licence and no royalty. The firm
+> rule the skill encodes: **own or public-domain compositions only, always our own
+> performance** — never a recording, transcription, or synth-cover of a song still in
+> copyright. "Recognisable but not copyright" = a PD classic given the arena-synth treatment.
 
 ## The deterministic TTS harness — `content_pipeline/generate/audio.py`
 
@@ -129,8 +160,8 @@ call was simpler: the judge had no business holding the show's own furniture.
 
 A second, faster show for skimmers: Graham and Tom **alternate reading the day's headlines**
 (each item's already-approved title + a one-line gloss) like a news bulletin, topped & tailed
-by the same jingle. It is **fully deterministic** — no LLM, nothing to gate — and
-**word-budgeted** to the speaking time left after the jingle, so it reliably lands **under
+by the same sting. It is **fully deterministic** — no LLM, nothing to gate — and
+**word-budgeted** to the speaking time left after the sting, so it reliably lands **under
 180 seconds** even if the clone reads slowly. It attaches as `paper["podcast_tldr"]` (additive
 / optional, mirroring `podcast`) and gets its own masthead player.
 
