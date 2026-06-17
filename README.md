@@ -84,9 +84,11 @@ flowchart TD
         W["③ WRITE<br/>article prose + persona / creator credit"]:::code
         IMG["④ IMAGES<br/>one per AI lead + fun story"]:::code
         K["⑤ COMPILE<br/>schema-v3 paper_content.json"]:::code
-        J["⑥ JUDGE ★<br/>deepagents RubricMiddleware —<br/>harmless · on-brand · attributed<br/>(English judged ONCE)"]:::judge
+        O["⑤ᵇ OKF<br/>curated research → Open Knowledge Format bundle<br/>(one concept per candidate · judge ground truth)"]:::code
+        J["⑥ JUDGE ★<br/>deepagents RubricMiddleware —<br/>harmless · on-brand · attributed<br/>grounded on the OKF bundle, not training data<br/>(English judged ONCE)"]:::judge
         TR["⑦ TRANSLATE-MANY<br/>translate_paper → de·es·it·ja·fr<br/>prose only · images shared · NOT re-judged"]:::code
-        R --> C --> W --> IMG --> K --> J --> TR
+        R --> C --> W --> IMG --> K --> O --> J --> TR
+        O -. grounds .-> J
     end
 
     subgraph NARR["🔊 NARRATE EVERY LANGUAGE — additive audio after the judge · on .75 / M3"]
