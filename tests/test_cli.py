@@ -63,6 +63,37 @@ def test_directive_parses_clear():
     assert a.command == "directive" and a.clear is True
 
 
+def test_regrade_parses():
+    a = build_parser().parse_args(["regrade", "--date", "2026-06-19"])
+    assert a.command == "regrade" and a.republish is True
+    a = build_parser().parse_args(["regrade", "--date", "2026-06-19", "--no-republish", "--vid", "v1"])
+    assert a.republish is False and a.vid == "v1"
+
+
+def test_cmd_regrade_runs_the_real_judge_and_writes_verdict(monkeypatch, tmp_path, capsys):
+    """regrade re-runs grade_edition on the existing draft (no re-research) and writes
+    the verdict the gate reads — exit 0 on APPROVE, 2 on HOLD."""
+    from content_pipeline.agent import cli
+
+    draft = {"date": "2026-06-19", "ai": {"headliner": {"title": "h"}}, "fun": [], "edition": {}}
+    written = {}
+    monkeypatch.setattr(cli, "_load_draft", lambda date, language=None: draft)
+    monkeypatch.setattr(cli, "_draft_path", lambda date, language=None: str(tmp_path / "d.json"))
+    monkeypatch.setattr(cli, "_status_vid", lambda date: "vidX")
+    monkeypatch.setattr("content_pipeline.agent.rubric_review.grade_edition",
+                        lambda paper: {"verdict": "APPROVE", "reasons": [], "judge_model": "j"})
+    monkeypatch.setattr("content_pipeline.agent.publish.publish_paper",
+                        lambda paper, date, live=False, **kw: "preview/key")
+    monkeypatch.setattr(cli, "_write_rubric_verdict_safe",
+                        lambda date, paper, vid=None: written.update(date=date, vid=vid,
+                                                                     verdict=paper["edition"]["rubric"]["verdict"]))
+
+    rc = cli.cmd_regrade(build_parser().parse_args(["regrade", "--date", "2026-06-19"]))
+    assert rc == 0
+    assert written == {"date": "2026-06-19", "vid": "vidX", "verdict": "APPROVE"}
+    assert draft["edition"]["rubric"]["verdict"] == "APPROVE"
+
+
 # --- message subcommand -----------------------------------------------------
 def test_message_parses_default_both():
     a = build_parser().parse_args(["message", "--text", "hello"])
