@@ -78,17 +78,18 @@ def test_fabrication_prompt_treats_research_as_authoritative() -> None:
 # --- Fix B: publish the valid remainder (local images at gate time) ---------
 
 
-def test_pick_promotion_accepts_local_image_paths() -> None:
-    # PRODUCTION shape: subarticle images are LOCAL paths at gate time. A fabricated
-    # headliner must promote a valid subarticle (not hard-hold over the http check).
+def test_fabricated_headliner_is_stamped_not_promoted() -> None:
+    # ADVISORY gate (2026-06-19): a fabricated headliner is KEPT and stamped with a `_qc`
+    # marker (published with a UI warning), never promoted-away or hard-held.
     p = _paper_with_okf()
-    p["edition"].pop("okf")  # isolate Fix B from grounding
+    p["edition"].pop("okf")  # isolate from grounding
     grade = lambda pp: {"ok": True, "fabricated_refs": ["ai.headliner"],  # noqa: E731
                         "by_ref": {"ai.headliner": "invented"}, "judge_model": "j"}
     out = ar.auto_remediate(p, link_ok=lambda u: True, grade=grade)
     assert out["action"] == "publish"
-    assert out["promoted"] == "ai.subarticles.0"
-    assert out["paper"]["ai"]["headliner"]["title"] == "Sub0"
+    assert out["flagged"] == ["ai.headliner"]
+    assert out["paper"]["ai"]["headliner"]["_qc"]["flag"] == "fabrication"
+    assert out["paper"]["ai"]["headliner"]["title"] != "Sub0"   # NOT promoted-away
 
 
 def test_validate_paper_accepts_local_images_at_gate_time() -> None:
