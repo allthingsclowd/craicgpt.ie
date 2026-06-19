@@ -200,3 +200,22 @@ def notify_held(date_iso: str, reasons: Iterable[str], *, vid: Optional[str] = N
     text = (f"✋ <b>CraicGPT edition HELD</b> — {date_iso}\n"
             f"Not published — the approval gate held it. Reasons:\n{body}")
     return notify_once("held", date_iso, text, vid=vid, s3=s3)
+
+
+def notify_flagged(date_iso: str, flagged_by_ref: dict[str, dict], *,
+                   graded: bool = True, vid: Optional[str] = None,
+                   s3: Any | None = None) -> dict:
+    """A published-anyway QUALITY-CONTROL alert: the advisory per-article gate flagged
+    one or more stories (kept + stamped in the UI, NOT dropped) — Graham should
+    spot-check them. Distinct event from a hard ``held`` (the edition DID publish)."""
+    if not flagged_by_ref and graded:
+        return {}
+    lines = [f"• <code>{ref}</code> — {qc.get('flag', 'flagged')}: {qc.get('reason', '')}"
+             for ref, qc in sorted(flagged_by_ref.items())]
+    body = "\n".join(lines) if lines else "• (none)"
+    tail = "" if graded else ("\n⚠️ fabrication grade was unavailable this run — "
+                              "published WITHOUT per-article stamps; eyeball the lead.")
+    text = (f"🔎 <b>CraicGPT quality-control flags</b> — {date_iso}\n"
+            f"Published live with a warning stamp on {len(flagged_by_ref)} story(ies); "
+            f"please spot-check:\n{body}{tail}")
+    return notify_once("qc_flagged", date_iso, text, vid=vid, s3=s3)

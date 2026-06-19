@@ -207,9 +207,10 @@ def cmd_run(args) -> int:
         from content_pipeline.agent.article_review import auto_remediate
         from content_pipeline.agent.rubric_review import grade_edition
         grade = grade_edition
-        # Per-article gate: drop fabricated/dead-link articles + publish the valid
-        # rest (a fabricated headliner promotes a valid story; unfixable → EditionHeld
-        # HARD hold). Runs before grade + narration so both see the cleaned edition.
+        # Per-article gate (ADVISORY): flag fabricated/dead-link articles with a `_qc`
+        # quality-control stamp and ALWAYS publish — never drop, never hard-hold (it
+        # publishes WITH a UI warning banner instead). Runs before grade + narration so
+        # both see the stamped edition; the flagged stories alert Graham to spot-check.
         remediate = auto_remediate
     try:
         paper = run_edition(date_iso, generated_at=gen, recent_keys=recent_keys,
@@ -259,6 +260,16 @@ def cmd_run(args) -> int:
             logging.warning("[cli] %s", _alert)
             _notify_safe("fun_no_comedy", date_iso, text=_alert, vid=vid)
 
+        # Advisory per-article gate (2026-06-19): if any story shipped with a quality-
+        # control stamp, alert Graham to spot-check it — the edition still published.
+        from content_pipeline.agent.article_review import qc_flags
+
+        _flags = qc_flags(paper)
+        if _flags:
+            logging.warning("[cli] %s QC-flagged stories published with a stamp: %s",
+                            len(_flags), sorted(_flags))
+            _notify_safe("qc_flagged", date_iso, flagged=_flags, vid=vid)
+
         # ── Multi-lingual: translate the published English preview into each other
         #    language and publish each as its OWN preview draft, sharing the English
         #    images (already absolute CDN URLs → publish skips re-uploading them). Each
@@ -304,6 +315,10 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
         elif event == "fun_no_comedy":
             # Once-per-edition alert that the comedian desk came up empty.
             notifications.notify_once("fun_no_comedy", date_iso, kw["text"], vid=kw.get("vid"))
+        elif event == "qc_flagged":
+            # Advisory per-article gate flagged stories that published WITH a QC stamp.
+            notifications.notify_flagged(date_iso, kw.get("flagged") or {},
+                                         graded=kw.get("graded", True), vid=kw.get("vid"))
     except Exception as exc:  # noqa: BLE001
         logging.warning("[cli] notify %s failed: %s", event, exc)
 

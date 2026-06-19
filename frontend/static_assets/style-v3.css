@@ -91,6 +91,29 @@
 .kicker--red  { color: var(--accent); }   /* the day's one red moment per card */
 .kicker--gold { color: var(--ink); }
 
+/* QUALITY-CONTROL STAMP — the advisory per-article gate (2026-06-19) flags a fabricated
+   or dead-link story rather than dropping it, and it publishes WITH this banner so the
+   reader sees the caveat. A quiet red-edged band, not a scare-box. */
+.qc-stamp {
+  display: block;
+  margin: 0 0 .7rem;
+  padding: .45rem .6rem;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-tint);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.qc-stamp__badge {
+  font-family: var(--font-ui);
+  font-weight: 800;
+  font-size: .6rem;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-right: .45rem;
+  white-space: nowrap;
+}
+.qc-stamp__text { font-family: var(--font-ui); font-size: .68rem; line-height: 1.35; color: var(--ink-soft); }
+
 .headline {
   font-family: var(--font-headline);
   font-weight: 700;

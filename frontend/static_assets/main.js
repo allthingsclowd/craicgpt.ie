@@ -13,6 +13,8 @@
  *   "ai": { "headliner": {...}, "subarticles": [...], "shorts": [...] },
  *   "fun": [ { title, body, source_url, persona, byline, satire_disclaimer,
  *              image_url, kind, _text_model, _image_model } ],
+ *   // any article may carry an additive _qc:{flag,reason,by} marker — the advisory
+ *   // per-article gate stamps a flagged story; the UI renders a quality-control banner.
  *   "layout": [ "ai.headliner", "ai.subarticles.0", "ai.shorts.0", "fun.0", ... ],
  *   "context": { "agent_trace": [ {kind,name,detail} ], "files": [...] }
  * }
@@ -50,37 +52,43 @@ const I18N = {
         fetching: "Fetching today's edition…", noEdition: 'No edition found for',
         dayOff: 'The Craic Gazette was probably on holidays.', changeDate: '📅 change date',
         translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
-        readOriginal: 'Read the English original ↗' },
+        readOriginal: 'Read the English original ↗',
+        qcLabel: 'Quality control', qcNote: 'Flagged by our automated fact-check — read with a pinch of salt:' },
   de: { listen: '🎧 Hören', podcast: 'Täglicher Podcast', tldr: '90-Sek-Schlagzeilen',
         transcript: 'Transkript', download: 'Herunterladen:', latest: 'aktuell',
         fetching: 'Heutige Ausgabe wird geladen…', noEdition: 'Keine Ausgabe gefunden für',
         dayOff: 'Die Craic Gazette macht wohl gerade Urlaub.', changeDate: '📅 Datum ändern',
         translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
-        readOriginal: 'Zum englischen Original ↗' },
+        readOriginal: 'Zum englischen Original ↗',
+        qcLabel: 'Qualitätskontrolle', qcNote: 'Von unserer automatischen Faktenprüfung markiert — mit Vorsicht zu genießen:' },
   es: { listen: '🎧 Escuchar', podcast: 'Podcast diario', tldr: 'Titulares en 90 s',
         transcript: 'transcripción', download: 'Descargar', latest: 'última',
         fetching: 'Cargando la edición de hoy…', noEdition: 'No se encontró edición para',
         dayOff: 'La Craic Gazette estaría de vacaciones.', changeDate: '📅 cambiar fecha',
         translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
-        readOriginal: 'Leer el original en inglés ↗' },
+        readOriginal: 'Leer el original en inglés ↗',
+        qcLabel: 'Control de calidad', qcNote: 'Marcado por nuestra verificación automática — tómalo con cautela:' },
   it: { listen: '🎧 Ascolta', podcast: 'Podcast quotidiano', tldr: 'Titoli in 90 s',
         transcript: 'trascrizione', download: 'Scarica', latest: 'ultima',
         fetching: "Caricamento dell'edizione di oggi…", noEdition: 'Nessuna edizione trovata per',
         dayOff: 'La Craic Gazette sarà in vacanza.', changeDate: '📅 cambia data',
         translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
-        readOriginal: "Leggi l'originale in inglese ↗" },
+        readOriginal: "Leggi l'originale in inglese ↗",
+        qcLabel: 'Controllo qualità', qcNote: 'Segnalato dal nostro fact-check automatico — da prendere con le pinze:' },
   ja: { listen: '🎧 聴く', podcast: 'デイリーポッドキャスト', tldr: '90秒ヘッドライン',
         transcript: '文字起こし', download: 'ダウンロード', latest: '最新',
         fetching: '本日のエディションを読み込み中…', noEdition: 'エディションが見つかりません：',
         dayOff: 'クレイク・ガゼットはお休みのようです。', changeDate: '📅 日付を変更',
         translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
-        readOriginal: '英語の原文を読む ↗' },
+        readOriginal: '英語の原文を読む ↗',
+        qcLabel: '品質チェック', qcNote: '自動ファクトチェックがフラグを立てました。話半分でどうぞ：' },
   fr: { listen: '🎧 Écouter', podcast: 'Podcast quotidien', tldr: 'Titres en 90 s',
         transcript: 'transcription', download: 'Télécharger', latest: 'récente',
         fetching: "Chargement de l'édition du jour…", noEdition: 'Aucune édition trouvée pour',
         dayOff: 'La Craic Gazette est sans doute en vacances.', changeDate: '📅 changer de date',
         translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
-        readOriginal: "Lire l'original en anglais ↗" },
+        readOriginal: "Lire l'original en anglais ↗",
+        qcLabel: 'Contrôle qualité', qcNote: 'Signalé par notre vérification automatique — à prendre avec des pincettes :' },
 };
 const t = (key) => ((I18N[LANG] || I18N.en)[key] ?? I18N.en[key] ?? key);
 
@@ -407,6 +415,7 @@ function aiCard(item, kind) {
   const art = document.createElement('article');
   art.className = `card card--ai ${lead ? 'card--lead' : kind === 'sub' ? 'card--sub' : 'card--short'}`;
   art.append(kicker(lead ? 'HEADLINE' : kind === 'sub' ? 'AI DESK' : 'IN BRIEF', 'red'));
+  const qc = qcStamp(item); if (qc) art.append(qc);
   art.append(headline(item.title, lead));
   if (item.standfirst) art.append(node('p', 'standfirst', item.standfirst));
   const img = imageEl(item);            // headliner + subarticles carry a photo
@@ -423,6 +432,7 @@ function funCard(item) {
   // Credited Irish-creator digest → show the creator; legacy parody → show the persona.
   const funCredit = item.source || item.persona || '';
   art.append(kicker(isAd ? 'A WORD FROM OUR (PRETEND) SPONSOR' : `CRAIC & THROTTLE · ${funCredit}`, 'gold'));
+  const qc = qcStamp(item); if (qc) art.append(qc);
   const img = imageEl(item);
   if (img) art.append(img);
   art.append(headline(item.title, false));
@@ -434,6 +444,20 @@ function funCard(item) {
 
 function kicker(text, tone) {
   return node('div', `kicker kicker--${tone}`, text);
+}
+
+// QUALITY-CONTROL STAMP — the advisory per-article gate (2026-06-19) flags a fabricated
+// or dead-link story with a `_qc` marker instead of dropping it; we publish it WITH this
+// visible warning banner so readers see the caveat. Returns null when the item is clean.
+function qcStamp(item) {
+  const qc = item && item._qc;
+  if (!qc || typeof qc !== 'object') return null;
+  const wrap = node('div', 'qc-stamp');
+  wrap.setAttribute('role', 'note');
+  wrap.append(node('span', 'qc-stamp__badge', `⚠ ${t('qcLabel')}`));
+  const reason = qc.reason ? `${t('qcNote')} ${qc.reason}` : t('qcNote');
+  wrap.append(node('span', 'qc-stamp__text', reason));
+  return wrap;
 }
 
 function headline(text, lead) {
