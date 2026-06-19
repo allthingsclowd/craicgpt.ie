@@ -36,9 +36,8 @@ def test_grading_view_is_compact_and_judgment_focused():
     # and — for fun items — the parody/credit flags it scores against.
     assert "AI HEADLINER:" in view
     assert "FUN 0:" in view and "FUN 1:" in view
-    assert "credit=Foil Arms and Hog" in view
+    assert "ATTRIBUTED (credit: Foil Arms and Hog; marked parody)" in view
     assert "voice=Jack Blarney" in view
-    assert "disclaimer=yes" in view
 
 
 def test_grading_view_exposes_unattributed_fun_to_the_judge():
@@ -46,7 +45,35 @@ def test_grading_view_exposes_unattributed_fun_to_the_judge():
     p["fun"][0].pop("source")
     p["fun"][0].pop("satire_disclaimer")
     view = rr.grading_view(p)
-    assert "credit=—" in view and "disclaimer=no" in view  # the judge can see it's bare
+    assert "UNATTRIBUTED (no credit, no disclaimer)" in view  # the judge can see it's bare
+
+
+def test_grading_view_has_no_truncation_ellipsis_on_a_complete_edition():
+    # 2026-06-19 false-positive: the visible '…' read as a truncated/"cut off" article.
+    # A complete edition's view must carry no truncation ellipsis and show titles whole.
+    p = _paper()
+    view = rr._edition_view(p)
+    assert "…" not in view
+    assert "Big AI thing happened" in view          # headliner title shown WHOLE
+    assert "Short 9" in view                          # every short title intact
+
+
+def test_grading_view_never_cuts_mid_item_and_strips_attribution():
+    # Even when over budget, drop WHOLE trailing items — never truncate an item so its
+    # ATTRIBUTED tag vanishes (which re-creates the false "unattributed" read).
+    p = _paper()
+    view = rr._edition_view(p, budget=600)
+    assert len(view) <= 600
+    for line in view.splitlines():
+        if line.startswith("FUN "):
+            assert "ATTRIBUTED" in line               # any fun item shown keeps its tag
+
+
+def test_rubric_forbids_the_known_false_positive_axes():
+    rub = rr.EDITION_RUBRIC
+    assert "TRUNCATION" in rub and "EXCERPTS" in rub
+    assert "VERIFIABILITY" in rub and "unverifiable" in rub
+    assert "ATTRIBUTION ALREADY SHOWN" in rub
 
 
 def test_grading_view_respects_the_char_budget():

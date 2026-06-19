@@ -97,6 +97,16 @@ EDITION_RUBRIC = (
     "bundle and code already verified those. Fail a criterion ONLY for a clear, "
     "on-its-face violation visible in the edition; when in doubt, PASS. (The reachability "
     "of links is checked separately by code — not by you.)\n"
+    "WHAT YOU MUST NOT FAIL ON (these caused repeated false holds):\n"
+    "  • TRUNCATION / LENGTH. The bodies shown are deliberately shortened EXCERPTS, not "
+    "the full articles. NEVER fail or remark that an item is 'truncated', 'cut off', "
+    "'incomplete', 'too short' or 'ends mid-sentence' — completeness and length are not "
+    "yours to judge.\n"
+    "  • VERIFIABILITY / RECENCY. A shown `src=<host>` is a real, code-checked link. "
+    "NEVER write that a source or claim is 'unverifiable', 'cannot be confirmed', 'lacks "
+    "a verifiable source' or 'doesn't exist' — source truth is not your job.\n"
+    "  • ATTRIBUTION ALREADY SHOWN. A fun item tagged `ATTRIBUTED (...)` IS attributed — "
+    "never call it unattributed. Only `UNATTRIBUTED (no credit, no disclaimer)` may fail.\n"
     "- Harmless: nothing hateful, grim, gory, sexual or genuinely cruel. A fun paper. "
     "Political topics appear only as light, even-handed satire, never partisan "
     "campaigning. (Dry or plain prose is FINE — do not fail an item for tone alone.)\n"
@@ -104,10 +114,10 @@ EDITION_RUBRIC = (
     "'Ronald Dump' — is allowed and counts as clearly comedic. Fail ONLY if the text "
     "asserts a specific false factual claim about a real, named person as if it were "
     "true.\n"
-    "- Every fun item is attributed: PASS if it shows a creator credit (`credit=` a "
-    "name) OR is marked parody (`disclaimer=yes`). Fail ONLY when BOTH are absent "
-    "(`credit=—` AND `disclaimer=no`) — an unattributed, unmarked impersonation. Do not "
-    "try to verify the credit; its presence is sufficient.\n"
+    "- Every fun item is attributed: each fun item is tagged either `ATTRIBUTED (...)` "
+    "or `UNATTRIBUTED (no credit, no disclaimer)`. PASS every `ATTRIBUTED` item. Fail "
+    "ONLY an `UNATTRIBUTED` one — an unattributed, unmarked impersonation. Do not try to "
+    "verify the credit; the tag is sufficient.\n"
     "- The AI desk is substantive, not empty: PASS if the headliner and subarticles each "
     "have a title and some body text. Fail ONLY if they are blank/placeholder or carry "
     "no source at all — NOT because you cannot confirm a story is true.\n"
@@ -123,8 +133,9 @@ _REVIEWER_PROMPT = (
 )
 
 _REVIEW_TASK = (
-    "Here is today's CraicGPT edition for review. Judge whether it is fit to "
-    "publish.\n\n"
+    "Here is today's CraicGPT edition for review. The article bodies are deliberately "
+    "shortened EXCERPTS (not the full text), so do not judge their length or "
+    "completeness. Judge whether it is fit to publish.\n\n"
 )
 
 
@@ -139,6 +150,18 @@ def _host(url: str) -> str:
 def _clip(text: str, n: int) -> str:
     t = " ".join(str(text or "").split())
     return t if len(t) <= n else t[: n - 1] + "…"
+
+
+def _excerpt(text: str, n: int) -> str:
+    """A short, CLEAN excerpt for the grader view — clipped on a word boundary with NO
+    trailing '…'. The visible ellipsis was read by the judge as a TRUNCATED / "cut off"
+    article and failed otherwise-complete editions (the 2026-06-19 false-positive: a
+    short title clipped to "MolmoMotion…" → "headline cut off"). The rubric tells the
+    judge these are deliberate excerpts, so a clean cut carries no truncation signal."""
+    t = " ".join(str(text or "").split())
+    if len(t) <= n:
+        return t
+    return t[:n].rsplit(" ", 1)[0] or t[:n]
 
 
 def _okf_grounding(paper: dict, *, budget: int) -> str:
@@ -177,36 +200,52 @@ def grading_view(paper: dict, *, budget: int = 3500) -> str:
 
 
 def _edition_view(paper: dict, *, budget: int = 3500) -> str:
+    """A compact, judgement-focused view. Bodies are CLEAN excerpts (no truncation
+    ellipsis), and each fun item states its attribution in plain words so the judge
+    can't misread the terse flags (the 2026-06-19 false "FUN 3 unattributed" when the
+    credit was right there). Titles are shown WHOLE — they are short and a clipped
+    title reads as a "cut off" headline."""
     ai = paper.get("ai") or {}
     fun = paper.get("fun") or []
     lines: list[str] = []
 
     brief = (paper.get("editors_brief") or {}).get("title")
     if brief:
-        lines.append(f"EDITOR'S BRIEF: {_clip(brief, 120)}")
+        lines.append(f"EDITOR'S BRIEF: {_excerpt(brief, 160)}")
 
     h = ai.get("headliner") or {}
     if h:
-        lines.append(f"AI HEADLINER: {_clip(h.get('title'), 110)} "
-                     f"[src={_host(h.get('source_url'))}] {_clip(h.get('body'), 220)}")
+        lines.append(f"AI HEADLINER: {h.get('title') or ''} "
+                     f"[src={_host(h.get('source_url'))}] {_excerpt(h.get('body'), 320)}")
     for i, s in enumerate(ai.get("subarticles") or []):
-        lines.append(f"AI SUB {i}: {_clip(s.get('title'), 100)} "
-                     f"[src={_host(s.get('source_url'))}] {_clip(s.get('body'), 130)}")
+        lines.append(f"AI SUB {i}: {s.get('title') or ''} "
+                     f"[src={_host(s.get('source_url'))}] {_excerpt(s.get('body'), 220)}")
     shorts = ai.get("shorts") or []
     if shorts:
-        lines.append("AI SHORTS: " + " / ".join(_clip(s.get("title"), 70) for s in shorts))
+        lines.append("AI SHORTS: " + " / ".join((s.get("title") or "") for s in shorts))
 
     for i, f in enumerate(fun):
-        credit = f.get("source") or "—"
-        disc = "yes" if f.get("satire_disclaimer") else "no"
+        credit = f.get("source")
+        disc = bool(f.get("satire_disclaimer"))
         voice = f.get("persona") or "—"
-        lines.append(f"FUN {i}: {_clip(f.get('title'), 100)} "
-                     f"[voice={voice} | credit={credit} | disclaimer={disc}] "
-                     f"{_clip(f.get('body'), 170)}")
+        # Plain-words attribution the judge cannot misread (credit OR disclaimer ⇒ attributed).
+        if credit and disc:
+            attribution = f"ATTRIBUTED (credit: {credit}; marked parody)"
+        elif credit:
+            attribution = f"ATTRIBUTED (credit: {credit})"
+        elif disc:
+            attribution = "ATTRIBUTED (marked parody/disclaimer)"
+        else:
+            attribution = "UNATTRIBUTED (no credit, no disclaimer)"
+        lines.append(f"FUN {i}: {f.get('title') or ''} "
+                     f"[voice={voice}] {attribution} {_excerpt(f.get('body'), 240)}")
 
     view = "\n".join(lines)
-    if len(view) > budget:
-        view = view[: budget - 1] + "…"
+    # If we still overflow, drop whole trailing lines (never cut mid-item, which would
+    # strip an attribution flag and re-create the false "unattributed" read).
+    while len(view) > budget and len(lines) > 1:
+        lines.pop()
+        view = "\n".join(lines)
     return view
 
 

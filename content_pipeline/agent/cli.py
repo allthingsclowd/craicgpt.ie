@@ -129,6 +129,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_dir.add_argument("--date", required=True)
     p_dir.add_argument("--clear", action="store_true", help="Remove the pending directive")
 
+    p_rg = sub.add_parser("regrade",
+                          help="Re-grade an existing draft with the CURRENT rubric judge "
+                               "(no re-research) and write a fresh verdict")
+    p_rg.add_argument("--date", required=True)
+    p_rg.add_argument("--vid", help="version id to key the verdict (default: from status.json)")
+    p_rg.add_argument("--no-republish", dest="republish", action="store_false",
+                      help="don't re-publish the re-graded draft to preview (default: do)")
+
     p_df = sub.add_parser("deploy-frontend",
                           help="Sync the static frontend to S3 (diff-only) + invalidate the CDN")
     p_df.add_argument("--dir", dest="frontend_dir", help="frontend dir (default: repo frontend/)")
@@ -906,6 +914,52 @@ def cmd_gate(args) -> int:
             "remediate-publish": 0, "hold": 2, "retry": 3}.get(g["action"], 3)
 
 
+def _status_vid(date_iso: str) -> Optional[str]:
+    """The vid recorded in this date's preview ``status.json`` (None if absent), so a
+    re-grade keys its verdict to the SAME draft the gate will publish."""
+    try:
+        from content_pipeline.agent.publish import _default_s3
+        from content_pipeline.content_config import content_cfg
+
+        ymd = "/".join(date_iso.split("-"))
+        obj = _default_s3().get_object(Bucket=content_cfg.s3_bucket,
+                                       Key=f"preview/{ymd}/status.json")
+        return (json.loads(obj["Body"].read()) or {}).get("vid")
+    except Exception:  # noqa: BLE001 — missing/unreadable status → caller may pass --vid
+        return None
+
+
+def cmd_regrade(args) -> int:
+    """Re-grade an already-generated draft with the CURRENT rubric judge and write a
+    fresh verdict — for when the rubric prompt/model improved AFTER generation, so the
+    gate can publish on a genuine re-grade rather than a stale verdict (no re-research,
+    no human override). The real judge runs here; we never hand-assert the verdict."""
+    from content_pipeline.agent.rubric_review import grade_edition
+
+    date_iso = args.date or _today()
+    vid = getattr(args, "vid", None) or _status_vid(date_iso)
+    paper = _load_draft(date_iso)
+    if not paper:
+        print(f"no draft for {date_iso} to re-grade", file=sys.stderr)
+        return 2
+    verdict = grade_edition(paper)
+    paper.setdefault("edition", {})["rubric"] = verdict
+    # Persist the re-graded draft locally so a later publish carries the verdict.
+    with open(_draft_path(date_iso), "w", encoding="utf-8") as fh:
+        json.dump(paper, fh, indent=2, ensure_ascii=False)
+    if getattr(args, "republish", True):
+        import copy
+
+        from content_pipeline.agent.publish import publish_paper
+        publish_paper(copy.deepcopy(paper), date_iso, live=False)
+    _write_rubric_verdict_safe(date_iso, paper, vid=vid)
+    print(f"re-graded {date_iso}: {verdict['verdict']} "
+          f"(judge={verdict.get('judge_model')}, vid={vid})")
+    for r in verdict.get("reasons", []):
+        print("  •", r)
+    return 0 if verdict.get("verdict") == "APPROVE" else 2
+
+
 def cmd_override(args) -> int:
     """Human override: publish the edition over the agents' HOLD. Writes the
     directive (so an out-of-band gate poll will also honour it) and, with
@@ -1046,6 +1100,8 @@ def main(argv=None) -> int:
         return cmd_hold(args)
     if args.command == "directive":
         return cmd_directive(args)
+    if args.command == "regrade":
+        return cmd_regrade(args)
     if args.command == "message":
         return cmd_message(args)
     if args.command == "deploy-frontend":
