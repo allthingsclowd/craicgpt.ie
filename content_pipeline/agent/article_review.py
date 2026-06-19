@@ -6,8 +6,9 @@ PER-ARTICLE fabrication grading — the half the edition-level rubric can't do.
 The edition rubric (:mod:`rubric_review`) returns ONE verdict for the whole paper:
 when an article hallucinates, the *entire* edition is held (2026-06-15: a fabricated
 headliner held a paper whose shorts + fun were all fine). This module grades each
-article INDEPENDENTLY for fabrication so the gate can drop the bad ones and publish
-the valid rest.
+article INDEPENDENTLY for fabrication so the gate can FLAG the bad ones with a visible
+quality-control stamp and still publish — advisory since 2026-06-19 (geek parity):
+nothing is dropped and the edition is never hard-held over a flagged article.
 
 Split, per ``deciding-deterministic-vs-llm``:
   * DEAD-LINK / structural hallucination → caught deterministically elsewhere
@@ -196,116 +197,90 @@ def grade_articles(paper: dict, *, judge_model: Optional[str] = None,
     }
 
 
-def _pick_promotion(paper: dict, bad: dict) -> Optional[tuple]:
-    """Choose a surviving, non-bad article to promote to headliner when the real
-    headliner is fabricated. A headliner needs title+body+source_url+an image; the
-    image only needs to be PRESENT (a local path is fine — images upload to https in
-    ``publish_paper`` AFTER this gate, so requiring http here would reject every valid
-    subarticle/fun image and force a needless hard-hold — the 2026-06-17 bug). Both
-    subarticles and fun carry images (shorts don't). Prefer a subarticle (lead-grade),
-    then a fun item. Returns ``(ref, obj)`` or None."""
+def qc_flags(paper: dict) -> dict[str, dict]:
+    """Map each article ref carrying a ``_qc`` quality-control marker → that marker.
+    Used by the harness to alert + trace what the advisory gate stamped."""
     from content_pipeline.compile import resolve_ref
-    from content_pipeline.agent.review import _has_image, _is_http_url, _nonempty
 
-    ai = paper.get("ai") or {}
-    candidates = ([f"ai.subarticles.{i}" for i in range(len(ai.get("subarticles") or []))]
-                  + [f"fun.{i}" for i in range(len(paper.get("fun") or []))])
-    for ref in candidates:
-        if ref in bad:
-            continue
+    out: dict[str, dict] = {}
+    for ref in article_refs(paper):
         it = resolve_ref(paper, ref) or {}
-        if (_nonempty(it, "title") and _nonempty(it, "body")
-                and _is_http_url(it.get("source_url"))
-                and _has_image(it, require_http=False)):
-            return ref, it
-    return None
+        qc = it.get("_qc")
+        if isinstance(qc, dict):
+            out[ref] = qc
+    return out
 
 
 def auto_remediate(paper: dict, *, link_ok=None, grade=None,
                    judge_model: Optional[str] = None,
                    fallback_model: Optional[str] = None) -> dict:
-    """The per-article gate. Drop fabricated / dead-link articles and return a CLEAN
-    edition to publish — or a HARD hold when it can't be made safe.
+    """The per-article gate — ADVISORY since 2026-06-19 (geek parity).
 
-    Returns one of:
-      * ``{"action":"publish", "paper": cleaned, "dropped":[refs], "promoted": ref|None,
-            "reasons":[...]}`` — publish the cleaned edition.
-      * ``{"action":"hold", "severity":"hard", "reasons":[...], "dropped":[...],
-            "promoted":None}`` — cannot auto-fix; HARD hold (must never passive-publish,
-            unlike a soft judgement hold). Routed through the existing hard-hold path.
+    It NO LONGER drops articles, promotes a replacement headliner, or hard-holds the
+    edition. The old hard-hold path could sink the WHOLE multilingual edition over a
+    single fabricated headliner: the pipeline emits exactly ``num_ai_subarticles``
+    subarticles, which equals ``review.MIN_SUBARTICLES``, so promoting one to replace a
+    fabricated lead dropped the desk below its floor and hard-held — mathematically
+    guaranteed (the 2026-06-19 blackout). Graham ruled: publish the edition with a
+    visible QUALITY-CONTROL stamp on each flagged article rather than suppressing it —
+    transparency over a frozen front page.
 
-    Bad = dead/unreachable source link (deterministic) ∪ fabricated content (the LLM
-    per-article grade). A fabricated headliner is replaced by promoting the best valid
-    story; if none qualifies, or the cleaned edition falls below the structural floors,
-    it HARD-holds. ``link_ok``/``grade`` are injectable for offline tests."""
+    For every flagged article it attaches an additive ``_qc`` marker
+    (``{"flag": "fabrication"|"dead_link", "reason": str, "by": "per-article gate"}``)
+    that the frontend renders as a warning banner, then ALWAYS returns::
+
+        {"action": "publish", "paper": annotated, "flagged": [refs],
+         "by_ref": {ref: reason}, "reasons": [...], "graded": bool}
+
+    ``graded`` is False only when no judge produced a verdict (an infra failure): the
+    edition still publishes — UNflagged for fabrication — and the caller alerts, rather
+    than the whole paper sinking over an infra blip. Nothing here is dropped, so the
+    structural floors can never be breached by the gate. ``link_ok``/``grade`` are
+    injectable for offline tests."""
     import copy
 
-    from content_pipeline.agent.review import validate_paper
-    from content_pipeline.compile import recompile_layout, resolve_ref
+    from content_pipeline.compile import resolve_ref
 
     if link_ok is None:
         from content_pipeline.research.curation import validate_source_link as link_ok
     paper = copy.deepcopy(paper)
 
+    flags: dict[str, dict] = {}
+
     # 1. Deterministic: dead/unreachable source links (the cheap hallucination net).
-    bad: dict[str, str] = {}
     for ref in article_refs(paper):
         url = (resolve_ref(paper, ref) or {}).get("source_url")
         if url and not link_ok(url):
-            bad[ref] = "dead/unreachable source link"
+            flags[ref] = {"flag": "dead_link", "reason": "source link unreachable"}
 
-    # 2. LLM: per-article content fabrication.
+    # 2. LLM: per-article content fabrication (a fabrication outranks a dead-link flag).
     grade_fn = grade or (lambda p: grade_articles(
         p, judge_model=judge_model, fallback_model=fallback_model))
     g = grade_fn(paper)
-    if not g.get("ok", True):
-        return {"action": "hold", "severity": "hard", "dropped": [], "promoted": None,
-                "reasons": ["per-article fabrication grade unavailable — failing safe"]}
-    for ref in g.get("fabricated_refs", []):
-        bad.setdefault(ref, g.get("by_ref", {}).get(ref, "fabricated claim"))
+    graded = bool(g.get("ok", True))
+    if graded:
+        for ref in g.get("fabricated_refs", []):
+            flags[ref] = {"flag": "fabrication",
+                          "reason": g.get("by_ref", {}).get(ref, "fabricated claim")}
 
-    if not bad:
-        return {"action": "publish", "paper": paper, "dropped": [], "promoted": None,
-                "reasons": []}
+    # 3. Stamp each flagged article with an additive _qc marker — never drop it, never
+    #    re-order. The structure is untouched, so the structural floors cannot be
+    #    breached by the gate; the UI renders a quality-control warning on the stamp.
+    for ref, info in flags.items():
+        it = resolve_ref(paper, ref)
+        if it is not None:
+            it["_qc"] = {"flag": info["flag"], "reason": info["reason"],
+                         "by": "per-article gate"}
 
-    # 3. Headliner: promote a valid story over a fabricated lead, or HARD hold.
-    promoted: Optional[str] = None
-    consumed: set[int] = set()
-    ai = paper.get("ai") or {}
-    if "ai.headliner" in bad:
-        pick = _pick_promotion(paper, bad)
-        if pick is None:
-            return {"action": "hold", "severity": "hard", "dropped": [], "promoted": None,
-                    "reasons": [f"fabricated headliner and no valid story to promote "
-                                f"({bad['ai.headliner']})"]}
-        promoted, obj = pick
-        ai["headliner"] = obj
-        consumed.add(id(obj))
-        del bad["ai.headliner"]
-
-    # 4. Remove bad + consumed items by identity, then rebuild the layout.
-    remove = {id(resolve_ref(paper, r)) for r in bad if resolve_ref(paper, r) is not None}
-    remove |= consumed
-    ai["subarticles"] = [x for x in (ai.get("subarticles") or []) if id(x) not in remove]
-    ai["shorts"] = [x for x in (ai.get("shorts") or []) if id(x) not in remove]
-    paper["ai"] = ai
-    paper["fun"] = [x for x in (paper.get("fun") or []) if id(x) not in remove]
-    recompile_layout(paper)
-    dropped = sorted(bad)
-
-    # 5. The cleaned edition must still clear the structural floors, else HARD hold
-    #    (never publish a too-thin paper). Gate-time: images are still LOCAL paths
-    #    (uploaded to https only in publish_paper, after this gate), so don't demand
-    #    http images here — the publish gate re-validates with http after upload.
-    v = validate_paper(paper, require_http_images=False)
-    if not v["valid"]:
-        return {"action": "hold", "severity": "hard", "dropped": dropped, "promoted": promoted,
-                "reasons": [f"after dropping {dropped or '[]'}"
-                            + (f" + promoting {promoted}" if promoted else "")
-                            + " the edition is structurally too thin: "
-                            + "; ".join(v["reasons"])]}
-    reasons = [f"dropped {r}: {bad[r]}" for r in dropped]
-    if promoted:
-        reasons.append(f"promoted {promoted} to headliner (original lead was fabricated)")
-    return {"action": "publish", "paper": paper, "dropped": dropped,
-            "promoted": promoted, "reasons": reasons}
+    reasons = [f"flagged {ref} ({flags[ref]['flag']}): {flags[ref]['reason']}"
+               for ref in sorted(flags)]
+    if not graded:
+        reasons.append("per-article fabrication grade unavailable — published unflagged")
+    return {
+        "action": "publish",
+        "paper": paper,
+        "flagged": sorted(flags),
+        "by_ref": {r: info["reason"] for r, info in flags.items()},
+        "reasons": reasons,
+        "graded": graded,
+    }

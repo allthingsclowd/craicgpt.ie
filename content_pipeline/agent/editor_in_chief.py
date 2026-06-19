@@ -827,39 +827,30 @@ def run_edition(
     if okf_bundle is not None:
         paper.setdefault("edition", {})["okf"] = bundle_to_json(okf_bundle)
 
-    # PER-ARTICLE GATE (runs BEFORE the edition rubric so the rubric grades a clean
-    # paper, and BEFORE narration so the podcast covers only what's published). It
-    # drops fabricated / dead-link articles and republishes the valid rest; an
-    # unfixable case (fabricated headliner with nothing to promote, an ungraded
-    # edition, or a result below the structural floors) raises EditionHeld — a HARD
-    # hold that routes through status=failed, which the gate never publishes. This is
-    # the fix for the 2026-06-15 hole where a structurally-valid but fabricated edition
-    # passive-published. Injectable (like `grade`) so unit tests stay offline.
+    # PER-ARTICLE GATE — ADVISORY (runs BEFORE the edition rubric so the rubric grades
+    # the same paper, and BEFORE narration so the podcast covers what's published). It
+    # flags fabricated / dead-link articles with an additive `_qc` marker (a visible
+    # quality-control stamp in the UI) and ALWAYS publishes — it never drops an article
+    # or hard-holds the edition (2026-06-19: the old promote-then-floor hard-hold blacked
+    # out the whole multilingual paper over one fabricated headliner). The caller alerts
+    # Graham to spot-check the flagged stories. Injectable (like `grade`) for offline tests.
     if remediate is not None:
         rem = remediate(paper)
-        if rem.get("action") == "hold":
-            logger.error("[run_edition] per-article gate HARD-HOLD %s — %s",
-                         date_iso, "; ".join(rem.get("reasons") or []))
-            raise EditionHeld(rem.get("reasons") or ["per-article gate held the edition"])
-        if rem.get("dropped") or rem.get("promoted"):
-            paper = rem["paper"]
-            # If a promoted lead lost its image (image-gen had failed upstream),
-            # generate a fresh one so the edition still publishes a complete headliner
-            # rather than holding the valid remainder (Graham, 2026-06-17).
-            hl = (paper.get("ai") or {}).get("headliner") or {}
-            if rem.get("promoted") and not str(hl.get("image_url") or "").strip():
-                _generate_images({"headliner": hl}, [], date_iso,
-                                 generate=image_generate, image_model=image_model)
+        paper = rem.get("paper", paper)
+        flagged = rem.get("flagged") or []
+        graded = rem.get("graded", True)
+        if flagged or not graded:
             paper["context"]["agent_trace"].append({
                 "kind": "remediation",
-                "name": f"Per-article gate — dropped {len(rem.get('dropped') or [])}"
-                        + (", promoted headliner" if rem.get("promoted") else ""),
-                "detail": {"dropped": rem.get("dropped") or [],
-                           "promoted": rem.get("promoted"),
+                "name": f"Per-article gate — flagged {len(flagged)} article(s) with a QC stamp"
+                        + ("" if graded else "; fabrication grade unavailable"),
+                "detail": {"flagged": flagged,
+                           "by_ref": rem.get("by_ref") or {},
+                           "graded": graded,
                            "info": "; ".join(rem.get("reasons") or [])},
             })
-            logger.info("[run_edition] per-article gate cleaned %s: dropped=%s promoted=%s",
-                        date_iso, rem.get("dropped"), rem.get("promoted"))
+            logger.warning("[run_edition] per-article gate flagged %s (published with QC stamp): %s",
+                           date_iso, "; ".join(rem.get("reasons") or []))
 
     # Re-coupled review: a separate JUDGE model grades the FINISHED edition against
     # the publish rubric (replacing the old two-VM consensus). We grade the compiled

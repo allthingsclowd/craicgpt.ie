@@ -262,6 +262,14 @@ step adds them after validation; an edition without audio still validates and re
 show and the TL;DR both top & tail with our own **80s call-sign jingle** (Apple sampled
 instruments, bounced offline); `podcast_tldr` is a deterministic, word-budgeted **<180s** two-voice headline bulletin.
 
+Any article may also carry an additive, optional **`_qc`** marker
+(`{"flag": "fabrication"|"dead_link", "reason": "...", "by": "per-article gate"}`). The per-article
+gate (`agent/article_review.py::auto_remediate`) is **advisory** (2026-06-19): it never drops an
+article or hard-holds the edition — it stamps a flagged story with `_qc`, the edition publishes, the
+frontend renders a **quality-control warning banner** (`main.js::qcStamp` + `.qc-stamp`), and Graham
+is alerted (`notifications.notify_flagged`) to spot-check. This replaced the old promote-then-floor
+hard-hold that blacked out the whole multilingual edition over one fabricated headliner.
+
 Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **up to 5 fun**
 (a thin pool publishes short — the fun desk never holds the paper). Each
 fun item is **either credited** (`source` = creator name, no disclaimer) **or parody**

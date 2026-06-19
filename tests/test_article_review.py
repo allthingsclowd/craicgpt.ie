@@ -97,54 +97,73 @@ def _resolves(paper):
     return all(cc.resolve_ref(paper, r) is not None for r in paper["layout"])
 
 
+# The gate is ADVISORY (2026-06-19): it NEVER drops an article and NEVER hard-holds —
+# it stamps flagged stories with a `_qc` marker and always publishes. The UI renders
+# the stamp as a quality-control warning banner.
+
 def test_clean_edition_publishes_unchanged():
     out = ar.auto_remediate(_full(), link_ok=lambda u: True, grade=_grade([]))
-    assert out["action"] == "publish" and out["dropped"] == [] and out["promoted"] is None
+    assert out["action"] == "publish" and out["flagged"] == [] and out["graded"] is True
+    assert ar.qc_flags(out["paper"]) == {}
 
 
-def test_drops_fabricated_fun_publishes_rest():
+def test_flags_fabricated_fun_but_keeps_it():
     out = ar.auto_remediate(_full(), link_ok=lambda u: True, grade=_grade(["fun.1"]))
     assert out["action"] == "publish"
-    assert out["dropped"] == ["fun.1"]
-    assert len(out["paper"]["fun"]) == 4
+    assert out["flagged"] == ["fun.1"]
+    assert len(out["paper"]["fun"]) == 5                       # NOT dropped
+    assert out["paper"]["fun"][1]["_qc"]["flag"] == "fabrication"
     assert _resolves(out["paper"])
 
 
-def test_drops_dead_link_short_deterministically():
+def test_flags_dead_link_short_deterministically():
     bad_url = "https://x/h2"
     out = ar.auto_remediate(_full(), link_ok=lambda u: u != bad_url, grade=_grade([]))
     assert out["action"] == "publish"
-    assert out["dropped"] == ["ai.shorts.2"]
-    assert len(out["paper"]["ai"]["shorts"]) == 8  # still >= MIN_SHORTS
-    assert _resolves(out["paper"])
+    assert out["flagged"] == ["ai.shorts.2"]
+    assert len(out["paper"]["ai"]["shorts"]) == 9             # NOT dropped
+    assert out["paper"]["ai"]["shorts"][2]["_qc"]["flag"] == "dead_link"
 
 
-def test_fabricated_headliner_promotes_valid_story():
+def test_fabricated_headliner_kept_with_stamp_not_promoted():
+    # The 2026-06-17/06-19 blackout shape: a fabricated headliner is STAMPED in place,
+    # not promoted-away, so the subarticle floor is never breached.
     out = ar.auto_remediate(_full(n_sub=3), link_ok=lambda u: True,
                             grade=_grade(["ai.headliner"]))
     assert out["action"] == "publish"
-    assert out["promoted"] == "ai.subarticles.0"
-    assert out["paper"]["ai"]["headliner"]["title"] == "Sub0"   # promoted
-    assert len(out["paper"]["ai"]["subarticles"]) == 2          # >= floor
+    assert out["paper"]["ai"]["headliner"]["title"] == "Head"          # unchanged
+    assert out["paper"]["ai"]["headliner"]["_qc"]["flag"] == "fabrication"
+    assert len(out["paper"]["ai"]["subarticles"]) == 3                 # untouched
     assert _resolves(out["paper"])
 
 
-def test_fabricated_headliner_no_candidate_hard_holds():
-    # headliner + every sub + every fun fabricated → nothing promotable
+def test_06_19_fabricated_headliner_two_subs_still_publishes():
+    # REGRESSION: fabricated headliner + exactly MIN_SUBARTICLES subs must NOT hold.
     p = _full(n_sub=2, n_fun=2)
-    bad = ["ai.headliner", "ai.subarticles.0", "ai.subarticles.1", "fun.0", "fun.1"]
-    out = ar.auto_remediate(p, link_ok=lambda u: True, grade=_grade(bad))
-    assert out["action"] == "hold" and out["severity"] == "hard"
+    out = ar.auto_remediate(p, link_ok=lambda u: True, grade=_grade(["ai.headliner"]))
+    assert out["action"] == "publish"
+    assert len(out["paper"]["ai"]["subarticles"]) == 2
+    assert out["paper"]["ai"]["headliner"]["_qc"]["reason"] == "invented"
 
 
-def test_too_many_drops_below_floor_hard_holds():
-    # drop 2 of 9 shorts → 7 < MIN_SHORTS(8)
+def test_many_flags_below_old_floor_still_publishes():
+    # Previously a HARD hold (7 < MIN_SHORTS); now publishes all 9, two stamped.
     out = ar.auto_remediate(_full(n_short=9), link_ok=lambda u: True,
                             grade=_grade(["ai.shorts.0", "ai.shorts.1"]))
-    assert out["action"] == "hold" and out["severity"] == "hard"
+    assert out["action"] == "publish"
+    assert len(out["paper"]["ai"]["shorts"]) == 9
+    assert sorted(ar.qc_flags(out["paper"])) == ["ai.shorts.0", "ai.shorts.1"]
 
 
-def test_ungraded_edition_hard_holds():
+def test_ungraded_edition_publishes_unflagged_and_signals():
     out = ar.auto_remediate(_full(), link_ok=lambda u: True,
                             grade=lambda p: {"ok": False, "fabricated_refs": [], "by_ref": {}})
-    assert out["action"] == "hold" and out["severity"] == "hard"
+    assert out["action"] == "publish"          # infra blip never sinks the edition
+    assert out["graded"] is False              # caller alerts on this
+    assert ar.qc_flags(out["paper"]) == {}     # nothing stamped (couldn't grade)
+
+
+def test_fabrication_outranks_dead_link_on_same_ref():
+    out = ar.auto_remediate(_full(), link_ok=lambda u: u != "https://x/s0",
+                            grade=_grade(["ai.subarticles.0"]))
+    assert out["paper"]["ai"]["subarticles"][0]["_qc"]["flag"] == "fabrication"
