@@ -505,7 +505,12 @@ def cmd_narrate(args) -> int:
     prefix = getattr(args, "prefix", "preview") or "preview"
     language = getattr(args, "language", None)
     paper = _load_edition(args.date, args.source, prefix=prefix, language=language)
-    paper = narrate_paper(paper, limit=getattr(args, "limit", None), language=language)
+    paper = narrate_paper(
+        paper,
+        limit=getattr(args, "limit", None),
+        language=language,
+        budget_s=content_cfg.narrate_language_budget_s,
+    )
 
     ai = paper.get("ai") or {}
     arts = [ai.get("headliner"), *(ai.get("subarticles") or []),

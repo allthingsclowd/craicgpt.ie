@@ -176,3 +176,49 @@ def test_a_stale_podcast_hold_from_the_gated_era_is_cleared():
         render_podcast=_fake_render)
     assert paper["podcast"]["audio_url"] == "/tmp/podcast.mp3"
     assert "podcast_hold" not in paper["edition"]
+
+
+def test_narrate_paper_respects_language_budget():
+    """Past the per-language wall-clock budget, the remaining articles read without
+    audio (audio_url=None) rather than running on — partial audio, never a timeout.
+    Narration is enrichment (text already published), so this costs no quality."""
+    narrated = []
+
+    def counting_article(item, *, voice="graham", **kw):
+        narrated.append(item.get("title"))
+        return (f"/tmp/{voice}.mp3", "tts-model")
+
+    # clock reads: deadline setup (0 -> deadline 60), article-0 check (10 < 60 ->
+    # narrate), article-1 check (100 >= 60 -> break). Padding is harmless.
+    ticks = iter([0.0, 10.0] + [100.0] * 20)
+
+    paper = narration.narrate_paper(
+        _sample(),
+        narrate_article=counting_article,
+        build_script=_fake_build,
+        render_podcast=_fake_render,
+        budget_s=60,
+        clock=lambda: next(ticks),
+    )
+    assert len(narrated) == 1  # only the first article was narrated before the budget ran out
+    audio_urls = [a.get("audio_url") for a in narration._article_targets(paper)]
+    assert audio_urls[0] is not None  # the one we got to
+    assert any(u is None for u in audio_urls[1:])  # the rest left fail-soft
+
+
+def test_narrate_paper_no_budget_narrates_all():
+    """Default (no budget) is unchanged — every article is narrated, clock untouched."""
+    narrated = []
+
+    def counting_article(item, *, voice="graham", **kw):
+        narrated.append(item.get("title"))
+        return ("/tmp/a.mp3", "m")
+
+    paper = narration.narrate_paper(
+        _sample(),
+        narrate_article=counting_article,
+        build_script=_fake_build,
+        render_podcast=_fake_render,
+    )
+    assert len(narrated) == len(narration._article_targets(paper))
+    assert all(a.get("audio_url") for a in narration._article_targets(paper))

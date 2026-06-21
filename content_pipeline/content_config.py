@@ -278,6 +278,26 @@ class ContentConfig:
     audio_dir: str = field(
         default_factory=lambda: os.getenv("CRAICGPT_AUDIO_DIR", "/tmp/craicgpt-audio")
     )
+    # ── Narration budgets (the engine is fail-soft PER CHUNK but unbounded in
+    # AGGREGATE — a slow M3 once ran narrate 4.5h and the Conductor task timed out
+    # the whole edition, 2026-06-20). These bound the wall-clock so narration
+    # degrades to partial audio instead of a timeout. Narration is enrichment —
+    # the text is already published — so partial audio never costs quality. ──────
+    # Per-chunk retry ceiling: a transient M3 blip on one chunk retries instead of
+    # nulling the whole article's audio; bounded so it can't run away.
+    narrate_chunk_retries: int = field(
+        default_factory=lambda: int(os.getenv("NARRATE_CHUNK_RETRIES", "1"))
+    )
+    # Per-LANGUAGE budget: past it, the remaining articles in that language read
+    # without audio (audio_url=None) and the podcast render is skipped. ~20 min.
+    narrate_language_budget_s: int = field(
+        default_factory=lambda: int(os.getenv("NARRATE_LANGUAGE_BUDGET_S", "1200"))
+    )
+    # OVERALL budget across all languages (enforced by the Conductor worker around
+    # the per-language loop). ~2.5h — well under the narrate task's 16200s backstop.
+    narrate_overall_budget_s: int = field(
+        default_factory=lambda: int(os.getenv("NARRATE_OVERALL_BUDGET_S", "9000"))
+    )
     # Mastering backend for the final audio polish (level-match voices, de-box EQ,
     # loudness, limiter). "ffmpeg" = the portable two-pass chain (runs on .75 today);
     # "none" disables mastering (raw stitch). Reserved: "apple" = an M3-side Match-EQ
