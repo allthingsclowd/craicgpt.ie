@@ -523,16 +523,37 @@ def master_wav(wav_bytes: bytes, *, target_i: float = -16.0, target_tp: float = 
 # --------------------------------------------------------------------------- #
 # Public API: narrate text, an article, or a multi-voice podcast
 # --------------------------------------------------------------------------- #
+def _speak_with_retries(spk: Speak, text: str, ref_audio: str, ref_text: str,
+                        retries: int) -> bytes:
+    """Synthesise one chunk with up to ``1 + retries`` attempts. A transient M3 blip
+    on a single chunk would otherwise null the whole article's audio; we retry a
+    BOUNDED number of times, then re-raise so the caller fails soft (audio_url=None)
+    for just that item. Bounded so a flapping chunk can never run away."""
+    attempts = max(1, 1 + retries)
+    last: Optional[Exception] = None
+    for i in range(attempts):
+        try:
+            return spk(text, ref_audio, ref_text)
+        except Exception as exc:  # noqa: BLE001 — TTS hiccup; retry then give up
+            last = exc
+            logger.warning("[audio] TTS chunk attempt %d/%d failed: %s", i + 1, attempts, exc)
+    raise last if last is not None else RuntimeError("no audio produced for chunk")
+
+
 def narrate_text(text: str, voice: str, *, speak: Optional[Speak] = None,
                  base_url: Optional[str] = None, model: Optional[str] = None,
-                 max_chars: int = DEF_MAX_CHARS, language: str = "en") -> list[bytes]:
+                 max_chars: int = DEF_MAX_CHARS, language: str = "en",
+                 chunk_retries: Optional[int] = None) -> list[bytes]:
     """Synthesise ``text`` in ``voice`` → list of WAV byte-chunks.
 
     Phonetic fixes are applied here (language-aware) before synthesis, so the same fix runs
-    whether ``speak`` is the real M3 backend or an injected test double."""
+    whether ``speak`` is the real M3 backend or an injected test double. Each chunk gets a
+    BOUNDED retry (``chunk_retries``, default ``content_cfg.narrate_chunk_retries``) so a
+    transient M3 blip doesn't null the whole article."""
     ref_audio, ref_text = resolve_voice(voice)
     spk = speak or _default_speak(base_url, model)
-    return [spk(_phonetic(c, language), ref_audio, ref_text)
+    retries = content_cfg.narrate_chunk_retries if chunk_retries is None else chunk_retries
+    return [_speak_with_retries(spk, _phonetic(c, language), ref_audio, ref_text, retries)
             for c in chunk_text(strip_markdown(text), max_chars)]
 
 

@@ -22,6 +22,7 @@ All heavy collaborators are injected so the wiring is unit-testable offline.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable, Optional
 
 from content_pipeline.content_config import content_cfg
@@ -61,6 +62,8 @@ def narrate_paper(
     build_script: Optional[Callable] = None,
     build_tldr: Optional[Callable] = None,
     render_podcast: Optional[Callable] = None,
+    budget_s: Optional[float] = None,
+    clock: Callable[[], float] = time.monotonic,
 ) -> dict:
     """Enrich ``paper`` in place with per-article audio + the podcast; return it.
 
@@ -68,7 +71,13 @@ def narrate_paper(
       * ``narrate_article(item, voice=…) -> (path, model)``
       * ``build_script(paper, limit=…) -> {turns, script_text, banter_text, refs}``
       * ``render_podcast(turns) -> (path, model)``
-    """
+
+    ``budget_s`` is an aggregate wall-clock bound for this language: per-article TTS
+    is fail-soft but unbounded in aggregate, so a slow M3 could otherwise run for
+    hours (and time out the Conductor task / edition). Past the budget the remaining
+    articles read without audio (``audio_url=None``) and the podcast render is
+    skipped — partial audio, never a timeout. Narration is enrichment (the text is
+    already published), so this never costs content quality."""
     # Lazy imports keep this module importable (and tested) without the TTS/LLM stack.
     if narrate_article is None:
         from content_pipeline.generate.audio import narrate_article as narrate_article
@@ -83,6 +92,10 @@ def narrate_paper(
     # in-language banter — an explicit override, else the paper's own edition.language.
     lang = language or (paper.get("edition") or {}).get("language") or content_cfg.source_language
 
+    # Aggregate wall-clock bound for this language (per-item TTS is fail-soft but
+    # unbounded in aggregate — see the docstring / the 2026-06-20 4.5h timeout).
+    deadline = clock() + budget_s if budget_s else None
+
     # ── 1. Per-article readings (best-effort, like images) ────────────────────
     targets = _article_targets(paper)
     if limit is not None:
@@ -94,7 +107,19 @@ def narrate_paper(
     from content_pipeline.generate.personas import persona_voice_key
     editor_ids = {id(paper.get("editors_brief")), id(paper.get("about"))}
     desk_i = 0
-    for item in targets:
+    for idx, item in enumerate(targets):
+        if deadline is not None and clock() >= deadline:
+            logger.warning(
+                "[narrate] language '%s' budget %.0fs spent at article %d/%d — "
+                "remaining read without audio",
+                lang,
+                budget_s,
+                idx,
+                len(targets),
+            )
+            for rest in targets[idx:]:
+                rest["audio_url"] = None
+            break
         persona = item.get("persona")
         vk = persona_voice_key(persona) if persona else None
         if id(item) in editor_ids:
