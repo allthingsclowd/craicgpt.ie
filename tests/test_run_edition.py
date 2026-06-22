@@ -285,15 +285,8 @@ def _ai_cands(n=15):
 
 
 def _ai_write(prompt):
-    if "AI editor" in prompt:
-        return {
-            "headliner": {"title": "Big AI Thing", "standfirst": "sf", "body": "b",
-                          "source_url": "https://ai/0"},
-            "subarticles": [{"title": f"sub{i}", "body": "b", "source_url": "https://ai/1"}
-                            for i in range(2)],
-            "shorts": [{"title": f"short{i}", "body": "b", "source_url": "https://ai/2"}
-                       for i in range(10)],
-        }
+    if "AI editor" in prompt:  # one per-item AI call (headliner / sub / short)
+        return {"title": "Big AI Thing", "standfirst": "sf", "body": "b"}
     return {"title": "Rewritten in voice", "body": "...", "source_url": ""}
 
 
