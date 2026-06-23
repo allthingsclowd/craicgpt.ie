@@ -63,9 +63,9 @@ pydantic>=2.0.0
 # The deterministic crawl → OKF → relevance-loop → per-item-generate engine shared
 # by craicgpt / thegeekwiththepeak / thescriptingpaddy (keeps the three at parity).
 # The AI section is now written ONE item at a time via this library (the fix for the
-# single-shot path that under-filled the shorts). Private repo — the worker/CI host
-# needs SSH (deploy key) or a token to fetch it.
-grazlab-content-research @ git+ssh://git@github.com/allthingsclowd/grazlab-content-research.git@main
+# single-shot path that under-filled the shorts). Public repo — fetched over HTTPS,
+# no credential needed.
+grazlab-content-research @ git+https://github.com/allthingsclowd/grazlab-content-research.git@main
 
 # ─── Utilities ───────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0        # Load .env file for local development
