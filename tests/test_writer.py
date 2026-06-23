@@ -17,29 +17,68 @@ def test_loads_lenient_strips_fences_and_thinking():
     assert loads_lenient('<think>let me reason a lot...\n{"d": 4}') == {"d": 4}
 
 
-def test_write_ai_section_normalises_counts():
-    def gen(prompt):
-        return {
-            "headliner": {"title": "H", "standfirst": "s", "body": "b", "source_url": "u"},
-            "subarticles": [{"title": f"sub{i}", "body": "b", "source_url": "u"} for i in range(5)],
-            "shorts": [{"title": f"sh{i}", "body": "b", "source_url": "u"} for i in range(20)],
-        }
+def _ai_pool(n):
+    """n validated AI candidates with real source links, in significance order."""
+    return [
+        {"title": f"Story {i}", "summary": f"s{i}", "source_url": f"https://e.com/{i}",
+         "key_points": ["a", "b"], "conclusion": f"c{i}"}
+        for i in range(n)
+    ]
 
-    out = write_ai_section([{"title": "cand"}], num_subarticles=2, num_shorts=10, generate=gen)
-    assert out["headliner"]["title"] == "H"
+
+def test_write_ai_section_fills_exactly_the_target_counts_from_the_full_pool():
+    # THE RCA regression: 1 headliner + 2 subs + 10 shorts = 13 needed; a pool of
+    # 33 must yield exactly 10 shorts, ONE write call per item (no single-shot clip).
+    calls = {"n": 0}
+
+    def gen(prompt):
+        calls["n"] += 1
+        return {"title": "T", "standfirst": "sf", "body": "B"}
+
+    out = write_ai_section(_ai_pool(33), num_subarticles=2, num_shorts=10, generate=gen)
+    assert out["headliner"]["title"] == "T"
+    assert out["headliner"]["standfirst"] == "sf"
     assert len(out["subarticles"]) == 2
-    assert len(out["shorts"]) == 10
+    assert len(out["shorts"]) == 10  # never under-fills below the target
+    assert calls["n"] == 13  # one call per produced item, nothing wasted
 
 
-def test_write_ai_section_passes_candidates_into_prompt():
-    seen = {}
+def test_write_ai_section_re_stamps_the_candidate_source_url():
+    def gen(prompt):
+        # model omits the link (and could even invent one) — the writer puts the real back
+        return {"title": "T", "body": "B", "source_url": "https://hallucinated.example/x"}
+
+    out = write_ai_section(_ai_pool(13), num_subarticles=2, num_shorts=10, generate=gen)
+    assert out["headliner"]["source_url"] == "https://e.com/0"
+    assert all(s["source_url"].startswith("https://e.com/") for s in out["shorts"])
+
+
+def test_write_ai_section_draws_deeper_when_an_item_write_fails():
+    # A flaky item must not leave the section short — the loop draws the next candidate.
+    calls = {"n": 0}
 
     def gen(prompt):
-        seen["prompt"] = prompt
-        return {"headliner": {"title": "H"}, "subarticles": [], "shorts": []}
+        calls["n"] += 1
+        if calls["n"] == 2:  # second item write blows up
+            raise RuntimeError("model hiccup")
+        return {"title": "T", "body": "B", "standfirst": "sf"}
 
-    write_ai_section([{"title": "DeepSeek V4 drops"}], num_subarticles=2, num_shorts=10, generate=gen)
-    assert "DeepSeek V4 drops" in seen["prompt"]
+    out = write_ai_section(_ai_pool(20), num_subarticles=2, num_shorts=10, generate=gen)
+    assert len(out["shorts"]) == 10  # still full despite the one failure
+
+
+def test_write_ai_section_passes_one_candidate_into_each_prompt():
+    seen = []
+
+    def gen(prompt):
+        seen.append(prompt)
+        return {"title": "H", "body": "b", "standfirst": "s"}
+
+    write_ai_section(
+        [{"title": "DeepSeek V4 drops", "source_url": "https://e.com/x"}],
+        num_subarticles=0, num_shorts=0, generate=gen,
+    )
+    assert "DeepSeek V4 drops" in seen[0]  # the one candidate reached its own prompt
 
 
 def test_write_fun_story_credits_creator_and_keeps_source_url():

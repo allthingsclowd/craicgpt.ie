@@ -49,12 +49,8 @@ def _fun(n):
 
 
 def _writer(prompt):
-    if "AI editor" in prompt:  # the AI-section call
-        return {
-            "headliner": {"title": "H", "standfirst": "s", "body": "b", "source_url": "https://ai/0"},
-            "subarticles": [{"title": f"sub{i}", "body": "b", "source_url": "https://ai/1"} for i in range(2)],
-            "shorts": [{"title": f"sh{i}", "body": "b", "source_url": "https://ai/2"} for i in range(10)],
-        }
+    if "AI editor" in prompt:  # one per-item AI call (headliner / sub / short)
+        return {"title": "H", "standfirst": "s", "body": "b"}
     return {"title": "Fun!", "body": "...", "source_url": ""}
 
 

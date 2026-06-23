@@ -21,6 +21,8 @@ import logging
 import re
 from typing import Any, Callable, Optional
 
+from grazlab_content_research.candidate import Candidate
+
 from content_pipeline.content_config import content_cfg
 from content_pipeline.generate.personas import voice_brief
 
@@ -117,21 +119,37 @@ def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000)
 # ─────────────────────────────────────────────────────────────────────────────
 # Prompts (concise — keeps each output small and parseable)
 # ─────────────────────────────────────────────────────────────────────────────
-_AI_PROMPT = (
+# House voice shared by every AI per-item prompt below.
+_AI_VOICE = (
     "You are CraicGPT's AI editor. Write in Graham's house voice: Irish, witty, "
-    "gently cynical, teaching-minded — never corporate-deck-speak.\n\n"
-    "From the AI-landscape candidates below, write today's AI coverage and output "
-    "ONLY compact JSON (no markdown), exactly this shape:\n"
-    '{{"headliner": {{"title","standfirst","body","source_url"}}, '
-    '"subarticles": [{n_sub} items of {{"title","body","source_url"}}], '
-    '"shorts": [{n_short} items of {{"title","body","source_url"}}]}}\n'
-    "Lengths: headliner body <=150 words, subarticles <=90 words. SHORTS ARE NOT "
-    "ONE-LINERS: write each short as 5-6 full sentences (110-140 words) that say what "
-    "happened, give the key facts or figures, and END ON THE STORY'S CONCLUSION OR "
-    "TAKEAWAY — the outcome, the 'so what' — not a restatement of the headline. Draw "
-    "the substance from each candidate's key_points and conclusion fields. Rank by "
-    "genuine significance. Reuse each candidate's real source_url.\n\n"
-    "Candidates JSON:\n{candidates}"
+    "gently cynical, teaching-minded — never corporate-deck-speak. Draw the substance "
+    "from the candidate's summary, key_points and conclusion fields; do not invent "
+    "facts beyond them. Do NOT include a URL — the source link is added for you."
+)
+
+# ONE item per call (the RCA fix): the old single JSON call clipped the candidate
+# pool to 12k chars and asked for the whole section at once, then truncated to N
+# with no top-up — so a single response emitting fewer than N shorts under-filled
+# the edition (held at 7 of 10, 2026-06-22). Each item is now its own small,
+# robustly-parseable call, drawn from the FULL pool, so the count is reliable.
+_AI_HEADLINER_PROMPT = (
+    _AI_VOICE + "\n\nWrite TODAY'S LEAD AI story from this candidate. Output ONLY "
+    'compact JSON (no markdown): {{"title","standfirst","body"}}. The standfirst is '
+    "one punchy sentence; the body is <=150 words and ENDS ON THE STORY'S CONCLUSION "
+    "OR TAKEAWAY — the 'so what', not a restatement of the headline.\n\n"
+    "Candidate JSON:\n{candidate}"
+)
+_AI_SUBARTICLE_PROMPT = (
+    _AI_VOICE + "\n\nWrite a SUPPORTING AI article from this candidate. Output ONLY "
+    'compact JSON (no markdown): {{"title","body"}}. Body <=90 words, ending on the '
+    "story's takeaway.\n\nCandidate JSON:\n{candidate}"
+)
+_AI_SHORT_PROMPT = (
+    _AI_VOICE + "\n\nWrite a SHORT AI news item from this candidate. Output ONLY "
+    'compact JSON (no markdown): {{"title","body"}}. SHORTS ARE NOT ONE-LINERS: write '
+    "the body as 5-6 full sentences (110-140 words) that say what happened, give the "
+    "key facts or figures, and END ON THE STORY'S CONCLUSION OR TAKEAWAY — the "
+    "outcome, the 'so what'.\n\nCandidate JSON:\n{candidate}"
 )
 
 _FUN_PROMPT = (
@@ -167,6 +185,38 @@ _FUN_PERSONA_PROMPT = (
 )
 
 
+def _ai_candidate_url(candidate: dict) -> str:
+    """The candidate's real, validated source link (the only one we ever publish)."""
+    return (candidate.get("source_url") or "").strip()
+
+
+def _write_ai_item(candidate: dict, template: str, gen: Generate, *, headliner: bool) -> Optional[dict]:
+    """Write ONE AI item from one candidate; re-stamp its real source_url.
+
+    Returns None (fail-soft) if the model errors or the candidate has no usable
+    link, so one bad item draws the next from the pool instead of sinking the run.
+    The source_url is ALWAYS the candidate's validated link — a model-emitted URL is
+    never trusted (it could be invented). Library ``Candidate`` enforces that a
+    written item always carries a real http(s) source link.
+    """
+    url = _ai_candidate_url(candidate)
+    try:
+        Candidate(title=candidate.get("title") or "x", summary="", url=url, source="")
+    except ValueError:
+        logger.warning("[writer] AI candidate has no usable source link — skipping")
+        return None
+    prompt = template.format(candidate=json.dumps(candidate)[:2500])
+    try:
+        data = gen(prompt)
+    except Exception as exc:  # noqa: BLE001 — one bad item must not sink the section
+        logger.warning("[writer] AI item write failed (%s) — skipping: %s", candidate.get("title"), exc)
+        return None
+    item = {"title": data.get("title", ""), "body": data.get("body", ""), "source_url": url}
+    if headliner:
+        item["standfirst"] = data.get("standfirst", "")
+    return item
+
+
 def write_ai_section(
     ai_candidates: list,
     *,
@@ -174,21 +224,47 @@ def write_ai_section(
     num_shorts: int,
     generate: Optional[Generate] = None,
 ) -> dict:
-    """Write the AI section (1 headliner + N subs + M shorts) in one JSON call."""
+    """Write the AI section (1 headliner + N subs + M shorts), ONE call per item.
+
+    Candidates are taken in their curated significance order (lead first). Each
+    role is filled by walking the pool and writing items individually, skipping any
+    that fail and drawing the next from the pool — so the section reliably reaches
+    ``num_shorts`` whenever the pool holds enough writable candidates (the fix for
+    the single-shot path that truncated to 7-of-10). The whole pool is available;
+    nothing is clipped.
+    """
     gen = generate or _default_generate
-    prompt = _AI_PROMPT.format(
-        n_sub=num_subarticles,
-        n_short=num_shorts,
-        # Richer candidates (key_points + conclusion) need a bigger window than the
-        # old 6000 or the tail candidates silently drop out of the prompt.
-        candidates=json.dumps(ai_candidates)[:12000],
-    )
-    data = gen(prompt)
-    return {
-        "headliner": data.get("headliner") or {},
-        "subarticles": (data.get("subarticles") or [])[:num_subarticles],
-        "shorts": (data.get("shorts") or [])[:num_shorts],
-    }
+    pool = list(ai_candidates)
+    cursor = 0
+
+    def _next(template: str, *, headliner: bool = False) -> Optional[dict]:
+        nonlocal cursor
+        while cursor < len(pool):
+            item = _write_ai_item(pool[cursor], template, gen, headliner=headliner)
+            cursor += 1
+            if item is not None:
+                return item
+        return None
+
+    headliner = _next(_AI_HEADLINER_PROMPT, headliner=True) or {}
+    subarticles: list[dict] = []
+    while len(subarticles) < num_subarticles:
+        item = _next(_AI_SUBARTICLE_PROMPT)
+        if item is None:
+            break
+        subarticles.append(item)
+    shorts: list[dict] = []
+    while len(shorts) < num_shorts:
+        item = _next(_AI_SHORT_PROMPT)
+        if item is None:
+            break
+        shorts.append(item)
+
+    if len(shorts) < num_shorts:
+        logger.warning(
+            "[writer] AI section produced %d/%d shorts from %d candidates "
+            "(pool exhausted)", len(shorts), num_shorts, len(pool))
+    return {"headliner": headliner, "subarticles": subarticles, "shorts": shorts}
 
 
 def write_fun_story(

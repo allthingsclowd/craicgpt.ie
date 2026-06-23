@@ -59,6 +59,14 @@ boto3>=1.35.0
 # Tutorial: Pydantic models = type-safe contracts between LLMs and your code.
 pydantic>=2.0.0
 
+# ─── Shared content-research engine ──────────────────────────────────────────
+# The deterministic crawl → OKF → relevance-loop → per-item-generate engine shared
+# by craicgpt / thegeekwiththepeak / thescriptingpaddy (keeps the three at parity).
+# The AI section is now written ONE item at a time via this library (the fix for the
+# single-shot path that under-filled the shorts). Private repo — the worker/CI host
+# needs SSH (deploy key) or a token to fetch it.
+grazlab-content-research @ git+ssh://git@github.com/allthingsclowd/grazlab-content-research.git@main
+
 # ─── Utilities ───────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0        # Load .env file for local development
 httpx>=0.27.0               # Async HTTP (used by some LangChain providers)
