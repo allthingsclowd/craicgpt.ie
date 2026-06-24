@@ -7,6 +7,7 @@ import array
 import io
 import math
 import os
+import time
 import wave
 
 import pytest
@@ -57,6 +58,49 @@ def test_narrate_text_synthesizes_each_chunk_in_the_named_voice():
     assert all(c["ref_audio"] == content_cfg.tom_ref_audio for c in calls)
     assert [c["text"] for c in calls] == ["Hello there.", "Second bit."]
     assert len(wavs) == 2
+
+
+def test_narrate_text_runs_chunks_concurrently_when_configured(monkeypatch):
+    # With concurrency, N slow chunks should overlap rather than sum up. Each chunk
+    # sleeps 0.1s; serial = 0.6s, 6-wide ≈ 0.1s. A generous threshold avoids CI flakiness
+    # while still failing hard if synthesis is sequential.
+    monkeypatch.setattr(content_cfg, "narrate_tts_concurrency", 6)
+
+    def _slow(text, ref_audio, ref_text):
+        time.sleep(0.1)
+        return ("WAV:" + text).encode()
+
+    text = "\n\n".join(f"Chunk {i}." for i in range(6))
+    t0 = time.time()
+    wavs = audio.narrate_text(text, "graham", speak=_slow)
+    elapsed = time.time() - t0
+    assert len(wavs) == 6
+    assert elapsed < 0.35, f"expected concurrent synthesis, took {elapsed:.2f}s (serial ~0.6s)"
+
+
+def test_narrate_text_concurrency_preserves_chunk_order(monkeypatch):
+    # The FIRST chunk synthesises slower than the second; an unordered gather would swap
+    # them. ThreadPoolExecutor.map must keep the stitch order = input order.
+    monkeypatch.setattr(content_cfg, "narrate_tts_concurrency", 2)
+    delays = {"First chunk.": 0.15, "Second chunk.": 0.0}
+
+    def _speak(text, ref_audio, ref_text):
+        time.sleep(delays.get(text, 0.0))
+        return ("WAV:" + text).encode()
+
+    wavs = audio.narrate_text("First chunk.\n\nSecond chunk.", "graham", speak=_speak)
+    assert [w.decode() for w in wavs] == ["WAV:First chunk.", "WAV:Second chunk."]
+
+
+def test_render_podcast_renders_with_concurrency(tmp_path, monkeypatch):
+    # Concurrency must not break the podcast stitch: every chunk is still synthesised and
+    # one file is produced.
+    monkeypatch.setattr(content_cfg, "narrate_tts_concurrency", 4)
+    calls = []
+    turns = [("graham", "One. Two. Three. Four."), ("tom", "Five. Six.")]
+    path, _ = audio.render_podcast(turns, out_dir=str(tmp_path), speak=_fake_speak(calls))
+    assert os.path.exists(path)
+    assert len(calls) >= 2   # both turns' chunks were synthesised
 
 
 def test_narrate_article_writes_a_file_and_reports_the_model(tmp_path):

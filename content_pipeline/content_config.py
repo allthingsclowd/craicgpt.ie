@@ -298,6 +298,19 @@ class ContentConfig:
     narrate_overall_budget_s: int = field(
         default_factory=lambda: int(os.getenv("NARRATE_OVERALL_BUDGET_S", "9000"))
     )
+    # Per-chunk TTS CONCURRENCY: how many chunk syntheses to fire at the M3 at once.
+    # TUTORIAL: the M3 has ONE Metal GPU; a single TTS stream already runs near
+    # real-time (RTF ~0.9), so it leaves only MODEST spare compute. A 2026-06-24
+    # benchmark measured 2-wide ≈ 1.36x, 4-wide ≈ 1.20x, 8-wide ≈ 0.83x (oversubscribed
+    # → slower than serial). So 2 is the sweet spot — and it ONLY pays off when the M3
+    # mlx-audio server runs with >1 worker process (a single-worker server serialises
+    # and goes NEGATIVE: 0.4–0.7x). Default 1 = today's exact sequential behaviour; set
+    # NARRATE_TTS_CONCURRENCY=2 once the server has --workers 2. Chunk-level only — the
+    # per-article/per-language loops stay sequential so the budget accounting (above) and
+    # the stitch order are untouched.
+    narrate_tts_concurrency: int = field(
+        default_factory=lambda: max(1, int(os.getenv("NARRATE_TTS_CONCURRENCY", "1")))
+    )
     # Mastering backend for the final audio polish (level-match voices, de-box EQ,
     # loudness, limiter). "ffmpeg" = the portable two-pass chain (runs on .75 today);
     # "none" disables mastering (raw stitch). Reserved: "apple" = an M3-side Match-EQ
