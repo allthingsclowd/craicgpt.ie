@@ -311,6 +311,26 @@ class ContentConfig:
     narrate_tts_concurrency: int = field(
         default_factory=lambda: max(1, int(os.getenv("NARRATE_TTS_CONCURRENCY", "1")))
     )
+    # TTS generation params — the LOAD-BEARING fix for slow/variable narration.
+    # TUTORIAL: the mlx-audio server defaults to temperature 0.7, so the autoregressive
+    # TTS samples STOCHASTICALLY — the SAME chunk text comes back anywhere from a
+    # TRUNCATED 2s clip to a RUNAWAY 30s ramble (measured 2026-06-24: identical 295-char
+    # input → 2.0s..30.2s of audio). That nondeterminism is what randomly blows the
+    # per-language/overall narration budget (and drops the last language, French) AND
+    # ships cut-off or rambling readings. Greedy decoding (temperature 0.0) is the only
+    # STABLE setting — deterministic by construction (0.2/0.3 still run away). We send
+    # these explicitly on every chunk so generation is reproducible; tune by ear via env
+    # without a code change. repetition_penalty/max_tokens are 0 = "don't send, use the
+    # server default" (greedy already fixes the runaway, so they stay off by default).
+    narrate_tts_temperature: float = field(
+        default_factory=lambda: float(os.getenv("NARRATE_TTS_TEMPERATURE", "0.0"))
+    )
+    narrate_tts_repetition_penalty: float = field(
+        default_factory=lambda: float(os.getenv("NARRATE_TTS_REPETITION_PENALTY", "0"))
+    )
+    narrate_tts_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("NARRATE_TTS_MAX_TOKENS", "0"))
+    )
     # Mastering backend for the final audio polish (level-match voices, de-box EQ,
     # loudness, limiter). "ffmpeg" = the portable two-pass chain (runs on .75 today);
     # "none" disables mastering (raw stitch). Reserved: "apple" = an M3-side Match-EQ

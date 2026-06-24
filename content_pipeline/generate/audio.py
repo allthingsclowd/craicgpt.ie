@@ -182,14 +182,27 @@ def _phonetic(text: str, language: str = "en") -> str:
 
 
 def _post_speech(base: str, model: str, ref_audio: str, ref_text: str, text: str,
-                 timeout: float = 400) -> bytes:
+                 timeout: float = 400, *, temperature: Optional[float] = None,
+                 repetition_penalty: Optional[float] = None,
+                 max_tokens: Optional[int] = None) -> bytes:
     """POST one chunk to the M3 mlx-audio server and return raw WAV bytes.
 
     Phonetic fixes are applied by the callers (``narrate_text``/``render_podcast``), which
     know the language — so they run identically whether the backend is the real M3 or an
-    injected test double."""
+    injected test double.
+
+    ``temperature``/``repetition_penalty``/``max_tokens`` pin the server's generation so
+    the same text reproduces the same reading (the server default temperature 0.7 made it
+    truncate or run away — see ``content_cfg.narrate_tts_temperature``). Any of them left
+    ``None`` is simply not sent, so the server falls back to its own default."""
     body = {"model": model, "input": text, "ref_audio": ref_audio,
             "ref_text": ref_text, "response_format": "wav"}
+    if temperature is not None:
+        body["temperature"] = temperature
+    if repetition_penalty:
+        body["repetition_penalty"] = repetition_penalty
+    if max_tokens:
+        body["max_tokens"] = max_tokens
     req = urllib.request.Request(base.rstrip("/") + "/audio/speech",
                                  data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"}, method="POST")
@@ -202,7 +215,12 @@ def _default_speak(base_url: Optional[str] = None, model: Optional[str] = None) 
     model = model or content_cfg.audio_tts_model
 
     def _s(text: str, ref_audio: str, ref_text: str) -> bytes:
-        return _post_speech(base, model, ref_audio, ref_text, text)
+        return _post_speech(
+            base, model, ref_audio, ref_text, text,
+            temperature=content_cfg.narrate_tts_temperature,
+            repetition_penalty=content_cfg.narrate_tts_repetition_penalty or None,
+            max_tokens=content_cfg.narrate_tts_max_tokens or None,
+        )
 
     return _s
 
