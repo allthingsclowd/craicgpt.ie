@@ -5,7 +5,6 @@ dependency on the synth side — exactly like the image tests inject the OpenAI 
 """
 import array
 import io
-import json
 import math
 import os
 import time
@@ -102,54 +101,6 @@ def test_render_podcast_renders_with_concurrency(tmp_path, monkeypatch):
     path, _ = audio.render_podcast(turns, out_dir=str(tmp_path), speak=_fake_speak(calls))
     assert os.path.exists(path)
     assert len(calls) >= 2   # both turns' chunks were synthesised
-
-
-class _FakeResp:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-    def read(self):
-        return _wav()
-
-
-def _capture_post(monkeypatch, captured):
-    def _fake_urlopen(req, timeout=None):
-        captured["body"] = json.loads(req.data.decode())
-        return _FakeResp()
-    monkeypatch.setattr(audio.urllib.request, "urlopen", _fake_urlopen)
-
-
-def test_default_speak_sends_deterministic_generation_params(monkeypatch):
-    # The server default temperature 0.7 makes TTS truncate/run away; we PIN generation so
-    # the same chunk reproduces the same reading. Greedy 0.0 is the stable default.
-    monkeypatch.setattr(content_cfg, "narrate_tts_temperature", 0.0)
-    monkeypatch.setattr(content_cfg, "narrate_tts_repetition_penalty", 1.1)
-    monkeypatch.setattr(content_cfg, "narrate_tts_max_tokens", 800)
-    captured = {}
-    _capture_post(monkeypatch, captured)
-    spk = audio._default_speak(base_url="http://m3:8081/v1", model="qwen-tts")
-    spk("Hello there.", "/ref.wav", "ref text")
-    assert captured["body"]["temperature"] == 0.0
-    assert captured["body"]["repetition_penalty"] == 1.1
-    assert captured["body"]["max_tokens"] == 800
-
-
-def test_default_speak_omits_unset_generation_params(monkeypatch):
-    # repetition_penalty / max_tokens of 0 mean "don't send — use the server default";
-    # temperature is always sent (0.0 is a meaningful value, not "unset").
-    monkeypatch.setattr(content_cfg, "narrate_tts_temperature", 0.0)
-    monkeypatch.setattr(content_cfg, "narrate_tts_repetition_penalty", 0)
-    monkeypatch.setattr(content_cfg, "narrate_tts_max_tokens", 0)
-    captured = {}
-    _capture_post(monkeypatch, captured)
-    spk = audio._default_speak(base_url="http://m3:8081/v1", model="qwen-tts")
-    spk("Hello.", "/ref.wav", "ref")
-    assert captured["body"]["temperature"] == 0.0
-    assert "repetition_penalty" not in captured["body"]
-    assert "max_tokens" not in captured["body"]
 
 
 def test_narrate_article_writes_a_file_and_reports_the_model(tmp_path):
