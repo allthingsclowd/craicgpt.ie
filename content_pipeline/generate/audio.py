@@ -36,6 +36,7 @@ import subprocess
 import tempfile
 import urllib.request
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 from content_pipeline.content_config import content_cfg
@@ -540,6 +541,25 @@ def _speak_with_retries(spk: Speak, text: str, ref_audio: str, ref_text: str,
     raise last if last is not None else RuntimeError("no audio produced for chunk")
 
 
+def _map_chunks(synth: Callable[[str], bytes], chunks: list[str]) -> list[bytes]:
+    """Synthesise ``chunks`` → WAV bytes in INPUT order, up to
+    ``content_cfg.narrate_tts_concurrency`` syntheses in flight at once.
+
+    TUTORIAL: ``ThreadPoolExecutor.map`` yields results in the order the inputs were
+    submitted (not the order they finish), so the downstream crossfade/stitch — which
+    depends on chunk order — is unchanged whether we run 1-wide or N-wide. Concurrency
+    only pays off when the M3 mlx-audio server runs multiple worker PROCESSES; against a
+    single-worker server it serialises and is counter-productive (see
+    ``content_cfg.narrate_tts_concurrency``). Default 1 collapses to a plain loop, so an
+    exception still propagates exactly as the old list-comprehension did (the caller in
+    ``narration.py`` then fails that item soft, ``audio_url=None``)."""
+    n = max(1, content_cfg.narrate_tts_concurrency)
+    if n == 1 or len(chunks) <= 1:
+        return [synth(c) for c in chunks]
+    with ThreadPoolExecutor(max_workers=min(n, len(chunks))) as ex:
+        return list(ex.map(synth, chunks))
+
+
 def narrate_text(text: str, voice: str, *, speak: Optional[Speak] = None,
                  base_url: Optional[str] = None, model: Optional[str] = None,
                  max_chars: int = DEF_MAX_CHARS, language: str = "en",
@@ -553,8 +573,10 @@ def narrate_text(text: str, voice: str, *, speak: Optional[Speak] = None,
     ref_audio, ref_text = resolve_voice(voice)
     spk = speak or _default_speak(base_url, model)
     retries = content_cfg.narrate_chunk_retries if chunk_retries is None else chunk_retries
-    return [_speak_with_retries(spk, _phonetic(c, language), ref_audio, ref_text, retries)
-            for c in chunk_text(strip_markdown(text), max_chars)]
+    return _map_chunks(
+        lambda c: _speak_with_retries(spk, _phonetic(c, language), ref_audio, ref_text, retries),
+        chunk_text(strip_markdown(text), max_chars),
+    )
 
 
 def article_text(item: dict[str, Any]) -> str:
@@ -715,8 +737,10 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
         # parody key was silently read in Graham's voice within the podcast.)
         voice = who if has_clone(who) else "graham"
         ref_audio, ref_text = resolve_voice(voice)
-        wavs = [spk(_phonetic(c, language), ref_audio, ref_text)
-                for c in chunk_text(strip_markdown(text), max_chars)]
+        wavs = _map_chunks(
+            lambda c: spk(_phonetic(c, language), ref_audio, ref_text),
+            chunk_text(strip_markdown(text), max_chars),
+        )
         if not wavs:
             continue
         # Level each chunk to a common target, then crossfade the seams within the turn —
