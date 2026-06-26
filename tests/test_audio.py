@@ -103,6 +103,36 @@ def test_render_podcast_renders_with_concurrency(tmp_path, monkeypatch):
     assert len(calls) >= 2   # both turns' chunks were synthesised
 
 
+def test_tts_semaphore_caps_total_concurrency_across_parallel_narrations(monkeypatch):
+    # The shared semaphore must bound TOTAL in-flight syntheses across SEPARATE narrations
+    # (the article loop fans out across items AND chunks) — not 2-per-call. Two narrate_text
+    # calls fired at once, concurrency=2 → at most 2 syntheses in flight total.
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    monkeypatch.setattr(content_cfg, "narrate_tts_concurrency", 2)
+    monkeypatch.setattr(audio, "_tts_sem", None)        # force a fresh semaphore sized to 2
+    monkeypatch.setattr(audio, "_tts_sem_n", -1)
+    inflight = {"now": 0, "max": 0}
+    lock = threading.Lock()
+
+    def _spk(text, ref_audio, ref_text):
+        with lock:
+            inflight["now"] += 1
+            inflight["max"] = max(inflight["max"], inflight["now"])
+        time.sleep(0.05)
+        with lock:
+            inflight["now"] -= 1
+        return _wav()
+
+    text = "\n\n".join(f"Chunk {i}." for i in range(4))   # 4 chunks per call
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        f1 = ex.submit(audio.narrate_text, text, "graham", speak=_spk)
+        f2 = ex.submit(audio.narrate_text, text, "tom", speak=_spk)
+        f1.result(); f2.result()
+    assert inflight["max"] <= 2     # GLOBAL cap held across both concurrent narrations
+    assert inflight["max"] >= 2     # and the two slots were actually used in parallel
+
+
 def test_narrate_article_writes_a_file_and_reports_the_model(tmp_path):
     calls = []
     item = {"title": "Big News", "body": "The robots learned to read.\n\nThen they read a whole book."}

@@ -34,6 +34,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import urllib.request
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -541,23 +542,52 @@ def _speak_with_retries(spk: Speak, text: str, ref_audio: str, ref_text: str,
     raise last if last is not None else RuntimeError("no audio produced for chunk")
 
 
+_tts_sem: Optional[threading.BoundedSemaphore] = None
+_tts_sem_n: int = -1
+_tts_sem_lock = threading.Lock()
+
+
+def _tts_semaphore() -> threading.BoundedSemaphore:
+    """A PROCESS-WIDE cap on concurrent TTS requests, sized to
+    ``content_cfg.narrate_tts_concurrency``.
+
+    TUTORIAL: narration now fans out at TWO levels — ``narration.py`` narrates several
+    ARTICLES at once AND ``_map_chunks`` synthesises several CHUNKS of an article at once.
+    Without a shared cap that nests to N×N in-flight requests and oversubscribes the M3's
+    one Metal GPU (which goes counter-productive past ~4-wide). This single semaphore keeps
+    the TOTAL in-flight syntheses at N no matter how the callers nest their pools. Rebuilt
+    when the configured concurrency changes (so tests can monkeypatch it)."""
+    global _tts_sem, _tts_sem_n
+    n = max(1, content_cfg.narrate_tts_concurrency)
+    with _tts_sem_lock:
+        if _tts_sem is None or _tts_sem_n != n:
+            _tts_sem = threading.BoundedSemaphore(n)
+            _tts_sem_n = n
+        return _tts_sem
+
+
 def _map_chunks(synth: Callable[[str], bytes], chunks: list[str]) -> list[bytes]:
-    """Synthesise ``chunks`` → WAV bytes in INPUT order, up to
-    ``content_cfg.narrate_tts_concurrency`` syntheses in flight at once.
+    """Synthesise ``chunks`` → WAV bytes in INPUT order, each call bounded by the
+    process-wide ``_tts_semaphore`` (so chunk-level + article-level fan-out together never
+    exceed ``content_cfg.narrate_tts_concurrency`` in flight).
 
     TUTORIAL: ``ThreadPoolExecutor.map`` yields results in the order the inputs were
     submitted (not the order they finish), so the downstream crossfade/stitch — which
-    depends on chunk order — is unchanged whether we run 1-wide or N-wide. Concurrency
-    only pays off when the M3 mlx-audio server runs multiple worker PROCESSES; against a
-    single-worker server it serialises and is counter-productive (see
-    ``content_cfg.narrate_tts_concurrency``). Default 1 collapses to a plain loop, so an
-    exception still propagates exactly as the old list-comprehension did (the caller in
-    ``narration.py`` then fails that item soft, ``audio_url=None``)."""
+    depends on chunk order — is unchanged whether we run 1-wide or N-wide. The semaphore is
+    acquired around EVERY synth (incl. the single-chunk path) so a parallel article loop
+    can't oversubscribe through the single-chunk fallback. Default 1 ⇒ semaphore(1) ⇒ plain
+    serial loop; an exception still propagates (the caller fails that item soft)."""
+    sem = _tts_semaphore()
+
+    def _bounded(c: str) -> bytes:
+        with sem:
+            return synth(c)
+
     n = max(1, content_cfg.narrate_tts_concurrency)
     if n == 1 or len(chunks) <= 1:
-        return [synth(c) for c in chunks]
+        return [_bounded(c) for c in chunks]
     with ThreadPoolExecutor(max_workers=min(n, len(chunks))) as ex:
-        return list(ex.map(synth, chunks))
+        return list(ex.map(_bounded, chunks))
 
 
 def narrate_text(text: str, voice: str, *, speak: Optional[Speak] = None,
@@ -729,9 +759,9 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
     ``outro_wav`` is omitted). Returns ``(local_path, model_used)``.
     """
     spk = speak or _default_speak(base_url, model)
-    segments: list[bytes] = []
-    last: Optional[bytes] = None
-    for who, text in turns:
+
+    def _synth_turn(turn: tuple[str, str]) -> Optional[bytes]:
+        who, text = turn
         # Voice any USABLE clone — graham/tom OR a deployed parody guest — in its own
         # voice; only an unknown/undeployed speaker falls back to graham. (Without this a
         # parody key was silently read in Graham's voice within the podcast.)
@@ -742,10 +772,28 @@ def render_podcast(turns: list[tuple[str, str]], *, out_dir: Optional[str] = Non
             chunk_text(strip_markdown(text), max_chars),
         )
         if not wavs:
-            continue
+            return None
         # Level each chunk to a common target, then crossfade the seams within the turn —
         # the per-chunk RMS pass is what balances Graham vs Tom (and tames boxy chunks).
-        turn_wav = _crossfade_concat([_rms_normalize(w) for w in wavs])
+        return _crossfade_concat([_rms_normalize(w) for w in wavs])
+
+    # Synthesise turns CONCURRENTLY (each turn is independent), bounded by the shared TTS
+    # semaphore, then assemble in ORDER with the silence gaps — so the long podcast (the
+    # biggest narration cost) also saturates the M3 workers instead of voicing one turn at a
+    # time. Default 1 ⇒ serial, byte-identical to the old loop (and the call order tests rely
+    # on that).
+    n = max(1, content_cfg.narrate_tts_concurrency)
+    if n == 1 or len(turns) <= 1:
+        turn_wavs = [_synth_turn(t) for t in turns]
+    else:
+        with ThreadPoolExecutor(max_workers=min(n, len(turns))) as ex:
+            turn_wavs = list(ex.map(_synth_turn, turns))
+
+    segments: list[bytes] = []
+    last: Optional[bytes] = None
+    for turn_wav in turn_wavs:
+        if turn_wav is None:
+            continue
         if segments and gap_sec > 0:
             segments.append(silence_like(last or turn_wav, gap_sec))
         segments.append(turn_wav)

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 from content_pipeline.content_config import content_cfg
@@ -106,20 +107,15 @@ def narrate_paper(
     from content_pipeline.generate.audio import has_clone
     from content_pipeline.generate.personas import persona_voice_key
     editor_ids = {id(paper.get("editors_brief")), id(paper.get("about"))}
+    # Voices are assigned in a SEQUENTIAL pre-pass (so the Graham/Tom alternation stays
+    # deterministic), then the readings run CONCURRENTLY up to narrate_tts_concurrency at
+    # once — capped by the shared TTS semaphore in audio.py — so the M3's multiple workers
+    # stay SATURATED instead of idling between sequentially-narrated articles (the gap that
+    # left --workers 4 underused). Each reading is independent (writes only its own item),
+    # fail-soft, and checks the per-language budget at its own start.
     desk_i = 0
-    for idx, item in enumerate(targets):
-        if deadline is not None and clock() >= deadline:
-            logger.warning(
-                "[narrate] language '%s' budget %.0fs spent at article %d/%d — "
-                "remaining read without audio",
-                lang,
-                budget_s,
-                idx,
-                len(targets),
-            )
-            for rest in targets[idx:]:
-                rest["audio_url"] = None
-            break
+    assignments: list[tuple[dict, str]] = []
+    for item in targets:
         persona = item.get("persona")
         vk = persona_voice_key(persona) if persona else None
         if id(item) in editor_ids:
@@ -129,6 +125,13 @@ def narrate_paper(
         else:
             v = "graham" if desk_i % 2 == 0 else "tom"  # desk articles alternate
             desk_i += 1
+        assignments.append((item, v))
+
+    def _read(item: dict, v: str) -> None:
+        # Past the per-language budget the rest read without audio (partial, never a timeout).
+        if deadline is not None and clock() >= deadline:
+            item["audio_url"] = None
+            return
         try:
             path, model = narrate_article(item, voice=v, language=lang)
             item["audio_url"] = path
@@ -137,6 +140,14 @@ def narrate_paper(
         except Exception as exc:  # noqa: BLE001 — a per-item TTS failure is soft
             logger.warning("[narrate] reading failed for %r: %s", item.get("title"), exc)
             item["audio_url"] = None
+
+    n_par = max(1, content_cfg.narrate_tts_concurrency)
+    if n_par == 1 or len(assignments) <= 1:
+        for item, v in assignments:          # serial path (default): identical to before
+            _read(item, v)
+    else:
+        with ThreadPoolExecutor(max_workers=min(n_par, len(assignments))) as ex:
+            list(ex.map(lambda a: _read(*a), assignments))
 
     # ── 2. The dad↔son podcast (banter UNGATED — removed 2026-06-10) ──────────
     # The per-banter rubric gate was retired as too strict: the judge's false holds
