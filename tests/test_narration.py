@@ -47,6 +47,35 @@ def test_sets_audio_url_on_every_article():
     assert paper["ai"]["headliner"]["_audio_voice"] == "graham"
 
 
+def test_articles_narrate_concurrently_and_all_get_audio(monkeypatch):
+    # With concurrency>1 the per-article readings must run in PARALLEL (so the M3's extra
+    # workers are used), and every item must still get audio with the right alternation.
+    import threading
+    import time as _t
+    from content_pipeline.content_config import content_cfg
+    monkeypatch.setattr(content_cfg, "narrate_tts_concurrency", 4)
+    inflight = {"now": 0, "max": 0}
+    lock = threading.Lock()
+
+    def _slow_article(item, *, voice="graham", **kw):
+        with lock:
+            inflight["now"] += 1
+            inflight["max"] = max(inflight["max"], inflight["now"])
+        _t.sleep(0.05)
+        with lock:
+            inflight["now"] -= 1
+        return (f"/tmp/{voice}-{item['title']}.mp3", "tts-model")
+
+    paper = narration.narrate_paper(
+        _sample(), narrate_article=_slow_article, build_script=_fake_build,
+        render_podcast=_fake_render)
+    items = [paper["ai"]["headliner"], paper["ai"]["subarticles"][0],
+             paper["ai"]["shorts"][0], paper["fun"][0]]
+    assert all(i["audio_url"] for i in items)            # every reading produced audio
+    assert inflight["max"] >= 2                          # they genuinely overlapped
+    assert paper["ai"]["headliner"]["_audio_voice"] == "graham"  # alternation preserved
+
+
 def test_desk_reads_alternate_while_editor_sections_stay_graham():
     paper = narration.narrate_paper(
         _sample(), narrate_article=_fake_article, build_script=_fake_build,
