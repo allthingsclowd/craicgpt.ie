@@ -151,7 +151,7 @@ craicgpt.ie/
 │   ├── providers/litellm.py       ← get_litellm_llm + run_with_fallback (local-first→frontier)
 │   ├── compile.py                 ← build_paper (schema v3) + build_layout
 │   ├── content_config.py          ← all config from env (singleton content_cfg)
-│   └── notifications.py           ← Telegram lifecycle alerts
+│   └── notifications.py           ← Telegram lifecycle alerts (resilient send: 4096 clip + plain-text retry on 400 — arbitrary relayed text, e.g. tracebacks, must never die on parse_mode)
 │
 ├── frontend/                      ← static HTML/CSS/JS (S3 hosted): /<lang>/ paper + language switcher
 ├── infra/cloudfront/              ← edge language router: router.js + deploy-router.sh (AWS-CLI deploy)
