@@ -172,3 +172,53 @@ def test_send_message_which_routes_to_selected_bot(monkeypatch):
                         lambda token, chat, text, timeout: (posted.append(token) or (True, "ok")))
     notifications.send_message("hi", which="hermes")
     assert posted == ["tok-h"]
+
+
+# --- resilient low-level send ------------------------------------------------
+# Jul 2026 (geek side, same vendored code): failure alerts relayed through
+# message_graham embed raw Python tracebacks (`<module>`, `<frozen runpy>`);
+# Telegram's HTML parse mode 400s on the unknown tags and four days of alerts
+# died silently. _post must clip to the API limit and retry a 400 once with no
+# parse_mode — delivery beats formatting. Intentional HTML (<b>, <code>) in the
+# lifecycle helpers keeps working: the plain retry only fires on a 400.
+def _capture_posts(monkeypatch, responses):
+    import io
+    import urllib.parse as _p
+    posts = []
+
+    def fake_urlopen(req, timeout=0):
+        posts.append(dict(_p.parse_qsl(req.data.decode("utf-8"))))
+        result = responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return io.BytesIO(result)
+
+    monkeypatch.setattr(notifications.urllib.request, "urlopen", fake_urlopen)
+    return posts
+
+
+def test_overlong_text_is_clipped_to_telegram_limit(monkeypatch):
+    posts = _capture_posts(monkeypatch, [b'{"ok": true}'])
+    notifications._post("tok", "chat", "x" * 10_000, 5.0)
+    assert len(posts[0]["text"]) <= 4096
+
+
+def test_400_is_retried_once_as_plain_text(monkeypatch):
+    import urllib.error
+    err = urllib.error.HTTPError("https://x", 400, "Bad Request", {}, None)
+    posts = _capture_posts(monkeypatch, [err, b'{"ok": true}'])
+    ok, _ = notifications._post("tok", "chat", 'File "<frozen runpy>", in <module>', 5.0)
+    assert ok is True
+    assert posts[0].get("parse_mode") == "HTML"
+    assert "parse_mode" not in posts[1]  # the retry is plain text
+    assert len(posts) == 2
+
+
+def test_non_400_failure_is_not_retried(monkeypatch):
+    import urllib.error
+    err = urllib.error.HTTPError("https://x", 401, "Unauthorized", {}, None)
+    posts = _capture_posts(monkeypatch, [err])
+    ok, detail = notifications._post("tok", "chat", "hello", 5.0)
+    assert ok is False
+    assert "401" in detail
+    assert len(posts) == 1

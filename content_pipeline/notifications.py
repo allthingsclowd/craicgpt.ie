@@ -38,6 +38,9 @@ from content_pipeline.content_config import content_cfg
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API = "https://api.telegram.org"
+# Telegram's sendMessage text limit — clip before sending, a 400 on length is
+# as silent a killer as one on markup.
+TELEGRAM_MAX_LEN = 4096
 
 
 # --- channel targets --------------------------------------------------------
@@ -62,15 +65,9 @@ def _channel_targets(which: str = "both") -> list[tuple[str, str, str]]:
 
 
 # --- low-level send ---------------------------------------------------------
-def _post(token: str, chat_id: str, text: str, timeout: float) -> tuple[bool, str]:
-    """POST a single ``sendMessage``; return ``(ok, detail)``. Never raises."""
-    url = f"{TELEGRAM_API}/bot{token}/sendMessage"
-    data = urllib.parse.urlencode({
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": "true",
-    }).encode("utf-8")
+def _send_once(url: str, fields: dict[str, str], timeout: float) -> tuple[bool, str]:
+    """POST one ``sendMessage`` form; return ``(ok, detail)``. Never raises."""
+    data = urllib.parse.urlencode(fields).encode("utf-8")
     try:
         req = urllib.request.Request(url, data=data, method="POST")
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 — fixed api host
@@ -78,6 +75,27 @@ def _post(token: str, chat_id: str, text: str, timeout: float) -> tuple[bool, st
         return bool(payload.get("ok")), str(payload.get("description", "ok"))
     except Exception as exc:  # noqa: BLE001 — a notification must never break the pipeline
         return False, str(exc)
+
+
+def _post(token: str, chat_id: str, text: str, timeout: float) -> tuple[bool, str]:
+    """Send ``text`` resiliently; return ``(ok, detail)``. Never raises.
+
+    message_graham relays arbitrary text — including geek failure alerts that
+    embed raw Python tracebacks (``<module>``, ``<frozen runpy>``). Telegram's
+    HTML parse mode 400s on the unknown tags, and in Jul 2026 four days of
+    those alerts died silently while everything read COMPLETED. So: clip to
+    the API limit, and if the HTML attempt answers 400, retry once with no
+    parse_mode at all — delivery beats formatting. The lifecycle helpers'
+    intentional HTML (<b>, <code>) is untouched: the plain retry only fires
+    on a 400."""
+    url = f"{TELEGRAM_API}/bot{token}/sendMessage"
+    clipped = text[:TELEGRAM_MAX_LEN]
+    base = {"chat_id": chat_id, "disable_web_page_preview": "true"}
+    ok, detail = _send_once(url, {**base, "text": clipped, "parse_mode": "HTML"}, timeout)
+    if not ok and "400" in detail:
+        logger.warning("[notify] HTML send rejected (%s); retrying as plain text", detail)
+        ok, detail = _send_once(url, {**base, "text": clipped}, timeout)
+    return ok, detail
 
 
 def send_message(text: str, *, which: str = "both",
