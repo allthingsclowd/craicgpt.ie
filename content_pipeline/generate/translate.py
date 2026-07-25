@@ -58,6 +58,14 @@ LANGUAGE_NAMES: dict[str, str] = {
 # headroom than the writer's 8000, or the lenient parser drops the tail shorts.
 _TRANSLATE_MAX_TOKENS = int(os.getenv("CRAICGPT_TRANSLATE_MAX_TOKENS", "12000"))
 
+# Minimum share of translatable fields that must actually differ from English before
+# a language is allowed to publish. A wholly-failed translation is byte-identical to
+# a valid English paper (see translation_coverage), so without a floor it ships under
+# a <lang>/ prefix and nothing notices. Generous on purpose: healthy live editions
+# score 0.96-1.00, so 0.5 catches "shipped as English" without ever tripping on the
+# brand names and short titles that legitimately survive translation.
+MIN_TRANSLATION_COVERAGE = float(os.getenv("CRAICGPT_MIN_TRANSLATION_COVERAGE", "0.5"))
+
 # Which prose fields get translated, per item kind. Everything else is preserved.
 _HEAD_FIELDS = ("title", "standfirst", "body")
 _AI_FIELDS = ("title", "body")
@@ -108,6 +116,56 @@ def _translate_block(payload: Any, language: str, generate: Generate) -> Any:
 def _pluck(item: dict, fields: tuple[str, ...]) -> dict:
     """The translatable subset of an item (only present, non-empty string fields)."""
     return {f: item[f] for f in fields if isinstance(item.get(f), str) and item.get(f)}
+
+
+def _translatable_pairs(paper: dict) -> list[tuple[str, str]]:
+    """Every (path, text) this module would translate, in document order."""
+    out: list[tuple[str, str]] = []
+
+    def take(item: Any, fields: tuple[str, ...], path: str) -> None:
+        if not isinstance(item, dict):
+            return
+        for f, v in _pluck(item, fields).items():
+            out.append((f"{path}.{f}", v))
+
+    ai = paper.get("ai") or {}
+    take(ai.get("headliner"), _HEAD_FIELDS, "ai.headliner")
+    for i, sub in enumerate(ai.get("subarticles") or []):
+        take(sub, _AI_FIELDS, f"ai.subarticles[{i}]")
+    for i, short in enumerate(ai.get("shorts") or []):
+        take(short, _AI_FIELDS, f"ai.shorts[{i}]")
+    for i, fun in enumerate(paper.get("fun") or []):
+        take(fun, _FUN_FIELDS, f"fun[{i}]")
+    take(paper.get("editors_brief"), _SIMPLE_FIELDS, "editors_brief")
+    take(paper.get("about"), _SIMPLE_FIELDS, "about")
+    return out
+
+
+def translation_coverage(source: dict, translated: dict) -> dict:
+    """How much of ``translated`` actually differs from the English ``source``.
+
+    A wholly-failed translation is byte-identical to a valid English paper —
+    :func:`_merge_back` leaves the English string in place when a field is missing —
+    so ``validate_paper`` passes it and it publishes under a ``<lang>/`` prefix as
+    English. Nothing else in the pipeline can tell the difference. This can.
+
+    Deliberately a RATIO, not an exact-zero rule: brand names ('CraicGPT') and short
+    titles can legitimately survive translation unchanged. Measured on a healthy
+    live edition, ``de`` scored 2/51 fields identical and es/it/ja/fr scored 0/51.
+    """
+    before = dict(_translatable_pairs(source))
+    after = dict(_translatable_pairs(translated))
+    shared = [k for k in before if k in after]
+    identical = [k for k in shared if before[k] == after[k]]
+    total = len(shared)
+    changed = total - len(identical)
+    return {
+        "total": total,
+        "translated": changed,
+        "identical": len(identical),
+        "identical_fields": identical,
+        "ratio": (changed / total) if total else 0.0,
+    }
 
 
 def _merge_back(target: dict, translated: Any, fields: tuple[str, ...]) -> None:

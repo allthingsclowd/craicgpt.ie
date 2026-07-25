@@ -284,8 +284,13 @@ def cmd_run(args) -> int:
         #    is staged locally so the narrate step + gate can promote it. Best-effort per
         #    language — a failure drops that language for the day; English still stands.
         from content_pipeline.agent import review as _review
-        from content_pipeline.generate.translate import translate_paper
+        from content_pipeline.generate.translate import (
+            MIN_TRANSLATION_COVERAGE,
+            translate_paper,
+            translation_coverage,
+        )
 
+        degraded: dict[str, str] = {}   # lang → what went wrong, surfaced at the end
         for lang in content_cfg.languages:
             if lang == content_cfg.source_language:
                 continue
@@ -295,13 +300,35 @@ def cmd_run(args) -> int:
                 if not vres.get("valid"):
                     logging.warning("[cli] %s translation structurally invalid — skipped: %s",
                                     lang, vres.get("reasons"))
+                    degraded[lang] = f"structurally invalid: {'; '.join(vres.get('reasons') or [])}"
                     continue
+                # A wholly-failed translation is byte-identical to a valid English
+                # paper (_merge_back keeps English when a field is missing), so it
+                # passes validate_paper and would publish as English under <lang>/.
+                cov = translation_coverage(preview, translated)
+                if cov["ratio"] < MIN_TRANSLATION_COVERAGE:
+                    logging.warning(
+                        "[cli] %s only %.0f%% translated (%d/%d fields) — skipped",
+                        lang, 100 * cov["ratio"], cov["translated"], cov["total"])
+                    degraded[lang] = (
+                        f"only {100 * cov['ratio']:.0f}% translated "
+                        f"({cov['translated']}/{cov['total']} fields)")
+                    continue
+                holds = translated.get("translation_holds") or []
+                if holds:
+                    # Written since the sections were introduced, but read by nothing
+                    # until now — a per-section fall-back to English went unreported.
+                    degraded[lang] = f"sections kept English: {', '.join(holds)}"
                 tkey = publish_paper(copy.deepcopy(translated), date_iso, live=False, language=lang)
                 with open(_draft_path(date_iso, lang), "w", encoding="utf-8") as fh:
                     json.dump(translated, fh, indent=2, ensure_ascii=False)
-                print(f"  translated draft [{lang}]: {tkey}")
+                print(f"  translated draft [{lang}]: {tkey}"
+                      + (f"  [degraded: {degraded[lang]}]" if lang in degraded else ""))
             except Exception as exc:  # noqa: BLE001 — one language failing never holds the rest
                 logging.warning("[cli] translation %s failed: %s", lang, exc)
+                degraded[lang] = f"failed: {exc}"
+        if degraded:
+            _notify_safe("translation_degraded", date_iso, degraded=degraded, vid=vid)
     return 0
 
 
@@ -323,6 +350,16 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
         elif event == "fun_no_comedy":
             # Once-per-edition alert that the comedian desk came up empty.
             notifications.notify_once("fun_no_comedy", date_iso, kw["text"], vid=kw.get("vid"))
+        elif event == "translation_degraded":
+            # A language published as (partly) English, or was skipped. Silent until
+            # now: translation_holds was written and read by nothing, validate_paper
+            # passes an English-shipped paper, and the freshness canary probes only
+            # the English URL — so a bad translation day left no trace anywhere.
+            degraded = kw.get("degraded") or {}
+            lines = "\n".join(f"• {lang}: {why}" for lang, why in sorted(degraded.items()))
+            notifications.notify_once(
+                "translation_degraded", date_iso,
+                f"🌍 Translation degraded for {date_iso}:\n{lines}", vid=kw.get("vid"))
         elif event == "qc_flagged":
             # Advisory per-article gate flagged stories that published WITH a QC stamp.
             notifications.notify_flagged(date_iso, kw.get("flagged") or {},
