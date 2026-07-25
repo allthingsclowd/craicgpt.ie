@@ -222,3 +222,45 @@ def test_non_400_failure_is_not_retried(monkeypatch):
     assert ok is False
     assert "401" in detail
     assert len(posts) == 1
+
+
+def test_translation_degraded_alert_names_each_language(monkeypatch):
+    """`translation_holds` was written since the sections were introduced and read by
+    NOTHING — no frontend, no gate, no Telegram. Combined with validate_paper passing
+    an English-shipped paper and an English-only freshness canary, a bad translation
+    day left no trace anywhere. This is the alert that closes that loop."""
+    from content_pipeline import notifications
+    from content_pipeline.agent import cli
+
+    sent: dict = {}
+
+    def fake_once(event, date_iso, text, **kw):
+        sent.update({"event": event, "date": date_iso, "text": text, "vid": kw.get("vid")})
+        return {}
+
+    monkeypatch.setattr(notifications, "notify_once", fake_once)
+    cli._notify_safe(
+        "translation_degraded",
+        "2026-07-25",
+        degraded={"ja": "sections kept English: ai", "fr": "only 12% translated (6/51 fields)"},
+        vid="v1",
+    )
+
+    assert sent["event"] == "translation_degraded"
+    assert sent["date"] == "2026-07-25" and sent["vid"] == "v1"
+    # every affected language named, with WHY — a bare "translation failed" would
+    # not tell you whether one section fell back or the whole paper shipped English
+    assert "ja" in sent["text"] and "sections kept English: ai" in sent["text"]
+    assert "fr" in sent["text"] and "only 12% translated" in sent["text"]
+
+
+def test_translation_degraded_alert_never_breaks_the_pipeline(monkeypatch):
+    # _notify_safe's contract: a notification must never break the run.
+    from content_pipeline import notifications
+    from content_pipeline.agent import cli
+
+    def boom(*a, **k):
+        raise RuntimeError("telegram down")
+
+    monkeypatch.setattr(notifications, "notify_once", boom)
+    cli._notify_safe("translation_degraded", "2026-07-25", degraded={"de": "x"}, vid=None)

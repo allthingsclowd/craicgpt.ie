@@ -114,3 +114,68 @@ def test_translate_paper_section_failure_falls_back_to_english():
     assert out["ai"]["headliner"]["title"] == "Big AI news"   # AI stayed English
     assert out["fun"][0]["title"] == "DE:Funny"               # other sections translated
     assert out["edition"]["translation_holds"] == ["ai"]      # the fallback is surfaced
+
+
+# --- coverage: catching a paper that shipped as English -----------------------
+
+
+def _paper_with(ai_title: str, fun_body: str) -> dict:
+    return {
+        "ai": {
+            "headliner": {"title": ai_title, "standfirst": "Stand", "body": "Body"},
+            "subarticles": [{"title": "Sub", "body": "SubBody"}],
+            "shorts": [{"title": "Short", "body": "ShortBody"}],
+        },
+        "fun": [{"title": "Fun", "body": fun_body, "byline": "By", "satire_disclaimer": "Satire"}],
+        "editors_brief": {"title": "Brief", "body": "BriefBody"},
+        "about": {"title": "About", "body": "AboutBody"},
+    }
+
+
+def test_coverage_is_zero_when_nothing_was_translated():
+    # THE failure this exists to catch: _merge_back leaves the English string in
+    # place when a field is missing, so a wholly-failed translation is byte-identical
+    # to a valid English paper and sails through validate_paper.
+    from content_pipeline.generate.translate import translation_coverage
+
+    english = _paper_with("Title", "FunBody")
+    cov = translation_coverage(english, dict(english))
+    assert cov["total"] > 0
+    assert cov["translated"] == 0
+    assert cov["ratio"] == 0.0
+
+
+def test_coverage_is_one_when_everything_changed():
+    from content_pipeline.generate.translate import translation_coverage
+
+    english = _paper_with("Title", "FunBody")
+    german = {
+        "ai": {
+            "headliner": {"title": "Titel", "standfirst": "Vorspann", "body": "Korpus"},
+            "subarticles": [{"title": "Unter", "body": "UnterKorpus"}],
+            "shorts": [{"title": "Kurz", "body": "KurzKorpus"}],
+        },
+        "fun": [
+            {"title": "Spass", "body": "SpassKorpus", "byline": "Von", "satire_disclaimer": "Satire!"}
+        ],
+        "editors_brief": {"title": "Notiz", "body": "NotizKorpus"},
+        "about": {"title": "Ueber", "body": "UeberKorpus"},
+    }
+    cov = translation_coverage(english, german)
+    assert cov["ratio"] == 1.0
+    assert cov["translated"] == cov["total"]
+
+
+def test_coverage_tolerates_legitimately_identical_fields():
+    # Brand names and short titles can legitimately survive translation unchanged,
+    # so this must be a RATIO, never an exact-zero rule. Measured on a healthy live
+    # edition: de scored 2/51 fields identical, es/it/ja/fr scored 0/51.
+    from content_pipeline.generate.translate import translation_coverage
+
+    english = _paper_with("CraicGPT", "FunBody")
+    mostly = _paper_with("CraicGPT", "SpassKorpus")  # brand title kept, body translated
+    mostly["ai"]["headliner"]["body"] = "Korpus"
+    mostly["editors_brief"]["body"] = "NotizKorpus"
+    cov = translation_coverage(english, mostly)
+    assert 0.0 < cov["ratio"] < 1.0
+    assert cov["identical_fields"]  # names the survivors, for the alert text
