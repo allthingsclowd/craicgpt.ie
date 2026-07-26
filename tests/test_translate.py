@@ -8,6 +8,7 @@ paper left unmutated, and per-section English fallback on a translation failure.
 
 import copy
 import json
+import re
 
 from content_pipeline.generate.translate import translate_paper
 
@@ -40,21 +41,27 @@ def _english_paper():
     }
 
 
+_MARKER_RE = re.compile(r"^===T(\d+)===$", re.M)
+
+
+def _items_from(prompt):
+    """The marker-delimited items the real prompt sends, in order."""
+    parts = _MARKER_RE.split(prompt)
+    return [s.strip() for s in parts[2::2]]
+
+
 def _fake_translate(prompt):
-    """A deterministic stand-in translator: prefixes every string value with 'DE:',
-    preserving the exact shape the real prompt sends."""
-    payload = json.loads(prompt.split("JSON to translate:\n", 1)[1])
+    """A deterministic stand-in translator speaking the REAL wire protocol: marker
+    text in, marker text out, every item prefixed 'DE:'.
 
-    def tr(v):
-        if isinstance(v, str):
-            return "DE:" + v
-        if isinstance(v, list):
-            return [tr(x) for x in v]
-        if isinstance(v, dict):
-            return {k: tr(x) for k, x in v.items()}
-        return v
-
-    return tr(payload)
+    This fake is the point of the change. The old one took `prompt -> dict`, so it
+    sat ABOVE the parse and no test could ever exercise the escaping contract that
+    actually broke. Now the tests go through the same _parse_items the model does.
+    """
+    items = _items_from(prompt)
+    if not items:  # single-field fallback prompt carries no markers
+        return "DE:" + prompt.split("\n\n")[-1].strip()
+    return "\n\n".join(f"===T{i}===\nDE:{s}" for i, s in enumerate(items))
 
 
 def test_translate_paper_translates_prose_keeps_mechanics():
@@ -101,19 +108,41 @@ def test_translate_paper_does_not_mutate_source():
     assert en == snap   # deep-copied → the English source is never touched
 
 
-def test_translate_paper_section_failure_falls_back_to_english():
+def test_one_bad_reply_no_longer_sinks_a_whole_section():
+    """A single unusable reply used to revert the ENTIRE AI section to English — 13
+    of an edition's 17 articles — because the section was one call. It is now
+    per-item batches with a per-field retry, so a transient failure costs nothing."""
     calls = {"n": 0}
 
     def flaky(prompt):
         calls["n"] += 1
-        if calls["n"] == 1:                # the AI section is translated first
+        if calls["n"] == 1:                # the first batch of the AI section
             raise ValueError("model JSON unparseable")
         return _fake_translate(prompt)
 
     out = translate_paper(_english_paper(), "de", generate=flaky)
+    assert out["ai"]["headliner"]["title"] == "DE:Big AI news"   # recovered per field
+    assert out["fun"][0]["title"] == "DE:Funny"
+    assert "translation_holds" not in out["edition"]             # nothing was held
+
+
+def test_a_section_that_cannot_translate_at_all_stays_english_and_is_held():
+    """The fail-soft contract still stands: if NOTHING in a section comes back, the
+    English text is kept and the section is named in translation_holds — which is
+    what the Telegram alert and the coverage floor key off."""
+
+    def dead_for_ai(prompt):
+        # the AI section is translated first; fail every call it makes
+        if "Big AI news" in prompt or "Sub one" in prompt or "Short one" in prompt \
+                or "Stand" in prompt or "Body text" in prompt or "sub body" in prompt \
+                or "short body" in prompt:
+            raise ValueError("route down")
+        return _fake_translate(prompt)
+
+    out = translate_paper(_english_paper(), "de", generate=dead_for_ai)
     assert out["ai"]["headliner"]["title"] == "Big AI news"   # AI stayed English
     assert out["fun"][0]["title"] == "DE:Funny"               # other sections translated
-    assert out["edition"]["translation_holds"] == ["ai"]      # the fallback is surfaced
+    assert out["edition"]["translation_holds"] == ["ai"]      # and it is surfaced
 
 
 # --- coverage: catching a paper that shipped as English -----------------------
@@ -179,3 +208,93 @@ def test_coverage_tolerates_legitimately_identical_fields():
     cov = translation_coverage(english, mostly)
     assert 0.0 < cov["ratio"] < 1.0
     assert cov["identical_fields"]  # names the survivors, for the alert text
+
+
+# --- the escaping bug this wire format exists to prevent -----------------------
+
+# The real string from the live 2026-07-24 edition: a double quote, an apostrophe
+# and a raw &amp; in one fun-desk body.
+NASTY = ('Another upload from The Romesh Ranganathan Show. "Shanthi\'s Suspicions, '
+         'Monkey Bites &amp; Stage Names"? Soft title.')
+
+
+def test_the_old_json_contract_failed_two_ways_and_one_was_SILENT():
+    """What a model actually produces when asked to hand-escape prose into JSON.
+
+    The defect was never "the model is bad" — it was asking it to escape at all.
+    Two distinct failures, and the second is the nastier one because nothing raises.
+    """
+    import pytest
+
+    from content_pipeline.generate.translate import loads_lenient
+
+    B = chr(92)  # a literal backslash, spelled out so this test cannot be mis-escaped
+
+    # 1. HARD failure — an apostrophe comes back as \' which is not legal JSON.
+    #    This is what froze thegeekwiththepeak's it/ja editions for 22 days.
+    with pytest.raises(ValueError):
+        loads_lenient('["Shanthi' + B + "'" + 's Suspicions"]')
+    with pytest.raises(ValueError):
+        loads_lenient('["He said "detectportal" today]')  # unterminated
+
+    # 2. SILENT corruption — over-escaped quotes PARSE, and the backslashes leak
+    #    into the published prose. No exception, no hold, no alert: the reader just
+    #    sees He said \"detectportal\" today.
+    leaked = loads_lenient('["He said ' + B * 3 + '"detectportal' + B * 3 + '" today"]')
+    assert leaked == ['He said ' + B + '"detectportal' + B + '" today']
+    assert B in leaked[0], "the backslash reaches the reader — this is the quiet one"
+
+
+def test_quotes_and_entities_survive_the_marker_protocol():
+    """The same content through the new wire format: nothing is escaped, so nothing
+    can be mis-escaped. The model sees the raw string and returns raw text."""
+    seen = {}
+
+    def spy(prompt):
+        seen.setdefault("first", prompt)
+        return _fake_translate(prompt)
+
+    paper = _english_paper()
+    paper["fun"][0]["body"] = NASTY
+    out = translate_paper(paper, "de", generate=spy)
+
+    assert "JSON" not in seen["first"]              # we never ask for JSON back
+    assert out["fun"][0]["body"] == "DE:" + NASTY   # round-tripped intact
+    assert '"Shanthi\'s Suspicions' in out["fun"][0]["body"]
+
+
+def test_a_partial_reply_is_rejected_rather_than_misaligned():
+    """Reusing a short reply would pair translations with the WRONG source fields —
+    the silent corruption the old unstrict zip allowed. A partial batch must fall to
+    the per-field retry instead."""
+    def drops_last(prompt):
+        items = _items_from(prompt)
+        if not items:                                     # per-field fallback
+            return "DE:" + prompt.split("\n\n")[-1].strip()
+        kept = items[:-1] if len(items) > 1 else items    # lose one marker
+        return "\n\n".join(f"===T{i}===\nDE:{s}" for i, s in enumerate(kept))
+
+    out = translate_paper(_english_paper(), "de", generate=drops_last)
+    # every field still correctly paired with its own translation
+    assert out["ai"]["headliner"]["title"] == "DE:Big AI news"
+    assert out["ai"]["headliner"]["standfirst"] == "DE:Stand"
+    assert out["ai"]["headliner"]["body"] == "DE:Body text"
+
+
+def test_an_items_fields_travel_together_in_one_call():
+    """Per-ITEM batching, not per-character: a headliner's standfirst is a précis of
+    its body, and a fun item's body/byline/satire_disclaimer are one comic voice, so
+    splitting them across calls lets the register drift."""
+    batches = []
+
+    def spy(prompt):
+        items = _items_from(prompt)
+        if items:
+            batches.append(items)
+        return _fake_translate(prompt)
+
+    translate_paper(_english_paper(), "de", generate=spy)
+    head = next(b for b in batches if "Big AI news" in b)
+    assert "Stand" in head and "Body text" in head        # headliner fields together
+    fun = next(b for b in batches if "Funny" in b)
+    assert "ha" in fun and "Satire. Not real." in fun     # fun item's voice together

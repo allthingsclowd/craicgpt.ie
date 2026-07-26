@@ -58,6 +58,36 @@ def loads_lenient(raw: str) -> dict:
     raise ValueError(f"could not parse JSON from model output: {text[:120]!r}")
 
 
+def _default_generate_text(prompt: str, *, max_tokens: int = 8000) -> str:
+    """Plain chat completion returning RAW TEXT — no JSON parsing, no re-sampling.
+
+    The translator needs this: asking a model to hand-escape prose into JSON is what
+    froze the sister site's it/ja editions for 22 days (an apostrophe becomes an
+    illegal ``\\'``), so translation now goes over a marker-delimited plain-text
+    protocol and owns its own retry at the marker-parse level. Cross-box fallback is
+    kept — a DGX blip still crosses to the M3 — but the JSON re-sample loop in
+    :func:`_default_generate` would be meaningless here and is deliberately absent.
+    """
+    from content_pipeline.providers.litellm import get_litellm_llm, run_with_fallback
+
+    def _try(model: str) -> str:
+        llm = get_litellm_llm(
+            model,
+            temperature=None,
+            max_tokens=max_tokens,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        resp = llm.invoke(prompt)
+        return resp.content if isinstance(resp.content, str) else str(resp.content)
+
+    result = run_with_fallback(
+        _try, local_model=content_cfg.write_model, fallback_model=content_cfg.fallback_text_model)
+    if result.fell_back:
+        logger.warning("[writer] text call fell back to %s (primary failed: %s)",
+                       result.model_used, result.error)
+    return str(result.output)
+
+
 def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000) -> dict:
     """Plain chat completion on the write model, parsed leniently to a dict.
 
