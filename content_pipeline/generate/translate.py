@@ -34,14 +34,24 @@ import copy
 import functools
 import logging
 import os
+import re
 from typing import Any, Callable, Optional
 
 from content_pipeline.content_config import content_cfg
-from content_pipeline.generate.writer import _default_generate, loads_lenient  # noqa: F401  (loads_lenient re-exported for tests)
+from content_pipeline.generate.writer import (  # noqa: F401  (loads_lenient re-exported for tests)
+    _default_generate,
+    _default_generate_text,
+    loads_lenient,
+)
 
 logger = logging.getLogger(__name__)
 
-Generate = Callable[[str], dict]
+# The translation seam is TEXT in, TEXT out. It used to be Callable[[str], dict] —
+# which meant every test fake returned a dict and loads_lenient never ran, so the
+# escaping contract that actually broke was structurally untestable. `Generate` is
+# kept as an alias because other modules import it.
+TranslateInvoke = Callable[[str], str]
+Generate = TranslateInvoke
 
 # Human-readable names for the prompt ("translate into German"). The keys are the
 # ISO-639-1 codes used in the URL prefix / CRAICGPT_LANGUAGES. Covers the
@@ -81,36 +91,171 @@ def language_name(code: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # The translation call (mirrors writer._default_generate, with a bigger cap)
 # ─────────────────────────────────────────────────────────────────────────────
-def _default_translate(prompt: str) -> dict:
-    """The real translation LLM call: the multilingual write model, lenient-parsed."""
-    return _default_generate(prompt, max_tokens=_TRANSLATE_MAX_TOKENS)
+def _default_translate(prompt: str) -> str:
+    """The real translation LLM call: the multilingual write model, RAW TEXT.
+
+    No lenient JSON parse any more — the reply is marker-delimited prose, and
+    :func:`_parse_items` owns the only parsing that happens."""
+    return _default_generate_text(prompt, max_tokens=_TRANSLATE_MAX_TOKENS)
 
 
+_MARKER = "===T{i}==="
+_MARKER_RE = re.compile(r"^===T(\d+)===$", re.M)
+_FENCE_OPEN_RE = re.compile(r"^```[a-zA-Z]*\n?")
+_FENCE_CLOSE_RE = re.compile(r"\n?```$")
+
+# Marker-delimited plain text, NOT JSON. Asking a model to hand-escape prose into
+# JSON string values is a trap: an apostrophe comes back as an illegal \' and a
+# quoted phrase as \\\", json.loads raises, and the WHOLE language fails. That
+# froze thegeekwiththepeak's it/ja editions for 22 days. craicgpt was carrying the
+# same contract and surviving only on temperature-0.8 re-sampling — 6 of the last
+# 10 editions shipped a field with an embedded double quote, and every one shipped
+# 4-10 with a straight apostrophe. With markers the model escapes nothing.
 _TRANSLATE_PROMPT = (
-    "You are a professional newspaper translator. Translate the JSON below into "
+    "You are a professional newspaper translator. Translate the texts below into "
     "{language}. Rules:\n"
-    "- Translate ONLY the string VALUES; keep every key and the JSON structure identical.\n"
+    "- Translate ONLY the natural-language prose.\n"
     "- Keep the playful, witty, gently-cynical register of the original — this is a "
     "comic newspaper, not a press release.\n"
     "- Do NOT translate or alter: URLs, code, or the brand names 'CraicGPT' and "
     "'The Craic Gazette'. Keep people's and creators' proper names as they are.\n"
-    "- Output ONLY the translated JSON (no markdown, no commentary), the SAME shape.\n\n"
-    "JSON to translate:\n{payload}"
+    "\nOUTPUT FORMAT — output EXACTLY this and nothing else (no commentary, no code "
+    "fences, no quoting, no escaping): for each item, a line containing only its "
+    "marker, then that item's translation on the following line(s). Reproduce every "
+    "marker exactly as given, in the same order.\n\n{items}"
+)
+
+_SINGLE_PROMPT = (
+    "You are a professional newspaper translator. Translate the text below into "
+    "{language}. Keep the playful, witty, gently-cynical register. Do NOT translate "
+    "URLs, code, or the brand names 'CraicGPT' and 'The Craic Gazette'; keep proper "
+    "names as they are. Reply with ONLY the translation — no commentary, no code "
+    "fences, no quoting.\n\n{text}"
 )
 
 
-def _translate_block(payload: Any, language: str, generate: Generate) -> Any:
-    """Translate a JSON-serialisable block (dict or list of dicts of strings).
+def _flatten(payload: Any, path: tuple = ()) -> list[tuple[tuple, str]]:
+    """Every (path, text) leaf in a translate payload, in document order."""
+    out: list[tuple[tuple, str]] = []
+    if isinstance(payload, dict):
+        for k, v in payload.items():
+            out.extend(_flatten(v, (*path, k)))
+    elif isinstance(payload, list):
+        for i, v in enumerate(payload):
+            out.extend(_flatten(v, (*path, i)))
+    elif isinstance(payload, str) and payload:
+        out.append((path, payload))
+    return out
 
-    Returns the model's parsed JSON in the same shape. Raises on an unparseable
-    response (the caller turns that into a per-section English fallback)."""
-    import json
 
-    prompt = _TRANSLATE_PROMPT.format(
-        language=language_name(language),
-        payload=json.dumps(payload, ensure_ascii=False),
-    )
-    return generate(prompt)
+def _rebuild(payload: Any, mapping: dict[tuple, str], path: tuple = ()) -> Any:
+    """The payload's shape with translated leaves substituted (untranslated stay English)."""
+    if isinstance(payload, dict):
+        return {k: _rebuild(v, mapping, (*path, k)) for k, v in payload.items()}
+    if isinstance(payload, list):
+        return [_rebuild(v, mapping, (*path, i)) for i, v in enumerate(payload)]
+    if isinstance(payload, str):
+        return mapping.get(path, payload)
+    return payload
+
+
+def _batch_by_item(leaves: list[tuple[tuple, str]]) -> list[list[tuple[tuple, str]]]:
+    """Group leaves by the ITEM they belong to (everything but the field name).
+
+    Per-item, NOT by character count: a headliner's standfirst is a précis of its
+    body, and a fun item's body/byline/satire_disclaimer are one comic voice, so an
+    item's fields must travel together or the register drifts between them.
+    """
+    batches: list[list[tuple[tuple, str]]] = []
+    for path, text in leaves:
+        item = path[:-1]
+        if batches and batches[-1][0][0][:-1] == item:
+            batches[-1].append((path, text))
+        else:
+            batches.append([(path, text)])
+    return batches
+
+
+def _parse_items(raw: str, expected: int) -> list[str] | None:
+    """Split a marker-delimited reply into ``expected`` texts, or None if unusable.
+
+    A PARTIAL reply is treated as failure, not salvage: reusing it would misalign
+    translations against their source fields — the same silent corruption the
+    unstrict ``zip`` in the old merge path allowed.
+    """
+    raw = _FENCE_CLOSE_RE.sub("", _FENCE_OPEN_RE.sub("", raw.strip())).strip()
+    parts = _MARKER_RE.split(raw)
+    if len(parts) < 3:
+        return None
+    found: dict[int, str] = {}
+    for idx, text in zip(parts[1::2], parts[2::2]):
+        found[int(idx)] = text.strip()
+    if sorted(found) != list(range(expected)) or not all(found.values()):
+        return None
+    return [found[i] for i in range(expected)]
+
+
+def _translate_batch(
+    batch: list[tuple[tuple, str]], language: str, generate: TranslateInvoke
+) -> dict[tuple, str]:
+    """One item's fields in a single call; on an unusable reply, one call per field.
+
+    A lone string needs no delimiters at all — the whole reply IS the translation —
+    so the fallback path cannot be broken by markers or escaping.
+    """
+    texts = [text for _, text in batch]
+    items = "\n\n".join(f"{_MARKER.format(i=i)}\n{s}" for i, s in enumerate(texts))
+    out: dict[tuple, str] = {}
+    try:
+        parsed = _parse_items(
+            generate(_TRANSLATE_PROMPT.format(language=language_name(language), items=items)),
+            len(texts),
+        )
+    except Exception as exc:  # noqa: BLE001 — fall through to the per-field retry
+        logger.warning("[translate] batch call failed (%s); retrying per field", exc)
+        parsed = None
+    if parsed is not None:
+        return dict(zip([p for p, _ in batch], parsed, strict=True))
+
+    logger.warning("[translate] unusable batch reply; retrying %d field(s) individually",
+                   len(batch))
+    for path, text in batch:
+        try:
+            single = generate(
+                _SINGLE_PROMPT.format(language=language_name(language), text=text)).strip()
+        except Exception as exc:  # noqa: BLE001 — one dud field must not sink the item
+            logger.warning("[translate] field %s failed (%s); keeping English", path, exc)
+            continue
+        if single:
+            out[path] = _FENCE_CLOSE_RE.sub("", _FENCE_OPEN_RE.sub("", single)).strip()
+    return out
+
+
+def _translate_block(payload: Any, language: str, generate: TranslateInvoke) -> Any:
+    """Translate a JSON-serialisable block (dict, or list of dicts of strings).
+
+    Returns the SAME SHAPE — every caller and `_merge_back` depend on that, and
+    keeping it is why this is a wire-format change rather than a rewrite. What
+    changed is underneath: the block is flattened to ordered (path, text) leaves,
+    translated in marker-delimited per-item batches, and rebuilt. The model is never
+    asked to produce or escape JSON.
+
+    A field that could not be translated keeps its English text rather than raising,
+    so a single stubborn string degrades one field instead of a whole section. The
+    coverage floor in the publish path is what catches a block that mostly failed.
+    """
+    leaves = _flatten(payload)
+    if not leaves:
+        return copy.deepcopy(payload)
+    mapping: dict[tuple, str] = {}
+    for batch in _batch_by_item(leaves):
+        mapping.update(_translate_batch(batch, language, generate))
+    if not mapping:
+        # Nothing at all came back — that is a section failure, and the caller's
+        # try/except turns it into a translation_holds entry rather than silently
+        # publishing the English block under a <lang>/ prefix.
+        raise ValueError(f"no fields translated into {language}")
+    return _rebuild(payload, mapping)
 
 
 def _pluck(item: dict, fields: tuple[str, ...]) -> dict:
@@ -193,9 +338,12 @@ def _translate_ai(ai: dict, language: str, generate: Generate) -> bool:
     }
     out = _translate_block(payload, language, generate)
     _merge_back(head, out.get("headliner"), _HEAD_FIELDS)
-    for tgt, tr in zip(subs, out.get("subarticles") or []):
+    # strict=: _rebuild returns the payload's exact shape, so a length mismatch is a
+    # real bug, not something to absorb. The old unstrict zip silently left the tail
+    # of a short reply in English with nothing logged.
+    for tgt, tr in zip(subs, out.get("subarticles") or [], strict=True):
         _merge_back(tgt, tr, _AI_FIELDS)
-    for tgt, tr in zip(shorts, out.get("shorts") or []):
+    for tgt, tr in zip(shorts, out.get("shorts") or [], strict=True):
         _merge_back(tgt, tr, _AI_FIELDS)
     return True
 
@@ -206,7 +354,7 @@ def _translate_fun(fun: list, language: str, generate: Generate) -> bool:
         return True
     payload = {"fun": [_pluck(f, _FUN_FIELDS) for f in fun]}
     out = _translate_block(payload, language, generate)
-    for tgt, tr in zip(fun, out.get("fun") or []):
+    for tgt, tr in zip(fun, out.get("fun") or [], strict=True):
         _merge_back(tgt, tr, _FUN_FIELDS)
     return True
 
