@@ -476,6 +476,55 @@ def _publish_translations_live(date_iso: str, *, retranslate_from: Optional[dict
     return out
 
 
+def _translation_is_live(date_iso: str, language: str) -> bool:
+    """Is this language's edition already live for ``date_iso``?
+
+    The live key is date-scoped (``<lang>/content/YYYY/MM/DD/…``), so existence IS
+    the answer — no date comparison needed."""
+    from content_pipeline.agent.publish import _prefix_for
+
+    return _edition_paper(date_iso, _prefix_for(content_cfg.content_prefix, language)) is not None
+
+
+def _promote_late_translations(date_iso: str) -> dict:
+    """Promote any translation whose draft exists but which is NOT yet live.
+
+    Why this exists: :func:`_publish_translations_live` is called ONCE, on the poll
+    that publishes English. The translation drafts are written a few minutes after
+    the English one, so if that poll lands in the gap they all fail with
+    ``Expecting value: line 1 column 1`` (a 403 body being JSON-parsed) and are never
+    retried. On 2026-07-26 English's draft landed at 06:54:59, the poll fired at
+    06:55:47, and the five translation drafts landed 06:56:50-07:03:58 — all five
+    missed promotion. Narration re-publishes each language and normally papers over
+    it, but Spanish's TTS hit its 40-minute cap that day, so es never went live at
+    all and readers got the previous day's edition.
+
+    So: every poll, catch up whatever is ready. Idempotent (a live language is
+    skipped), isolated per language, and quiet — a language whose draft simply
+    hasn't been written yet is the NORMAL early-poll case, not a warning.
+    """
+    out: dict = {}
+    for lang in content_cfg.languages:
+        if lang == content_cfg.source_language or _translation_is_live(date_iso, lang):
+            continue
+        try:
+            paper = _load_draft(date_iso, lang)
+        except Exception as exc:  # noqa: BLE001 — no draft yet: expected on early polls
+            logging.debug("[cli] translation %s not ready to promote: %s", lang, exc)
+            continue
+        if str(paper.get("date") or "") != date_iso:
+            continue  # a stale draft from another date is never promoted
+        try:
+            rc = _publish_paper_live(date_iso, paper, language=lang,
+                                     note=f"late translation [{lang}]")
+            out[lang] = "published" if rc == 0 else "failed"
+            logging.info("[cli] promoted late translation %s", lang)
+        except Exception as exc:  # noqa: BLE001 — one language never sinks the others
+            logging.warning("[cli] late translation %s promote failed: %s", lang, exc)
+            out[lang] = f"failed: {exc}"
+    return out
+
+
 def cmd_approve(args) -> int:
     if args.reject:
         print(f"edition {args.date} rejected — nothing published")
@@ -868,7 +917,25 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
             g["languages"] = _publish_translations_live(date_iso)
     elif g["action"] == "remediate-publish":
         g.update(_remediate_and_publish(date_iso, g.get("drop") or [], by=by))
-    elif g["action"] == "hold":
+    # Catch-up: promote any translation that is ready but not yet live.
+    #
+    # The one-shot promotion above only fires on the poll that PUBLISHES English, and
+    # the translation drafts are written minutes later — so a poll landing in that gap
+    # used to lose them permanently (2026-07-26: all five missed, and Spanish never
+    # recovered because its narrate timed out, so readers got the previous day).
+    #
+    # ONLY when English is already live for this date. A translation is a faithful
+    # rendering of the English edition and carries the same verdict, so promoting one
+    # while English is HELD would publish content the gate has not approved.
+    if _edition_paper(date_iso, content_cfg.content_prefix) is not None:
+        try:
+            late = _promote_late_translations(date_iso)
+            if late:
+                g["languages"] = {**(g.get("languages") or {}), **late}
+        except Exception as exc:  # noqa: BLE001 — catch-up must never break the gate
+            logging.warning("[cli] late-translation catch-up failed: %s", exc)
+
+    if g["action"] == "hold":
         # Surface the HOLD (once per version). On the FIRST structurally-valid judgement
         # hold, START the HITL clock and tell Graham he has a window to respond before it
         # passively auto-publishes. A structural/link failure (valid=False) is a HARD
