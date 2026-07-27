@@ -8,9 +8,18 @@ The Craic Gazette publishes daily in several languages
 
 English is the **single editorial source of truth**. It runs the full pipeline
 (research → write → images → **rubric judge** → link-check) exactly once. Every other
-language is a **faithful translation of the *compiled* English edition** — one extra
-`plain chat → JSON` pass over the prose, reusing the writer's robust local-first JSON
-path (`generate/translate.py` imports `writer._default_generate` + `loads_lenient`).
+language is a **faithful translation of the *compiled* English edition** — a
+marker-delimited plain-text pass over the prose (`generate/translate.py`, using
+`writer._default_generate_text` for the local-first / cross-box call).
+
+> **Not JSON, and deliberately so.** This used to send a JSON block and ask for
+> translated JSON back, which makes the model hand-escape every string value. It gets
+> that wrong on ordinary newspaper prose — 6 of 10 sampled editions shipped a field with
+> an embedded double quote, and every one shipped 4-10 with a straight apostrophe. It
+> failed two ways: an apostrophe returns as `\'` (illegal JSON → the section reverts to
+> English), and over-escaped quotes *parse* while leaking backslashes into the published
+> prose — silent corruption. The identical contract froze thegeekwiththepeak's it/ja
+> editions for 22 days. With markers (`===T0===`) the model escapes nothing.
 
 Why not generate each language natively from the sources? Cost (5× the agentic
 research + judgement) and authenticity (the parody personas are Irish/UK figures that
@@ -23,6 +32,14 @@ research+write+JUDGE (English, once)
    → gate promotes ALL languages on the ONE English verdict
 ```
 
+The gate's promotion also **retries on every poll**, not only the one that publishes
+English. The translation drafts are written a few minutes after the English one, so a poll
+landing in that gap used to lose them permanently — on 2026-07-26 all five missed, and
+because Spanish's narration then timed out, es never went live at all and Spanish readers
+were served the previous day. Catch-up is idempotent, isolated per language, and only runs
+once English is live (a translation carries the English verdict, so promoting one while
+English is HELD would publish unapproved content).
+
 ## What gets translated — and what never does
 
 `translate_paper` only touches user-readable prose (`editors_brief`, `ai.*`,
@@ -33,6 +50,24 @@ research+write+JUDGE (English, once)
 text** and is noted in `edition.translation_holds` — a translation failure degrades to
 readable English, it never breaks the page (translations inherit the English verdict, so
 they're never re-judged or HELD).
+
+Three safeguards sit under that fail-soft, because "degrades to English" is only safe if
+somebody notices:
+
+- **Per-field retry.** Fields are batched per ITEM (a headliner's `standfirst` is a précis
+  of its `body`; a fun item's `body`/`byline`/`satire_disclaimer` are one comic voice — so
+  they travel together). If a batch reply is unusable *or partial* it is rejected, never
+  salvaged, and retried one field at a time — a lone string needs no delimiters and cannot
+  break. So one bad reply costs a field, not the 13-of-17 articles it used to.
+- **Coverage floor.** `translation_coverage()` measures what share of translatable fields
+  actually differ from English; below `CRAICGPT_MIN_TRANSLATION_COVERAGE` (0.5) the
+  language is **skipped rather than published**. Without it, a wholly-failed translation is
+  byte-identical to a valid English paper — `validate_paper` passes it and it ships under
+  a `<lang>/` prefix as English. It is a ratio, not exact-zero, because brand names and
+  short titles legitimately survive translation (a healthy `de` scores ~2/51 identical).
+- **It gets surfaced.** A `translation_degraded` Telegram alert names each affected
+  language *and why* ("sections kept English: ai" reads very differently from "only 12%
+  translated"). `translation_holds` was previously written and read by nothing.
 
 **Honest attribution** (the project's house rule, extended): each translation stamps
 `edition.translated_by` with the real model, surfaced as a light footer note + a link to
