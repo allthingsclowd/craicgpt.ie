@@ -46,22 +46,26 @@ class ContentConfig:
     )
 
     # ── Model routes (names from grazlab catalog/models.yaml) ─────────────────
-    # The *writing* model — generates the article prose. Qwen3.6 on the DGX (vLLM).
-    # The M3 mlx qwen3.6 route was never a reliable backend (500 connection errors), so
-    # the writer uses the DGX vLLM qwen3.6 — the same healthy route as the brain.
+    # ⚠️ These defaults MUST name routes the proxy actually serves. `dgx/vllm/
+    # qwen3.6-35b-a3b-fp8` sat here after the DGX was re-deployed onto Qwen3.8, and
+    # because production overrides both in /etc/craicgpt.env the staleness was
+    # invisible there — it only showed up as tests/test_run_edition.py HANGING on a
+    # live call to a route that no longer exists. Check them against
+    # `GET /v1/models` when the fleet changes; a dead route here does not fail fast.
+    #
+    # The *writing* model — generates the article prose. Qwen3.8 27B dense on the
+    # DGX (vLLM/NVFP4), matching what /etc/craicgpt.env sets in production.
     write_model: str = field(
         default_factory=lambda: os.getenv(
-            "WRITE_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
+            "WRITE_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
         )
     )
     # The *research brain* — drives the agentic websearch/curation tool loop.
-    # Needs reliable tool-calling. The DGX vLLM Qwen3.6 route is confirmed
-    # tool-calling-capable (and is itself Qwen3.6); the M3 mlx coder route is a
-    # good alternative when that engine is up. The fallback wrapper covers either
-    # being down.
+    # Needs reliable tool-calling; the DGX vLLM route is confirmed tool-calling
+    # capable. The fallback wrapper covers it being down.
     brain_model: str = field(
         default_factory=lambda: os.getenv(
-            "BRAIN_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
+            "BRAIN_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
         )
     )
     # The image model. HiDream-O1 (MLX on the M3 Ultra) is the approved default:
@@ -116,11 +120,27 @@ class ContentConfig:
     )
     # Fallback model — used ONLY when the primary local call fails or fails validation.
     # NB: the grazlab LiteLLM proxy has NO frontier route (`claude-sonnet-4-6` was a DEAD
-    # route → HTTP 400), so the fallback is the OTHER box's qwen3.6 (M3 mlx) — a real
-    # cross-box safety net for when the DGX is down.
+    # route → HTTP 400), so the fallback is the OTHER box (M3 mlx) — a real cross-box
+    # safety net for when the DGX is down.
+    #
+    # MUST accept `response_format: json_schema`. The writer now binds a schema to every
+    # generation call, and `mlx-openai-server` does NOT reject an unsupported one — it
+    # ACCEPTS the request and then stalls. Measured 2026-08-24, 4 samples per arm:
+    #
+    #     m3/mlx/qwen3.6-35b-a3b-unsloth-8bit  + schema  3/4 TIMED OUT at 300 s
+    #     m3/mlx/qwen3.6-35b-a3b-unsloth-8bit  no schema 4/4 ok
+    #     m3/mlx/qwen3.8-27b-8bit              + schema  4/4 ok
+    #
+    # So the old 3.6 default would have turned "the DGX wobbled" into three 300-second
+    # hangs per item — a worse outage than the one the fallback exists to prevent, and
+    # invisible until the day it is needed. Silence is not compatibility: re-run that
+    # comparison before pointing this at any new route.
+    #
+    # The 3.8 route is also the writer's own cross-engine sibling (same weights, MLX
+    # instead of vLLM/NVFP4), which is what makes it a meaningful second opinion.
     fallback_text_model: str = field(
         default_factory=lambda: os.getenv(
-            "FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.6-35b-a3b-unsloth-8bit"
+            "FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.8-27b-8bit"
         )
     )
     # The RUBRIC JUDGE — grades the finished edition (harmless / on-brand / attributed)

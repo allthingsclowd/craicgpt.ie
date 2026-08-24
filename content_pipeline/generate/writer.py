@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from functools import partial
 from typing import Any, Callable, Optional
 
 from grazlab_content_research.candidate import Candidate
@@ -31,8 +32,48 @@ logger = logging.getLogger(__name__)
 Generate = Callable[[str], dict]
 
 
+def _normalise_keys(obj: Any) -> Any:
+    """Strip stray whitespace from the EDGES of every JSON object key, recursively.
+
+    Defensive hardening, NOT the primary 2026-08-24 fix — see the correction below.
+
+    A key like ``" title"`` is *perfectly valid JSON with the wrong key*: nothing
+    raises, and ``data.get("title", "")`` quietly returns "". That is the shape of
+    silent failure this whole change is about, so normalising it at the one choke
+    point every JSON caller shares — the writer *and* ``translate.py`` — is cheap
+    and recovers the sample instead of paying for a re-roll. Only the edges are
+    stripped, so a legitimate key containing spaces is untouched.
+
+    ⚠️ CORRECTION (2026-08-24, after measuring). The first pass of this incident
+    described the defect as whitespace *inside* the opening key (``{\\n" title":``)
+    and quoted a rate of 8/900. A controlled 200-sample re-run of the real writer
+    prompt against the real route produced **no such sample at all**. The actual
+    dominant failure is the model **omitting the ``title`` key outright** and
+    starting the object at ``"body"``, often then rambling to the token cap:
+
+        {\\n"body": "Anthropic has finally stopped tinkering with the idea of ...
+
+    Measured 7/200 (3.5%) with no schema: 3 missing/blank ``title`` (1.5%) and 4
+    truncated-unparseable (2.0%). With the response schema bound: **0/200**.
+
+    So the load-bearing fixes are the schema (which forces the field to exist) and
+    the blank-field re-sample below — not this function. It stays because it is
+    correct, costs nothing, and closes a real adjacent hole.
+    """
+    if isinstance(obj, dict):
+        return {(k.strip() if isinstance(k, str) else k): _normalise_keys(v)
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalise_keys(v) for v in obj]
+    return obj
+
+
 def loads_lenient(raw: str) -> dict:
-    """Parse JSON that may be wrapped in markdown fences or thinking-model tags."""
+    """Parse JSON that may be wrapped in markdown fences or thinking-model tags.
+
+    Object keys are whitespace-normalised on the way out — see :func:`_normalise_keys`
+    for the incident that earned it.
+    """
     text = (raw or "").strip()
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     # Tolerate an UNCLOSED <think> preamble (thinking truncated before </think>):
@@ -44,18 +85,111 @@ def loads_lenient(raw: str) -> dict:
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
         text = "\n".join(lines).strip()
+    # `strict=False` permits a RAW control character inside a string. The spec says
+    # they must be escaped, but the whitespace-in-key defect has a second variant —
+    # `{"\ntitle": …}` with a literal newline — which is otherwise unparseable, and
+    # a stray newline inside a long prose `body` fails the same way. Both are benign
+    # content, not corruption, so recover them here rather than pay for a re-sample.
+    # (Same lesson as PR #94: stop making the model hand-escape prose into JSON.)
     try:
-        return json.loads(text)
+        return _normalise_keys(json.loads(text, strict=False))
     except json.JSONDecodeError:
         end = text.rfind("}") + 1
         for m in re.finditer(r"\{", text):
             if m.start() >= end:
                 break
             try:
-                return json.loads(text[m.start():end])
+                return _normalise_keys(json.loads(text[m.start():end], strict=False))
             except json.JSONDecodeError:
                 continue
     raise ValueError(f"could not parse JSON from model output: {text[:120]!r}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guided decoding: the PREVENTION half of the 2026-08-24 fix
+# ─────────────────────────────────────────────────────────────────────────────
+# THE load-bearing fix. vLLM masks the logits so a token that would break the
+# grammar is unreachable, which means a REQUIRED field cannot be skipped — and
+# skipping `title` is exactly what the route was doing.
+#
+# Measured on dgx/vllm/qwen3.8-27b-nvfp4 with the real _AI_SHORT_PROMPT at
+# production settings (temp 0.8, max_tokens 8000), 200 samples per arm:
+#
+#     schema OFF   7/200 defects (3.5%)  — 3 missing/blank title, 4 truncated
+#     schema ON    0/200 defects
+#
+# Note the second failure mode the control turned up: without a schema the model
+# sometimes runs to the 8000-token cap writing a 130-word short, which truncates
+# the JSON *and* costs real wall-clock on a multi-item edition. Constraining the
+# object shape fixes both.
+#
+# Schemas are PER ROLE on purpose. The headliner is the only item that carries a
+# standfirst; requiring it everywhere would force every short and subarticle to
+# grow a field the compiler then drops, and requiring it nowhere would let the
+# headliner's standfirst blank out exactly the way the titles did.
+def _article_schema(*required: str) -> dict:
+    """A strict `response_format` for a one-article JSON call."""
+    # minLength on the prose fields is deliberate: `required` alone would accept ""
+    # and put us straight back where we started. (`source_url` is exempt — the writer
+    # re-stamps it from the validated candidate anyway and never trusts the model's.)
+    props = {
+        "title": {"type": "string", "minLength": 1},
+        "standfirst": {"type": "string", "minLength": 1},
+        "body": {"type": "string", "minLength": 1},
+        "source_url": {"type": "string"},
+    }
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "article",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                # `strict` + `additionalProperties: false` means every declared
+                # property must appear in `required` for OpenAI-style guided
+                # decoding, so the schema declares exactly what the role needs.
+                "properties": {k: props[k] for k in required},
+                "required": list(required),
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+SCHEMA_HEADLINER = _article_schema("title", "standfirst", "body")
+SCHEMA_ARTICLE = _article_schema("title", "body")          # subarticles + shorts
+SCHEMA_FUN = _article_schema("title", "body", "source_url")
+
+
+def _required_keys(schema: Optional[dict]) -> tuple[str, ...]:
+    """The fields a response MUST carry non-empty, taken from the bound schema."""
+    if not schema:
+        return ()
+    return tuple(schema["json_schema"]["schema"].get("required", ()))
+
+
+def _is_usable(data: Any, required: tuple[str, ...]) -> bool:
+    """True when every required field is present AND non-blank.
+
+    This is the predicate the old code was missing entirely: it only ever asked
+    "did this parse?", never "is this an article?". `review.validate_paper` asks
+    the second question — but not until the whole edition is built.
+    """
+    if not isinstance(data, dict):
+        return False
+    return all(str(data.get(k) or "").strip() for k in required)
+
+
+def _schema_bound(gen: "Generate", schema: dict) -> "Generate":
+    """Bind a response schema to the DEFAULT generator only.
+
+    An injected generator (the tests, and `podcast_script`'s wrapper) keeps its
+    plain one-arg `Generate` contract — the schema is a wire-level constraint on a
+    real LLM call, not part of the protocol every caller has to implement.
+    """
+    if gen is _default_generate:
+        return partial(_default_generate, schema=schema)
+    return gen
 
 
 def _default_generate_text(prompt: str, *, max_tokens: int = 8000) -> str:
@@ -88,7 +222,13 @@ def _default_generate_text(prompt: str, *, max_tokens: int = 8000) -> str:
     return str(result.output)
 
 
-def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000) -> dict:
+def _default_generate(
+    prompt: str,
+    *,
+    attempts: int = 3,
+    max_tokens: int = 8000,
+    schema: Optional[dict] = None,
+) -> dict:
     """Plain chat completion on the write model, parsed leniently to a dict.
 
     Thinking mode is disabled — Qwen3.6 otherwise emits a long ``<think>`` preamble
@@ -100,8 +240,23 @@ def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000)
     — the write temperature is > 0, so each retry is a genuinely different
     completion (and we nudge it up on retries to vary even if the configured
     temperature is 0). This is the same fail-soft spirit as the rest of the desk.
+
+    ``schema`` (optional) is a strict ``response_format`` for the role being
+    written — see :func:`_article_schema`. Passing one does two things:
+
+    * **prevents** the malformed output on the wire (guided decoding), and
+    * declares which fields must come back **non-blank**, which is what makes the
+      re-sample below *semantic* rather than merely syntactic.
+
+    That second point is the 2026-08-24 lesson. This loop used to retry only on a
+    ``ValueError`` — a response that parsed cleanly but carried an empty ``title``
+    was indistinguishable from a good one, so it was accepted, published blank, and
+    held the edition at the last gate. A blank article is a failed generation; it
+    now costs a re-sample, and then the other box.
     """
     from content_pipeline.providers.litellm import get_litellm_llm, run_with_fallback
+
+    required = _required_keys(schema)
 
     def _try(model: str) -> dict:
         """Up to ``attempts`` samples on ONE model; raise on the last bad sample (or any
@@ -119,18 +274,32 @@ def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000)
                 # lenient parser then drops them, risking review.MIN_SHORTS). 8000 slack.
                 # Callers translating into token-dense scripts (e.g. CJK) pass a higher cap.
                 max_tokens=max_tokens,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body={
+                    "chat_template_kwargs": {"enable_thinking": False},
+                    **({"response_format": schema} if schema else {}),
+                },
             )
             # A connection drop / 5xx here RAISES (not a ValueError) → it leaves this loop
             # and run_with_fallback retries on the other box, instead of sinking the run.
             resp = llm.invoke(prompt)
             text = resp.content if isinstance(resp.content, str) else str(resp.content)
             try:
-                return loads_lenient(text)
+                data = loads_lenient(text)
             except ValueError as exc:
                 last_err = exc
                 logger.warning("[writer] %s JSON unparseable (attempt %d/%d, temp=%s); "
                                "re-sampling: %s", model, n + 1, attempts, temp, exc)
+                continue
+            # Parsed — but an article with a blank title is not an article. Treat it
+            # as a failed sample so it is re-rolled here and, if the box keeps doing
+            # it, handed to the other box by run_with_fallback below.
+            if not _is_usable(data, required):
+                blank = [k for k in required if not str(data.get(k) or "").strip()]
+                last_err = ValueError(f"required field(s) blank or missing: {blank}")
+                logger.warning("[writer] %s returned blank %s (attempt %d/%d, temp=%s); "
+                               "re-sampling", model, blank, n + 1, attempts, temp)
+                continue
+            return data
         raise last_err  # type: ignore[misc]  # attempts >= 1, so last_err is set
 
     # Local-first → CROSS-BOX fallback (the project's run_with_fallback pattern): a DGX blip
@@ -138,8 +307,17 @@ def _default_generate(prompt: str, *, attempts: int = 3, max_tokens: int = 8000)
     # transient engine drop no longer crashes a multi-minute generation. (This is what was
     # missing: the writer used to call the DGX write_model directly, ignoring the configured
     # backup.) translate.py / the editor's brief / About / podcast banter all inherit this.
+    # `validate=` is what turns the M3 from decorative into a real safety net. The
+    # default predicate is plain truthiness, and `{" title": "…", "body": "…"}` is
+    # perfectly truthy — so on 2026-08-24 the corrupted articles were accepted and
+    # the cross-box fallback never fired, on the one day it would have saved the
+    # edition (the M3 measured 0/420 on the same prompts the DGX failed 8/900).
     result = run_with_fallback(
-        _try, local_model=content_cfg.write_model, fallback_model=content_cfg.fallback_text_model)
+        _try,
+        local_model=content_cfg.write_model,
+        fallback_model=content_cfg.fallback_text_model,
+        validate=(lambda out: _is_usable(out, required)) if required else None,
+    )
     if result.fell_back:
         logger.warning("[writer] fell back to %s (primary failed: %s)",
                        result.model_used, result.error)
@@ -241,7 +419,15 @@ def _write_ai_item(candidate: dict, template: str, gen: Generate, *, headliner: 
     except Exception as exc:  # noqa: BLE001 — one bad item must not sink the section
         logger.warning("[writer] AI item write failed (%s) — skipping: %s", candidate.get("title"), exc)
         return None
-    item = {"title": data.get("title", ""), "body": data.get("body", ""), "source_url": url}
+    # Last line of defence, and the only one that also covers an INJECTED generator.
+    # `.get(k, "")` used to turn a malformed response into a silently blank article
+    # that the publish gate rejected hours later; drop it here instead and the loop
+    # below simply draws the next candidate from the pool.
+    if not (str(data.get("title") or "").strip() and str(data.get("body") or "").strip()):
+        logger.warning("[writer] AI item came back blank (%s) — skipping",
+                       candidate.get("title"))
+        return None
+    item = {"title": data["title"], "body": data["body"], "source_url": url}
     if headliner:
         item["standfirst"] = data.get("standfirst", "")
     return item
@@ -267,25 +453,26 @@ def write_ai_section(
     pool = list(ai_candidates)
     cursor = 0
 
-    def _next(template: str, *, headliner: bool = False) -> Optional[dict]:
+    def _next(template: str, schema: dict, *, headliner: bool = False) -> Optional[dict]:
         nonlocal cursor
         while cursor < len(pool):
-            item = _write_ai_item(pool[cursor], template, gen, headliner=headliner)
+            item = _write_ai_item(pool[cursor], template, _schema_bound(gen, schema),
+                                  headliner=headliner)
             cursor += 1
             if item is not None:
                 return item
         return None
 
-    headliner = _next(_AI_HEADLINER_PROMPT, headliner=True) or {}
+    headliner = _next(_AI_HEADLINER_PROMPT, SCHEMA_HEADLINER, headliner=True) or {}
     subarticles: list[dict] = []
     while len(subarticles) < num_subarticles:
-        item = _next(_AI_SUBARTICLE_PROMPT)
+        item = _next(_AI_SUBARTICLE_PROMPT, SCHEMA_ARTICLE)
         if item is None:
             break
         subarticles.append(item)
     shorts: list[dict] = []
     while len(shorts) < num_shorts:
-        item = _next(_AI_SHORT_PROMPT)
+        item = _next(_AI_SHORT_PROMPT, SCHEMA_ARTICLE)
         if item is None:
             break
         shorts.append(item)
@@ -330,10 +517,16 @@ def write_fun_story(
             source=source,
             story=json.dumps(candidate)[:1500],
         )
-    data = gen(prompt)
+    data = _schema_bound(gen, SCHEMA_FUN)(prompt)
+    # A blank fun item holds the paper exactly like a blank AI short does
+    # ("fun {i} missing title/body" in review.validate_paper). Raise so the caller's
+    # existing fail-soft in editor_in_chief._write_fun_section falls back to the raw
+    # story title/summary — a plain real piece beats a hole in the desk.
+    if not (str(data.get("title") or "").strip() and str(data.get("body") or "").strip()):
+        raise ValueError(f"fun rewrite came back blank for creator {source!r}")
     out = {
-        "title": data.get("title", ""),
-        "body": data.get("body", ""),
+        "title": data["title"],
+        "body": data["body"],
         "source_url": data.get("source_url") or candidate.get("source_url", ""),
         "source": source,  # credit: the creator's name, carried onto the piece
     }
@@ -396,7 +589,7 @@ def write_editors_brief(ai: dict, fun: list, *, generate: Optional[Generate] = N
     Consumes only titles + the headliner standfirst (a digest), so the prompt stays
     small regardless of how long the articles themselves are.
     """
-    gen = generate or _default_generate
+    gen = _schema_bound(generate or _default_generate, SCHEMA_ARTICLE)
     data = gen(_BRIEF_PROMPT.format(digest=_edition_digest(ai, fun)))
     return {
         "title": data.get("title") or "The Editor's Brief",
@@ -406,7 +599,7 @@ def write_editors_brief(ai: dict, fun: list, *, generate: Optional[Generate] = N
 
 def write_about(cv_text: str, *, generate: Optional[Generate] = None) -> dict:
     """Rewrite Graham's CV as a Father-Ted-voiced 'About the Editor' page (one JSON call)."""
-    gen = generate or _default_generate
+    gen = _schema_bound(generate or _default_generate, SCHEMA_ARTICLE)
     data = gen(_ABOUT_PROMPT.format(cv=cv_text[:6000]))
     return {
         "title": data.get("title") or "About the Editor",
