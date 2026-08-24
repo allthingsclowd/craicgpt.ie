@@ -17,6 +17,29 @@ def test_loads_lenient_strips_fences_and_thinking():
     assert loads_lenient('<think>let me reason a lot...\n{"d": 4}') == {"d": 4}
 
 
+def test_loads_lenient_normalises_whitespace_inside_keys():
+    """REGRESSION (2026-08-24): the edition that never published.
+
+    The NVFP4 Qwen3.8 route on the DGX occasionally emits a newline INSIDE the
+    opening key — ``{\\n" title": …`` instead of ``{"title": …``. That is *valid*
+    JSON, so nothing raised; ``data.get("title", "")`` simply returned "" and the
+    short went out blank. The rubric judge (an LLM) approved it, and the
+    deterministic publish gate held the whole multilingual edition at the last
+    step with "short 0 missing title/body".
+
+    Stripping key whitespace here fixes it at the single choke point every JSON
+    caller shares — the writer AND translate.py.
+    """
+    assert loads_lenient('{\n" title": "T", "body": "B"}') == {"title": "T", "body": "B"}
+    assert loads_lenient('{"\ntitle": "T"}') == {"title": "T"}
+    assert loads_lenient('{"title\t": "T"}') == {"title": "T"}
+    # Nested payloads too — translate.py sends whole sections through this parser.
+    assert loads_lenient('{"ai": {" headliner": {" title": "T"}}}') == {
+        "ai": {"headliner": {"title": "T"}}}
+    # A key whose whitespace is INTERIOR is left alone — only the edges are noise.
+    assert loads_lenient('{"key with spaces": 1}') == {"key with spaces": 1}
+
+
 def _ai_pool(n):
     """n validated AI candidates with real source links, in significance order."""
     return [
@@ -196,3 +219,116 @@ def test_default_generate_falls_back_to_other_box_on_connection_error(monkeypatc
     assert out == {"headliner": {"title": "H"}}
     assert seen[0] == writer.content_cfg.write_model               # tried the DGX first
     assert seen[-1] == writer.content_cfg.fallback_text_model      # then the M3 fallback
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2026-08-24 incident: a SEMANTICALLY empty article is a failure, not a success.
+#
+# The old re-sample loop only fired on a ValueError — i.e. syntactically broken
+# JSON. A response that parsed cleanly but carried a blank title sailed straight
+# through to the paper, and the edition was held 150 lines later. These three pin
+# the two new defences: re-sample on the same box, then cross to the other box.
+# ─────────────────────────────────────────────────────────────────────────────
+def test_default_generate_resamples_when_a_required_field_is_blank(monkeypatch):
+    from content_pipeline.generate import writer
+    from content_pipeline.providers import litellm as litellm_mod
+
+    calls = {"n": 0}
+
+    class _LLM:
+        def invoke(self, prompt):
+            calls["n"] += 1
+            # Sample 1 parses fine but the title is empty — the production defect.
+            return _Resp('{"title": "", "body": "B"}' if calls["n"] == 1
+                         else '{"title": "T", "body": "B"}')
+
+    monkeypatch.setattr(litellm_mod, "get_litellm_llm", lambda *a, **k: _LLM())
+    out = writer._default_generate("prompt", schema=writer.SCHEMA_ARTICLE)
+    assert out == {"title": "T", "body": "B"}
+    assert calls["n"] == 2  # the blank one was re-sampled, not accepted
+
+
+def test_default_generate_crosses_to_the_other_box_when_a_field_stays_blank(monkeypatch):
+    # The DGX NVFP4 route is the box with the defect; the M3 measured clean. Once
+    # the primary exhausts its re-samples on blank output, run_with_fallback must
+    # cross over — that is what turns the M3 from decorative into a real safety net.
+    from content_pipeline.generate import writer
+    from content_pipeline.providers import litellm as litellm_mod
+
+    seen = []
+
+    class _LLM:
+        def __init__(self, model):
+            self.model = model
+
+        def invoke(self, prompt):
+            seen.append(self.model)
+            if self.model == writer.content_cfg.write_model:
+                return _Resp('{"title": "", "body": "B"}')   # never raises — just blank
+            return _Resp('{"title": "T", "body": "B"}')
+
+    monkeypatch.setattr(litellm_mod, "get_litellm_llm", lambda model, **k: _LLM(model))
+    out = writer._default_generate("prompt", attempts=2, schema=writer.SCHEMA_ARTICLE)
+    assert out == {"title": "T", "body": "B"}
+    assert seen[:2] == [writer.content_cfg.write_model] * 2      # re-sampled the DGX
+    assert seen[-1] == writer.content_cfg.fallback_text_model    # then crossed to the M3
+
+
+def test_default_generate_sends_the_schema_as_response_format(monkeypatch):
+    # Guided decoding is the PREVENTION half: masked logits make a malformed key
+    # unreachable rather than merely detectable (measured 0/200 on the bad route).
+    from content_pipeline.generate import writer
+    from content_pipeline.providers import litellm as litellm_mod
+
+    captured = {}
+
+    class _LLM:
+        def invoke(self, prompt):
+            return _Resp('{"title": "T", "standfirst": "sf", "body": "B"}')
+
+    def _factory(model, **kwargs):
+        captured.update(kwargs)
+        return _LLM()
+
+    monkeypatch.setattr(litellm_mod, "get_litellm_llm", _factory)
+    writer._default_generate("prompt", schema=writer.SCHEMA_HEADLINER)
+
+    rf = captured["extra_body"]["response_format"]
+    assert rf["type"] == "json_schema"
+    assert rf["json_schema"]["strict"] is True
+    # The headliner requires a standfirst; a plain article must NOT (else every
+    # subarticle and short is forced to grow a field the schema then blanks).
+    assert set(rf["json_schema"]["schema"]["required"]) == {"title", "standfirst", "body"}
+    assert set(writer.SCHEMA_ARTICLE["json_schema"]["schema"]["required"]) == {"title", "body"}
+    # Thinking must STAY off — it shares extra_body with the new response_format.
+    assert captured["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_write_ai_section_drops_an_item_that_comes_back_blank():
+    # Last line of defence, and it works for ANY injected generator: if a blank
+    # article somehow still reaches the harness, draw the next candidate rather
+    # than seating a hole in the paper that the publish gate will reject.
+    calls = {"n": 0}
+
+    def gen(prompt):
+        calls["n"] += 1
+        if calls["n"] == 2:                      # the first subarticle comes back blank
+            return {"title": "", "body": "B"}
+        return {"title": "T", "standfirst": "sf", "body": "B"}
+
+    out = write_ai_section(_ai_pool(20), num_subarticles=2, num_shorts=3, generate=gen)
+    assert len(out["subarticles"]) == 2
+    assert len(out["shorts"]) == 3
+    assert all(i["title"] and i["body"] for i in out["subarticles"] + out["shorts"])
+
+
+def test_write_fun_story_rejects_a_blank_piece():
+    # A blank fun item holds the paper exactly like a blank short does
+    # (review.validate_paper: "fun {i} missing title/body"). Raising hands the item
+    # to the caller's EXISTING fail-soft in editor_in_chief._write_fun_section, which
+    # falls back to the raw story title/summary — a real piece beats a blank one.
+    import pytest
+
+    with pytest.raises(ValueError):
+        write_fun_story({"source_url": "https://e.com/1"}, "Creator",
+                        generate=lambda p: {"title": "", "body": "B"})
