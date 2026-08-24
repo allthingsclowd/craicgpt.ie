@@ -9,7 +9,8 @@
 
 The edition is gated by an **independent rubric judge** (`rubric_review.grade_edition`,
 a one-shot `deepagents` `RubricMiddleware` grader on `qwen3-coder-next`, a different
-family from the qwen3.6 writer). Its `grading_view` showed the grader only the
+family from the writer, Qwen3.6 at the time of this ADR and Qwen3.8 since
+2026-08-23). Its `grading_view` showed the grader only the
 **compiled edition** — the `ai_candidates.json` / `fun_candidates.json` research the
 deep agent gathered was never threaded in.
 

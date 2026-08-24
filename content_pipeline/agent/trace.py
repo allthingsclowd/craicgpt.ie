@@ -4,7 +4,7 @@ content_pipeline/agent/trace.py
 Capture the deep agent's work as a flat, JSON-serialisable event list.
 
 This is the teaching payload. Each run records its plan (todos), every subagent
-delegation, every tool call, and any local→frontier fallback. The list is stored
+delegation, every tool call, and any cross-box model fallback. The list is stored
 at ``paper_content.context.agent_trace`` and the frontend's "Under the Hood"
 drawer renders it so readers learn deepagents by watching the Editor-in-Chief
 build the paper.
@@ -45,7 +45,7 @@ class TraceRecorder:
         self._add("tool", name, payload)
 
     def fallback(self, scope: str, *, local: str, to: str, reason: str) -> None:
-        """A local→frontier fallback (honest model attribution for the UI note)."""
+        """A cross-box model fallback (honest model attribution for the UI note)."""
         self._add("fallback", scope, {"local": local, "to": to, "reason": reason})
 
     def model_route(self, scope: str, model: str) -> None:

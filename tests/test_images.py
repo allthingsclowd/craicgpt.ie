@@ -38,12 +38,12 @@ def test_generate_image_returns_b64_and_records_model():
     b64 = base64.b64encode(b"PNGDATA").decode()
     client = _FakeClient(b64)
     img = generate_image("a juggling otter, tabloid cover", client=client,
-                         model="m3/ollama/flux2-klein")
+                         model="m3/comfy/flux-2-dev")
     assert isinstance(img, GeneratedImage)
     assert img.b64_png == b64
-    assert img.model == "m3/ollama/flux2-klein"
+    assert img.model == "m3/comfy/flux-2-dev"
     # The model and prompt were passed through to the proxy.
-    assert client.calls[0]["model"] == "m3/ollama/flux2-klein"
+    assert client.calls[0]["model"] == "m3/comfy/flux-2-dev"
     assert "otter" in client.calls[0]["prompt"]
 
 

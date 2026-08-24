@@ -4,7 +4,8 @@ content_pipeline/generate/writer.py
 Deterministic article writer — the harness's editing step.
 
 Editing used to be a deep-agent subagent that wrote the whole edition as one
-giant ``write_file`` tool call. The vLLM/Qwen3.6 tool-call parser kept mangling
+giant ``write_file`` tool call. The vLLM/Qwen3.6 tool-call parser (the DGX brain at
+the time; now Qwen3.8) kept mangling
 that huge JSON-string argument (truncation, unterminated strings). So we moved
 editing here: small **plain chat → JSON** calls — one for the AI section, one
 per fun story. Small outputs, no tool-call serialisation, robust lenient parse.
@@ -231,7 +232,7 @@ def _default_generate(
 ) -> dict:
     """Plain chat completion on the write model, parsed leniently to a dict.
 
-    Thinking mode is disabled — Qwen3.6 otherwise emits a long ``<think>`` preamble
+    Thinking mode is disabled — the Qwen routes otherwise emit a long ``<think>`` preamble
     that consumes the output budget before any JSON appears.
 
     The local model occasionally returns JSON the lenient parser can't recover (an
