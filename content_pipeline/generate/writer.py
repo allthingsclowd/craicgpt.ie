@@ -35,24 +35,30 @@ Generate = Callable[[str], dict]
 def _normalise_keys(obj: Any) -> Any:
     """Strip stray whitespace from the EDGES of every JSON object key, recursively.
 
-    THE 2026-08-24 FIX. The DGX's NVFP4 Qwen3.8 route occasionally emits whitespace
-    *inside* the opening key — ``{\\n" title": …`` rather than ``{"title": …``.
-    Measured 8/900 (0.89%) at production settings; the same weights served by MLX on
-    the M3 were clean over 420 samples, so this is the serving stack, not the model.
+    Defensive hardening, NOT the primary 2026-08-24 fix — see the correction below.
 
-    Two variants, and the nasty one is the SILENT one:
+    A key like ``" title"`` is *perfectly valid JSON with the wrong key*: nothing
+    raises, and ``data.get("title", "")`` quietly returns "". That is the shape of
+    silent failure this whole change is about, so normalising it at the one choke
+    point every JSON caller shares — the writer *and* ``translate.py`` — is cheap
+    and recovers the sample instead of paying for a re-roll. Only the edges are
+    stripped, so a legitimate key containing spaces is untouched.
 
-    * ``"\\ntitle"`` (raw control char) — *unparseable*, so the existing re-sample
-      loop already caught it.
-    * ``" title"`` (a space) — **perfectly valid JSON with the wrong key**. Nothing
-      raised; ``data.get("title", "")`` just returned "". The short published blank,
-      the LLM rubric judge approved it (an LLM does not notice a missing title), and
-      the deterministic publish gate held the whole multilingual edition hours later.
+    ⚠️ CORRECTION (2026-08-24, after measuring). The first pass of this incident
+    described the defect as whitespace *inside* the opening key (``{\\n" title":``)
+    and quoted a rate of 8/900. A controlled 200-sample re-run of the real writer
+    prompt against the real route produced **no such sample at all**. The actual
+    dominant failure is the model **omitting the ``title`` key outright** and
+    starting the object at ``"body"``, often then rambling to the token cap:
 
-    Normalising here fixes it at the one choke point every JSON caller shares —
-    the writer *and* ``translate.py`` — and recovers the sample instead of paying
-    for a re-roll. Only the edges are stripped, so a legitimate key that contains
-    spaces is untouched.
+        {\\n"body": "Anthropic has finally stopped tinkering with the idea of ...
+
+    Measured 7/200 (3.5%) with no schema: 3 missing/blank ``title`` (1.5%) and 4
+    truncated-unparseable (2.0%). With the response schema bound: **0/200**.
+
+    So the load-bearing fixes are the schema (which forces the field to exist) and
+    the blank-field re-sample below — not this function. It stays because it is
+    correct, costs nothing, and closes a real adjacent hole.
     """
     if isinstance(obj, dict):
         return {(k.strip() if isinstance(k, str) else k): _normalise_keys(v)
@@ -102,12 +108,20 @@ def loads_lenient(raw: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────────
 # Guided decoding: the PREVENTION half of the 2026-08-24 fix
 # ─────────────────────────────────────────────────────────────────────────────
-# `_normalise_keys` RECOVERS a mangled key; a response schema stops one being
-# emitted at all. vLLM masks the logits so a token that would break the grammar is
-# unreachable — the whitespace-in-key defect measured 8/900 without a schema and
-# 0/200 with one, on the same route and settings. It also kills the adjacent
-# anomalies from the same sweep (a capitalised "Title", a hallucinated
-# "word_count"), which no amount of key-stripping would have caught.
+# THE load-bearing fix. vLLM masks the logits so a token that would break the
+# grammar is unreachable, which means a REQUIRED field cannot be skipped — and
+# skipping `title` is exactly what the route was doing.
+#
+# Measured on dgx/vllm/qwen3.8-27b-nvfp4 with the real _AI_SHORT_PROMPT at
+# production settings (temp 0.8, max_tokens 8000), 200 samples per arm:
+#
+#     schema OFF   7/200 defects (3.5%)  — 3 missing/blank title, 4 truncated
+#     schema ON    0/200 defects
+#
+# Note the second failure mode the control turned up: without a schema the model
+# sometimes runs to the 8000-token cap writing a 130-word short, which truncates
+# the JSON *and* costs real wall-clock on a multi-item edition. Constraining the
+# object shape fixes both.
 #
 # Schemas are PER ROLE on purpose. The headliner is the only item that carries a
 # standfirst; requiring it everywhere would force every short and subarticle to
