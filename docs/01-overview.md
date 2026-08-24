@@ -203,7 +203,7 @@ python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 | `BRAIN_MODEL` | Research-agent route (needs tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
 | `WRITE_MODEL` | Prose-writing route | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
 | `IMAGE_MODEL` | Image route | `m3/mlx/hidream-o1-image-dev` |
-| `FALLBACK_TEXT_MODEL` | Local cross-box fallback (only on primary failure; the proxy has no frontier route) | `m3/mlx/qwen3.6-35b-a3b-unsloth-8bit` |
+| `FALLBACK_TEXT_MODEL` | Local cross-box fallback (only on primary failure; the proxy has no frontier route) | `m3/mlx/qwen3.8-27b-8bit` |
 | `SERPER_API_KEY` | Serper.dev (Google SERP) key for `web_search` | — |
 | `S3_BUCKET` / `CLOUDFRONT_DISTRIBUTION_ID` | Publishing target | `craicgpt-ie-production` / — |
 

@@ -129,9 +129,12 @@ def loads_lenient(raw: str) -> dict:
 # headliner's standfirst blank out exactly the way the titles did.
 def _article_schema(*required: str) -> dict:
     """A strict `response_format` for a one-article JSON call."""
+    # minLength on the prose fields is deliberate: `required` alone would accept ""
+    # and put us straight back where we started. (`source_url` is exempt — the writer
+    # re-stamps it from the validated candidate anyway and never trusts the model's.)
     props = {
         "title": {"type": "string", "minLength": 1},
-        "standfirst": {"type": "string"},
+        "standfirst": {"type": "string", "minLength": 1},
         "body": {"type": "string", "minLength": 1},
         "source_url": {"type": "string"},
     }

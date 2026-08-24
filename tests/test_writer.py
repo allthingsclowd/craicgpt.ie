@@ -6,6 +6,7 @@ getting mangled by the vLLM tool-call parser) into the harness: small plain-chat
 injected here as `generate(prompt) -> dict`, so this runs offline.
 """
 
+from content_pipeline.content_config import content_cfg as writer_cfg
 from content_pipeline.generate.writer import loads_lenient, write_ai_section, write_fun_story
 
 
@@ -302,6 +303,25 @@ def test_default_generate_sends_the_schema_as_response_format(monkeypatch):
     assert set(writer.SCHEMA_ARTICLE["json_schema"]["schema"]["required"]) == {"title", "body"}
     # Thinking must STAY off — it shares extra_body with the new response_format.
     assert captured["extra_body"]["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_the_fallback_route_is_not_the_schemaless_3_6_one():
+    """The cross-box fallback must be a route that ACCEPTS a response schema.
+
+    `mlx-openai-server` does not reject an unsupported `response_format` — it
+    accepts the request and then stalls. Measured 2026-08-24, 4 samples each:
+
+        m3/mlx/qwen3.6-35b-a3b-unsloth-8bit  + schema   3/4 TIMED OUT at 300 s
+        m3/mlx/qwen3.6-35b-a3b-unsloth-8bit  no schema  4/4 ok
+        m3/mlx/qwen3.8-27b-8bit              + schema   4/4 ok
+
+    Now that the writer binds a schema to every call, pointing the fallback at the
+    3.6 route would turn "the DGX wobbled" into three 300-second hangs per item —
+    a worse outage than the one the fallback exists to prevent, and invisible until
+    the day it is needed. This is a canary for that specific regression, not a
+    general assertion about which model is best.
+    """
+    assert "qwen3.6" not in writer_cfg.fallback_text_model
 
 
 def test_write_ai_section_drops_an_item_that_comes_back_blank():
