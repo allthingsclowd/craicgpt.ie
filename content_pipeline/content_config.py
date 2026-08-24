@@ -46,22 +46,26 @@ class ContentConfig:
     )
 
     # ── Model routes (names from grazlab catalog/models.yaml) ─────────────────
-    # The *writing* model — generates the article prose. Qwen3.6 on the DGX (vLLM).
-    # The M3 mlx qwen3.6 route was never a reliable backend (500 connection errors), so
-    # the writer uses the DGX vLLM qwen3.6 — the same healthy route as the brain.
+    # ⚠️ These defaults MUST name routes the proxy actually serves. `dgx/vllm/
+    # qwen3.6-35b-a3b-fp8` sat here after the DGX was re-deployed onto Qwen3.8, and
+    # because production overrides both in /etc/craicgpt.env the staleness was
+    # invisible there — it only showed up as tests/test_run_edition.py HANGING on a
+    # live call to a route that no longer exists. Check them against
+    # `GET /v1/models` when the fleet changes; a dead route here does not fail fast.
+    #
+    # The *writing* model — generates the article prose. Qwen3.8 27B dense on the
+    # DGX (vLLM/NVFP4), matching what /etc/craicgpt.env sets in production.
     write_model: str = field(
         default_factory=lambda: os.getenv(
-            "WRITE_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
+            "WRITE_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
         )
     )
     # The *research brain* — drives the agentic websearch/curation tool loop.
-    # Needs reliable tool-calling. The DGX vLLM Qwen3.6 route is confirmed
-    # tool-calling-capable (and is itself Qwen3.6); the M3 mlx coder route is a
-    # good alternative when that engine is up. The fallback wrapper covers either
-    # being down.
+    # Needs reliable tool-calling; the DGX vLLM route is confirmed tool-calling
+    # capable. The fallback wrapper covers it being down.
     brain_model: str = field(
         default_factory=lambda: os.getenv(
-            "BRAIN_MODEL", "dgx/vllm/qwen3.6-35b-a3b-fp8"
+            "BRAIN_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
         )
     )
     # The image model. HiDream-O1 (MLX on the M3 Ultra) is the approved default:
