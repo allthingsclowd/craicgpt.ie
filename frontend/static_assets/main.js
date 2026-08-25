@@ -225,9 +225,23 @@ function resolveRef(data, ref) {
 // ════════════════════════════════════════════════════════════════════════════
 // RENDERING
 // ════════════════════════════════════════════════════════════════════════════
+function renderStyleFooter(data) {
+  // Every picture in an edition shares one cartoon style, cycling daily across four looks.
+  // Saying so in the footer is the point of rotating at all: a returning reader sees the
+  // range, and a tutorial reader sees a deterministic choice the model did NOT make.
+  const p = el('footer-style');
+  if (!p) return;
+  const style = data?.edition?.cartoon_style;
+  if (!style?.label) { p.hidden = true; return; }
+  p.textContent = `Today's cartoons are drawn as a ${style.label}, one of four looks the paper rotates through daily. `
+    + 'Each one illustrates a visual gag written for its own story.';
+  p.hidden = false;
+}
+
 function renderPaper(data) {
   const grid = el('edition');
   if (!grid) return;
+  renderStyleFooter(data);
   resetStickyPlayer();                          // stop audio from a previous version/date
   const oldTx = el('podcast-transcript-panel'); if (oldTx) oldTx.remove();
 
@@ -418,7 +432,7 @@ function aiCard(item, kind) {
   const qc = qcStamp(item); if (qc) art.append(qc);
   art.append(headline(item.title, lead));
   if (item.standfirst) art.append(node('p', 'standfirst', item.standfirst));
-  const img = imageEl(item);            // headliner + subarticles carry a photo
+  const img = imageEl(item);            // every AI article carries a cartoon; shorts get a spot thumbnail
   if (img) art.append(img);
   art.append(body(item.body));
   art.append(meta(item, false));

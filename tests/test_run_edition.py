@@ -16,13 +16,21 @@ from content_pipeline.agent.editor_in_chief import run_edition
 
 @pytest.fixture(autouse=True)
 def _no_network_images(monkeypatch):
-    """Stub the harness's default FLUX call so run_edition tests stay offline.
+    """Stub the harness's default image AND gag calls so these tests stay offline.
 
-    Tests that inject their own image_generate bypass this entirely.
+    Tests that inject their own image_generate bypass the image half entirely.
+
+    The GAG stub matters as much as the image one: `_generate_images` asks the writer
+    for a one-line visual gag per article, so without this an "offline" run_edition
+    test fires eighteen live LLM calls at the DGX.
     """
     monkeypatch.setattr(
         "content_pipeline.generate.images.save_image",
         lambda prompt, **kw: ("/tmp/fake-image.png", "test-image-model"),
+    )
+    monkeypatch.setattr(
+        "content_pipeline.generate.image_gag.build_gag",
+        lambda item, **kw: "a fake visual gag",
     )
 
 
@@ -118,10 +126,13 @@ def test_run_edition_credited_fun_keeps_source_and_gains_voice():
         assert f["satire_disclaimer"] == SATIRE_DISCLAIMER   # parody guard for the voice
 
 
-def test_run_edition_generates_images_for_leads_and_fun():
-    # The harness — not the agent — assigns images. Inject a fake generator so
-    # this runs offline; it must image the 3 AI leads + every fun story and
-    # overwrite any URL the editor invented.
+def test_run_edition_illustrates_every_article():
+    # The harness — not the agent — assigns images. Inject a fake generator so this
+    # runs offline; it must image EVERY article and overwrite any URL the editor invented.
+    #
+    # This test used to assert that shorts carry NO image. That inverted in 2026-08 when
+    # the paper went to a cartoon per article (issue #103) — the assertion below is the
+    # same guarantee turned the right way up.
     ed = _edition()
     ed["fun"][0]["image_url"] = "https://images.unsplash.com/hallucinated"  # editor's bad guess
     calls = []
@@ -133,18 +144,37 @@ def test_run_edition_generates_images_for_leads_and_fun():
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(ed),
                         image_generate=fake_gen)
     ai = paper["ai"]
-    # Headliner + 2 subarticles get a photorealistic image; shorts do not.
     assert ai["headliner"]["image_url"].startswith("/tmp/img/")
     assert ai["headliner"]["_image_model"] == "m3/comfy/flux-2-dev"
     for s in ai["subarticles"]:
         assert s["image_url"].startswith("/tmp/img/")
-    assert all("image_url" not in s or s.get("image_url") is None for s in ai["shorts"])
+    # Shorts are illustrated too, at the cheaper THUMBNAIL tier.
+    for s in ai["shorts"]:
+        assert s["image_url"].startswith("/tmp/img/")
+        assert s["_image_tier"] == "thumbnail"
     # Every fun story imaged too, overwriting the Unsplash guess.
     for f in paper["fun"]:
         assert f["image_url"].startswith("/tmp/img/")
         assert f["_image_model"] == "m3/comfy/flux-2-dev"
-    # 1 headliner + 2 subs + 5 fun = 8 images.
-    assert len(calls) == 3 + len(paper["fun"])
+    # One call per article — no slot silently skipped, none rendered twice.
+    assert len(calls) == 3 + len(ai["shorts"]) + len(paper["fun"])
+
+
+def test_run_edition_tiers_the_render_cost():
+    """The page-leading images are worth full steps; the rest are bought down.
+
+    This is what makes 18 images fit a 190-minute task cap at all (issue #101) — at
+    FLUX.2 [dev]'s baked 28 steps an all-hero edition is 3h38m of GPU.
+    """
+    from content_pipeline.agent.editor_in_chief import image_targets
+
+    ed = _edition()
+    tiers = dict()
+    for item, tier in image_targets(ed["ai"], ed["fun"]):
+        tiers[tier] = tiers.get(tier, 0) + 1
+    assert tiers["hero"] == 3, "headliner + both subarticles only"
+    assert tiers["thumbnail"] == len(ed["ai"]["shorts"])
+    assert tiers["standard"] == len(ed["fun"])
 
 
 def test_run_edition_replaces_off_brand_persona():

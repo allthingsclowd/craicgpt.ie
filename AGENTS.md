@@ -103,7 +103,15 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │      _snap_ai_sources forces every written source_url onto a validated candidate.
    │
    ├─ 4. IMAGES (deterministic) — generate/images.py (LiteLLM image route, FLUX.2 [dev])
-   │      one per AI lead + fun story, day-stable art-style rotation.
+   │      a cartoon for EVERY article (18: headliner + 2 subs + 10 shorts + 5 fun).
+   │      Each depicts a one-line VISUAL GAG invented per story (generate/image_gag.py)
+   │      rather than a literal headline. ONE house cartoon style per edition, rotating
+   │      DAILY across four looks (Beano / Simpsons / Saturday-morning / plasticine) —
+   │      a true day-ordinal cycle, so consecutive editions never repeat. Cost is
+   │      TIERED — hero 1024²@28 steps, fun 1024²@8, shorts 512²@8 — which is what
+   │      makes 18 images fit the 190-min task cap (28 steps everywhere = 3h38m).
+   │      Text is allowed ONLY on the 28-step heroes (8-step lettering mangles);
+   │      translations share those images, so a hero bubble stays English everywhere.
    │
    ├─ 5. COMPILE (compile.py, schema v3)
    │
@@ -217,7 +225,8 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page). `_default_generate` now wraps generation in `run_with_fallback(local=write_model DGX, fallback=FALLBACK_TEXT_MODEL M3)` — a transient DGX connection drop crosses to the M3 instead of crashing a multi-minute run; translate/brief/about/banter inherit it |
 | `content_pipeline/generate/translate.py` | **Multi-lingual:** `translate_paper(paper, language)` translates a COMPILED English edition's prose into another language (reuses the writer's robust chat→JSON path), preserving URLs/images/credits/persona; stamps `edition.translated_by`; per-section English fallback on failure. Write-once, translate-many |
 | `content_pipeline/agent/i18n_html.py` | **Multi-lingual:** generates `frontend/<lang>/{index,about}.html` from the English templates (translated `<title>`/`<meta>`/`<html lang>` + hreflang + lang-prefixed nav) at deploy time |
-| `content_pipeline/generate/images.py` + `image_styles.py` | Image generation (LiteLLM image route) + day-stable art-style rotation |
+| `content_pipeline/generate/images.py` + `image_styles.py` | Image generation + the **daily cartoon rotation** (`style_for_edition`, a day-ordinal cycle so consecutive editions never repeat) + the **render tiers** (`HERO`/`STANDARD`/`THUMBNAIL`, `render_spec_for`) + the **text policy** (`RenderSpec.allows_text` vs `TEXT_STEP_FLOOR=20`) and `negative_prompt_for`. `generate_image`/`save_image` carry `size`/`steps`/`seed`/`negative_prompt` via `extra_body` — the ONLY four parameters the ComfyUI shim honours; anything else is silently ignored and returns a full-cost image with HTTP 200, so verify by wall-clock, never by a 200. The saved filename hashes the prompt **and** the render spec, or a 512px thumbnail collides with a 1024px hero |
+| `content_pipeline/generate/image_gag.py` | **The wit.** One small chat→JSON call per article turning the story into a one-line VISUAL GAG for its cartoon. Fail-soft: a failed or blank gag returns `None` and the caller falls back to the literal prompt (an image is required by `validate_paper`; a gag is not). Told the moto vertical, never left to infer it |
 | `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, **per-language** `_phonetic` (the English craic→"crack" / spoken-URL rules must not touch other prose; falls back to the English map) + `chunk_text` splits on CJK sentence punctuation (`。！？`), **mastering chain** (`_rms_normalize` per-chunk leveling → `_crossfade_concat` equal-power seams → `master_wav`: de-box EQ + two-pass EBU-R128 loudness + true-peak limiter; reserved `mode='apple'` Match-EQ seam), multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
 | `content_pipeline/generate/jingle.py` | The show's **80s call-sign** sting — our own Am–F–C–G hook voiced through Apple's sampled GM instruments, bounced offline to `assets/jingle_80s_{intro,outro}.wav` (renderer in `jingle_src/`); owned, zero-copyright. The stdlib *Whiskey in the Jar* Karplus-Strong synth remains as a graceful fallback |
 | `content_pipeline/generate/podcast_script.py` | Dad↔son podcast script, **one clip per article** (each reader's `pre` link + verbatim reading + `post` hand-off-by-name in ONE TTS piece → far fewer transition seams): clean two-host cold-open (Graham + date, Tom breaks in) + ALTERNATING reads (Graham/Tom) + parody guests framed by FIXED `GUEST_WELCOME`/`GUEST_ACK`/`GUEST_SIGNOFF` templates (seniority host welcomes; guest reads in own voice) + only the host links are gated + Tom's minimal slang (`build_podcast_script`); plus the deterministic **<180s** `build_tldr_script` headline bulletin. **Multi-lingual:** the fixed framing (`_L10N`) + the date phrase are localised per language; a translated edition opens with `translation_preamble` (the spoken "machine-translated by `<model>`" note naming `edition.translated_by`); the TL;DR budget counts **characters** for spaceless CJK (`_CJK_LANGS`) instead of words |
@@ -243,12 +252,13 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
   "date": "YYYY-MM-DD",
   "generated_at": "ISO8601",
   "pipeline_version": "3.0",
-  "edition": { "approved_by": null, "approved_at": null, "language": "en", "available_languages": ["en","de","es","it","ja","fr"], "translated_by": null },
+  "edition": { "approved_by": null, "approved_at": null, "language": "en", "available_languages": ["en","de","es","it","ja","fr"], "translated_by": null,
+               "cartoon_style": { "name": "beano-comic", "label": "Beano-style British comic" } },
   "editors_brief": { "title": "", "body": "" },
   "ai": {
     "headliner":    { "title": "", "standfirst": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_audio_model": "" },
     "subarticles":  [ { "title": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "" } ],
-    "shorts":       [ { "title": "", "body": "", "source_url": "", "audio_url": "", "_text_model": "" } ]
+    "shorts":       [ { "title": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_image_gag": "", "_image_tier": "thumbnail" } ]
   },
   "fun": [ { "title": "", "body": "", "source_url": "", "source": "<creator credit>", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "" } ],
   "about": { "title": "", "body": "" },
@@ -258,6 +268,17 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
   "context": { "agent_trace": [ { "kind": "", "name": "", "detail": {} } ], "files": ["..."] }
 }
 ```
+
+Every article now carries `image_url` — **including the 10 AI shorts**, which render as a
+floated 512px spot thumbnail (`.card--ai.card--short .card-img`). Illustrated items also carry
+the additive `_image_gag` (the visual joke, reused as `image_alt` because it describes what is
+actually in the frame) and `_image_tier` (`hero`/`standard`/`thumbnail`).
+
+> **The "literal list of slots" gotcha — it has bitten THREE times.** `publish.py`'s image-upload
+> walk, `_trace_images`, and the frontend each hard-code which slots carry an image. Shorts were
+> added to all three in 2026-08. A slot missing from the publish walk keeps its local `/tmp` path
+> and 404s live; a slot missing from the trace is invisible in Under-the-Hood. Nothing enforces
+> that the three lists agree — if a fourth slot type appears, check all of them.
 
 `audio_url` (per item), `podcast` and `podcast_tldr` are **additive and optional** — the narration
 step adds them after validation; an edition without audio still validates and renders. The full
@@ -273,6 +294,7 @@ is alerted (`notifications.notify_flagged`) to spot-check. This replaced the old
 hard-hold that blacked out the whole multilingual edition over one fabricated headliner.
 
 Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **up to 5 fun**
+— all 18 illustrated. 
 (a thin pool publishes short — the fun desk never holds the paper). Each
 fun item is **either credited** (`source` = creator name, no disclaimer) **or parody**
 (`satire_disclaimer`) — never neither (enforced by `review.validate_paper`).

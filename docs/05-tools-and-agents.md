@@ -37,6 +37,28 @@ Not everything should be a tool. The dividing line (`deciding-deterministic-vs-l
 > **TUTORIAL takeaway:** the smallest reliable agent is one that only calls tools for
 > things code genuinely can't do, and hands everything else to deterministic code.
 
+### A worked example of drawing the line: the cartoon step
+
+Each article carries a cartoon of a **visual gag** — a one-line joke about the story, not an
+illustration of its headline (`generate/image_gag.py`). Inventing a joke is judgement, so it
+is an LLM call. But look at how narrow that call is. The model is **not** asked to:
+
+| Decision | Where it lives | Why |
+|---|---|---|
+| which art style | `image_styles.py`, a day-stable constant | the paper has ONE house style; a model would drift |
+| what size / how many steps | the tier table (`HERO`/`STANDARD`/`THUMBNAIL`) | it is a cost decision measured in seconds, not taste |
+| whether the story is about a motorcycle | the `_vertical` flag, derived from the source registry | a model asked to infer it draws a **car** — this shipped live on 2026-08-24 |
+| what to keep out of frame | `NEGATIVE_PROMPT`, one constant | it is the same for every image |
+
+So the model contributes exactly one thing: the idea. Everything around it stays reproducible,
+and the failure mode is bounded — a failed gag falls back to the literal prompt and the edition
+still gets its picture.
+
+**The cost of getting this wrong is not theoretical.** When the gag step was first wired in, the
+offline test suite began firing eighteen live LLM calls at the DGX per `run_edition` test,
+because the default generator is a real one and nothing stubbed it. If you add an LLM call to a
+deterministic path, stub it in the offline fixtures in the same commit.
+
 ---
 
 ## The Craic Gazette's tools

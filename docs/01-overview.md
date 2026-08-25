@@ -43,7 +43,7 @@ site is both a working newspaper and a live deep-agents tutorial.
 │   2. CURATE     deterministic: merge curated feeds, drop grim/recent/dupe/   │
 │                 unreachable, HOLD if a desk is below its integrity floor     │
 │   3. WRITE      deterministic: generate/writer.py → prose (LiteLLM Qwen3.8)  │
-│   4. IMAGES     deterministic: generate/images.py (LiteLLM image route)      │
+│   4. IMAGES     deterministic: a cartoon per article, of a gag per article  │
 │   5. COMPILE    compile.py → schema-v3 paper_content.json                    │
 │   5b. OKF       deterministic: content_pipeline/okf builds the curated        │
 │                 research as an Open Knowledge Format bundle (one concept per   │
@@ -142,7 +142,7 @@ craicgpt.ie/
 │   ├── generate/                  ← deterministic writers + images
 │   │   ├── writer.py              ← AI section, fun story, editor's brief, About page (cross-box fallback)
 │   │   ├── translate.py           ← write-once → translate-many: compiled EN edition → de/es/it/ja/fr
-│   │   ├── images.py / image_styles.py
+│   │   ├── images.py / image_styles.py / image_gag.py
 │   │   └── personas.py
 │   ├── research/                  ← candidates & curation
 │   │   ├── curation.py            ← curate_candidates + validate_source_link

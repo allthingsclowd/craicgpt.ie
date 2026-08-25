@@ -86,6 +86,34 @@ def test_publish_uploads_ai_lead_images_too(tmp_path):
     assert paper["fun"][0]["image_url"].startswith(pub)
 
 
+def test_publish_uploads_short_thumbnails_too(tmp_path):
+    """Regression for the exact trap flagged in issue #103.
+
+    Until 2026-08 the shorts carried audio and no image, and the image-upload walk in
+    publish_paper encoded that assumption in a literal list — headliner, subarticles,
+    fun. Now that every article gets a cartoon, a short left out of that list keeps its
+    local /tmp path in the published JSON and 404s on the live site for every reader.
+    """
+    shorts = []
+    for i in range(3):
+        f = tmp_path / f"short{i}.png"
+        f.write_bytes(b"\x89PNG")
+        shorts.append({"title": f"S{i}", "image_url": str(f)})
+    paper = {
+        "date": "2026-06-02", "pipeline_version": "3.0", "edition": {},
+        "ai": {"headliner": {"title": "H"}, "subarticles": [], "shorts": shorts},
+        "fun": [], "layout": [], "context": {},
+    }
+    s3 = _FakeS3()
+    publish_paper(paper, "2026-06-02", live=True, s3=s3, bucket="b",
+                  site_base_url="https://craicgpt.ie")
+    img_puts = [p for p in s3.puts if "/images/" in p["Key"]]
+    assert len(img_puts) == 3, "every short thumbnail must upload"
+    pub = "https://craicgpt.ie/content/2026/06/02/images/"
+    assert all(s["image_url"].startswith(pub) for s in paper["ai"]["shorts"]), \
+        "a short still pointing at /tmp will 404 on the live site"
+
+
 def test_publish_uploads_local_audio_and_rewrites_url(tmp_path):
     """Per-article readings (incl. shorts) + the Editor-in-Chief sections (the Editor's
     Brief + the About page) + the podcast all upload under <prefix>/audio/ and get

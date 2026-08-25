@@ -156,8 +156,31 @@
 }
 /* The lead photo is a banner — crop tall square images so the text stays visible. */
 .card--lead .card-img { max-height: 360px; }
-.card--ai:not(.card--lead) .card-img,
+/* Shorts are excluded here rather than overridden below: this selector is (0,3,0), so a
+   plain `.card--short .card-img` rule would lose to it no matter where it sat. */
+.card--ai:not(.card--lead):not(.card--short) .card-img,
 .card--fun .card-img { height: 190px; }
+
+/* ── AI shorts: a spot cartoon, not a banner ────────────────────────────────
+   Every article carries a cartoon from 2026-08, shorts included. But a short spans
+   BOTH AI columns, so a full-width 190px image would out-shout the two-line brief it
+   illustrates — and the art is rendered at 512px square for exactly this slot, so
+   blowing it up would also show its own softness. Floating it beside the copy is how a
+   spot illustration sits in a printed "in brief" column, and it keeps the whole row
+   scannable. The image follows the headline in the DOM, so the float picks up level
+   with the body text, which is the effect we want anyway. */
+.card--ai.card--short .card-img {
+  float: left;
+  width: 132px;
+  height: 132px;
+  margin: .15rem .85rem .35rem 0;
+}
+/* The float must not escape into the per-article footer. */
+.card--short .card-meta { clear: both; }
+
+@media (max-width: 560px) {
+  .card--ai.card--short .card-img { width: 96px; height: 96px; margin-right: .65rem; }
+}
 
 /* ── Per-article footer: source link, model note, disclaimer ──────────────── */
 .card-meta {

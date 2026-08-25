@@ -58,6 +58,20 @@ _IMG = lambda p: ("/tmp/i.png", "flux")  # noqa: E731 — terse offline image st
 _NOFEED = lambda url: None  # noqa: E731 — disable the live curated-feed harvest offline
 
 
+@pytest.fixture(autouse=True)
+def _no_network_gags(monkeypatch):
+    """Keep the visual-gag step offline.
+
+    `_IMG` above stubs the image call, but the harness also asks the writer for a
+    one-line gag per article — so without this every run_edition here fires eighteen
+    live LLM calls at the DGX.
+    """
+    monkeypatch.setattr(
+        "content_pipeline.generate.image_gag.build_gag",
+        lambda item, **kw: "a fake visual gag",
+    )
+
+
 # --- _validate_ai_candidates (the AI desk's missing curation) ----------------
 def test_validate_ai_candidates_drops_grim_dupe_unreachable_recent():
     cands = [

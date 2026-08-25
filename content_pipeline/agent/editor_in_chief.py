@@ -34,7 +34,13 @@ from content_pipeline.agent.subagents import EDITOR_IN_CHIEF_PROMPT, SUBAGENTS
 from content_pipeline.agent.trace import TraceRecorder, extract_trace
 from content_pipeline.compile import build_paper
 from content_pipeline.content_config import content_cfg
-from content_pipeline.generate.image_styles import assign_styles, build_image_prompt
+from content_pipeline.generate.image_styles import (
+    assign_styles,
+    style_for_edition,
+    build_image_prompt,
+    negative_prompt_for,
+    render_spec_for,
+)
 from content_pipeline.generate.personas import (
     ROSTER,
     SATIRE_DISCLAIMER,
@@ -473,42 +479,91 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
         item["satire_disclaimer"] = SATIRE_DISCLAIMER
 
 
-def _generate_images(
-    ai: dict, fun: list, date_iso: str, *, generate=None, image_model: Optional[str] = None
-) -> Optional[str]:
-    """Generate images in the harness: the 3 AI leads + every fun story.
+def image_targets(ai: dict, fun: list) -> list[tuple[dict, str]]:
+    """Every illustrated slot in the edition, paired with its RENDER TIER.
 
-    Each image is rendered in a DIFFERENT art style — a day-stable rotation (see
-    :mod:`content_pipeline.generate.image_styles`) — so one edition showcases the
-    model's range while every image stays relevant to its story. Generation is done
-    here (not by the agent, which invents stock URLs), overwriting any image_url the
-    editor set and stamping ``image_alt``, ``_image_model`` and ``_image_style``.
-    ``generate`` is injectable for tests: ``prompt -> (local_path, model)``; default
-    calls :func:`generate.images.save_image`. A failed image clears image_url rather
-    than crashing the edition. Returns the image model actually used.
+    Pure and separately testable, because the tiering is a cost decision worth
+    asserting on its own: at FLUX.2 [dev]'s baked 28 steps an 18-image edition is
+    3h38m against a 190-minute task cap, and the only thing that makes it fit is
+    that most of those images are not worth 28 steps (issue #101).
+
+    Tiers (Graham's call, 2026-08-25):
+      hero      — the headliner and both subarticles, full 28 steps
+      standard  — the Craic & Throttle desk
+      thumbnail — the ten AI shorts, 512x512 (issue #103)
     """
-    def _default(prompt: str):
-        from content_pipeline.generate.images import save_image
-
-        return save_image(prompt)
-
-    gen = generate or _default
-    used_model = image_model
-
-    targets: list[dict] = []
+    targets: list[tuple[dict, str]] = []
     if isinstance(ai.get("headliner"), dict):
-        targets.append(ai["headliner"])
-    targets += [s for s in ai.get("subarticles", []) if isinstance(s, dict)]
-    targets += [f for f in fun if isinstance(f, dict)]
+        targets.append((ai["headliner"], "hero"))
+    targets += [(s, "hero") for s in ai.get("subarticles", []) if isinstance(s, dict)]
+    targets += [(s, "thumbnail") for s in ai.get("shorts", []) if isinstance(s, dict)]
+    targets += [(f, "standard") for f in fun if isinstance(f, dict)]
+    return targets
 
+
+def _generate_images(
+    ai: dict, fun: list, date_iso: str, *, generate=None, image_model: Optional[str] = None,
+    gag_generate=None,
+) -> Optional[str]:
+    """Illustrate EVERY article: the 3 AI leads, the 10 shorts, and every fun story.
+
+    Each image is a cartoon of a one-line VISUAL GAG invented for that story
+    (:mod:`image_gag`) rather than a literal depiction of its headline — that is the
+    difference between an illustration and a joke. Generation is done here (not by
+    the agent, which invents stock URLs), overwriting any image_url the editor set and
+    stamping ``image_alt``, ``_image_model``, ``_image_style`` and ``_image_gag``.
+
+    Cost is per-tier, not global — see :func:`image_targets`. So is the TEXT policy: only
+    the 28-step hero renders may carry a speech bubble, because at 8 steps the lettering
+    comes out mangled and a misspelled word reads as broken in a way a misshapen elbow
+    never does (``RenderSpec.allows_text``).
+
+    ⚠️ TRANSLATIONS SHARE THESE IMAGES. ``publish._is_local_path`` skips re-upload for a
+    translated edition, so a hero speech bubble written in English appears verbatim on the
+    de/es/it/ja/fr pages. That is a known, accepted consequence of allowing text at all —
+    and note the alternative was not "wordless art": before this, the model rendered
+    uncontrolled English signage anyway despite being told twice not to. Allowing text on
+    the hero tier at least means somebody chose the words.
+
+    ``generate`` is injectable for tests: ``prompt -> (local_path, model)``. The default
+    closes over each slot's :class:`RenderSpec` so size and step count follow the tier.
+    ``gag_generate`` is likewise injectable and feeds :func:`image_gag.build_gag`.
+
+    Fail-soft twice over: a failed GAG falls back to the literal prompt, and a failed
+    IMAGE clears image_url rather than crashing. (Note the edition can still be held
+    downstream — ``review.validate_paper`` requires an image on the headliner and on
+    every fun story — but a broken image is never allowed to raise here.)
+
+    Returns the image model actually used.
+    """
+    from content_pipeline.generate.image_gag import build_gag
+
+    def _default_for(spec):
+        def _gen(prompt: str):
+            from content_pipeline.generate.images import save_image
+
+            return save_image(prompt, size=spec.size, steps=spec.steps,
+                              negative_prompt=negative_prompt_for(spec))
+
+        return _gen
+
+    used_model = image_model
+    targets = image_targets(ai, fun)
     styles = assign_styles(len(targets), seed=date_iso)
-    for item, style in zip(targets, styles):
+
+    for (item, tier), style in zip(targets, styles):
+        spec = render_spec_for(tier)
+        gag = build_gag(item, generate=gag_generate)  # None on failure — never raises
+        if gag:
+            item["_image_gag"] = gag
+        gen = generate or _default_for(spec)
         try:
-            path, model = gen(build_image_prompt(item, style))
+            path, model = gen(build_image_prompt(item, style, gag, spec))
             item["image_url"] = path
-            item["image_alt"] = item.get("title", "")
+            item["image_alt"] = gag or item.get("title", "")
             item["_image_model"] = model or image_model
             item["_image_style"] = style["name"]
+            item["_image_tier"] = tier
             used_model = model or used_model
         except Exception as exc:  # noqa: BLE001 — a bad image must not sink the edition
             logger.warning("[run_edition] image generation failed: %s", exc)
@@ -570,13 +625,21 @@ def _write_about(generate) -> dict:
 
 
 def _trace_images(trace: TraceRecorder, ai: dict, fun: list, image_model: Optional[str]) -> None:
-    """Record one generate_image event per illustrated item, showing the style rotation."""
+    """Record one generate_image event per illustrated item, for the Under-the-Hood drawer.
+
+    NB the item list must match :func:`image_targets` — the SHORTS were missing here until
+    2026-08, the same "literal list of slots" mistake that publish.py made. A slot absent
+    from this list is generated and published but invisible in the trace, which is the one
+    surface a tutorial reader uses to see what the pipeline actually did.
+    """
     if image_model:
         trace.model_route("image", image_model)
-    items = [ai.get("headliner")] + list(ai.get("subarticles", [])) + list(fun)
+    items = ([ai.get("headliner")] + list(ai.get("subarticles", []))
+             + list(ai.get("shorts", [])) + list(fun))
     for item in items:
         if isinstance(item, dict) and item.get("image_url") and item.get("_image_style"):
-            trace.tool_call("generate_image", f"style={item['_image_style']}",
+            trace.tool_call("generate_image",
+                            f"style={item['_image_style']} tier={item.get('_image_tier', '?')}",
                             result=item.get("image_alt", ""))
 
 
@@ -595,6 +658,7 @@ def run_edition(
     recent_keys=None,
     ai_feed_fetch=None,
     image_generate=None,
+    gag_generate=None,
     write_generate=None,
     grade=None,
     remediate=None,
@@ -798,7 +862,8 @@ def run_edition(
     # image in the harness (the editor invents stock URLs rather than using the
     # image tool output), then stamp model attribution.
     _finalize_fun(fun, date_iso)
-    image_model = _generate_images(ai, fun, date_iso, generate=image_generate, image_model=image_model)
+    image_model = _generate_images(ai, fun, date_iso, generate=image_generate,
+                                   image_model=image_model, gag_generate=gag_generate)
     _trace_images(trace, ai, fun, image_model)
 
     # Editor-in-Chief synthesis (best-effort — a failure here must not sink the
@@ -827,6 +892,15 @@ def run_edition(
         about=about,
         context={"agent_trace": agent_trace, "files": list(files)},
     )
+
+    # The day's cartoon style, stamped ONCE at edition level — the whole paper shares it
+    # now that the rotation moved to the day axis, so it is a property of the edition
+    # rather than of each picture. The site's footer reads this to tell the reader what
+    # today's paper is drawn in, which is the tutorial payoff of rotating at all.
+    _style = style_for_edition(date_iso)
+    paper.setdefault("edition", {})["cartoon_style"] = {
+        "name": _style["name"], "label": _style.get("label", _style["name"]),
+    }
 
     # The OKF research bundle rides on the paper BEFORE the gates so BOTH the
     # per-article gate AND the edition rubric ground on the same code-verified,
