@@ -361,12 +361,48 @@ _AI_SHORT_PROMPT = (
     "outcome, the 'so what'.\n\nCandidate JSON:\n{candidate}"
 )
 
+# ── The moto vertical: "Honda" here is a MOTORCYCLE ───────────────────────────
+# Every model's "Honda" prior is a CAR, and the desk label "(comedy + Honda
+# motorcycles)" is far too quiet to beat it — it is a heading, not an instruction,
+# and it competes with a whole paragraph of persona direction. The 2026-08-24 live
+# edition shipped "I was sitting on my Civic" on a motorcycle story. So when the
+# credit is a moto source, say it loudly and negatively, and check the result.
+_MOTO_CONSTRAINT = (
+    "\nCRITICAL — THIS IS A MOTORCYCLE STORY. {source} is a motorcycle outlet and "
+    "every Honda named here is a BIKE, never a car. Write it as two wheels: riding, "
+    "not driving; a rider, not a driver; a helmet, leathers, a throttle, a pillion, "
+    "a kerb. NEVER mention a car, Civic, CR-V, Accord, Prologue, saloon, hatchback, "
+    "SUV, steering wheel, windscreen, back seat or four wheels. Getting this wrong "
+    "is the single most embarrassing mistake this desk can make.\n"
+)
+
+# Deterministic backstop for the above. Deliberately CONSERVATIVE — only words that
+# cannot plausibly belong to a bike story. Excluded on purpose: "boot" (riders wear
+# them), "doors" (usually metaphorical), "jazz" (music), "Integra" (Honda sells an
+# NC750D Integra SCOOTER), and "dashboard" (bikes have them).
+_CAR_WORDS = re.compile(
+    r"\b(cars?|civic|cr-?v|hr-?v|zr-?v|prologue|accord|saloon|hatchback|sedan|suv|"
+    r"estate car|steering wheel|windscreen|windshield|glovebox|glove box|back ?seat|"
+    r"passenger seat|four wheels|four-wheel)\b",
+    re.IGNORECASE,
+)
+
+
+def car_words_in(text: str) -> list[str]:
+    """Car nouns found in a moto-desk body — the evidence, not just a boolean.
+
+    Public so the tests and any future QC stamp can name what was wrong.
+    """
+    return sorted({m.group(0).lower() for m in _CAR_WORDS.finditer(text or "")})
+
+
 _FUN_PROMPT = (
     "Rewrite this recent item from the creator {source} as a punchy piece for the "
     "Craic Gazette's CRAIC & THROTTLE desk (comedy + Honda motorcycles), written in "
     "GRAHAM'S house voice: Irish, witty, gently "
     "cynical — 'the Scripting Paddy'. You are NOT impersonating {source}; you are "
     "Graham riffing on what they've just put out and pointing readers their way.\n"
+    "{moto}"
     "Max 130 words, PG-13, warm. NAME-CHECK and CREDIT the creator ({source}) in the "
     "copy. Keep their real source_url EXACTLY as given — never invent one. Output ONLY "
     'compact JSON (no markdown): {{"title","body","source_url"}}\n\n'
@@ -387,6 +423,7 @@ _FUN_PERSONA_PROMPT = (
     "comedic impression, a celebrity guest columnist reacting to {source}'s upload. "
     "STILL CREDIT the real creator: NAME-CHECK {source} in the copy and send readers "
     "to their video. Keep their real source_url EXACTLY as given — never invent one.\n"
+    "{moto}"
     "Max 130 words, PG-13, warm — affectionate parody, nothing cruel, hateful or "
     "defamatory about any real person. Output ONLY compact JSON (no markdown): "
     '{{"title","body","source_url"}}\n\n'
@@ -490,6 +527,7 @@ def write_fun_story(
     source: str,
     *,
     persona: Optional[str] = None,
+    moto: bool = False,
     generate: Optional[Generate] = None,
 ) -> dict:
     """Rewrite one creator's recent item (comedy or Honda moto), crediting them.
@@ -504,21 +542,59 @@ def write_fun_story(
     on the creator's upload) and the persona name is returned on the item so the
     harness can stamp the byline + satire disclaimer. Without a persona it's Graham's
     own house voice (the legacy/fallback path).
+
+    ``moto`` marks this as a MOTORCYCLE story (the caller derives it deterministically
+    from the creator credit — see ``fun_sources.is_moto_source``). It injects a loud
+    negative constraint AND arms a car-noun check on the result, because the model's
+    "Honda" prior is a car and a prompt alone does not reliably beat it.
     """
     gen = generate or _default_generate
-    if persona:
-        prompt = _FUN_PERSONA_PROMPT.format(
+
+    def _build(escalate: str = "") -> str:
+        constraint = (_MOTO_CONSTRAINT.format(source=source) + escalate) if moto else ""
+        if persona:
+            return _FUN_PERSONA_PROMPT.format(
+                source=source,
+                persona=persona,
+                voice_brief=voice_brief(persona),
+                moto=constraint,
+                story=json.dumps(candidate)[:1500],
+            )
+        return _FUN_PROMPT.format(
             source=source,
-            persona=persona,
-            voice_brief=voice_brief(persona),
+            moto=constraint,
             story=json.dumps(candidate)[:1500],
         )
-    else:
-        prompt = _FUN_PROMPT.format(
-            source=source,
-            story=json.dumps(candidate)[:1500],
-        )
-    data = _schema_bound(gen, SCHEMA_FUN)(prompt)
+
+    bound = _schema_bound(gen, SCHEMA_FUN)
+    data = bound(_build())
+
+    # Deterministic backstop. ONE retry with the offending words quoted back — cheap
+    # (a single ~130-word call) and it fixes the common case, where the model reached
+    # for a car noun by habit rather than misunderstanding the story. If the retry is
+    # also wrong we keep the better of the two and log it: a slightly-wrong piece beats
+    # a hole in the desk, and the per-article gate is advisory by design (2026-06-19).
+    if moto:
+        bad = car_words_in(str(data.get("body") or ""))
+        if bad:
+            logger.warning("[writer] moto story from %r used car words %s; re-writing", source, bad)
+            escalate = (
+                f"You previously wrote this as a CAR — you used {', '.join(bad)}. "
+                "That is wrong. It is a MOTORCYCLE. Rewrite with none of those words.\n"
+            )
+            try:
+                retry = bound(_build(escalate))
+            except Exception as exc:  # noqa: BLE001 — the first draft is still usable
+                logger.warning("[writer] moto re-write failed (%s); keeping the first draft", exc)
+            else:
+                still = car_words_in(str(retry.get("body") or ""))
+                if not still:
+                    data = retry
+                else:
+                    logger.warning("[writer] moto re-write STILL used %s for %r; shipping the "
+                                   "cleaner of the two", still, source)
+                    if len(still) < len(bad):
+                        data = retry
     # A blank fun item holds the paper exactly like a blank AI short does
     # ("fun {i} missing title/body" in review.validate_paper). Raise so the caller's
     # existing fail-soft in editor_in_chief._write_fun_section falls back to the raw

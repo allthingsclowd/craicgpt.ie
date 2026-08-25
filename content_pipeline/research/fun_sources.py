@@ -156,18 +156,47 @@ FUN_FEEDS: list[tuple[str, str]] = (
 # this year — boost it to the top of the moto slice. Used by feeds.harvest_fun_candidates.
 CB1000GT_KEYWORDS: tuple[str, ...] = ("cb1000gt", "cb1000 gt", "cb1000")
 
-# NON-COMEDY sources = the motorcycle outlets/brands (press + Honda channels). Used to
-# detect when the fun desk has lost its COMEDIAN/creator content and shipped a
-# motorcycle-only "comedy" desk (the 2026-06-16 silent collapse) → alert, don't ship quietly.
-NON_COMEDY_SOURCES: frozenset[str] = frozenset(
+# The MOTO slice of the fun desk: the motorcycle outlets/brands (press + Honda channels).
+# This one set does two jobs, so it is named for what it *is* rather than for either use:
+#   1. the desk VERTICAL — these credits mean "this story is about a MOTORCYCLE", which the
+#      writer and the illustrator both need to be told (see is_moto_source); without it the
+#      model's "Honda" prior is a car and the desk ships a Civic (2026-08-24 live edition:
+#      "I was sitting on my Civic").
+#   2. the comedy-collapse canary — everything here is NOT comedy, so an all-moto desk means
+#      the comedian/creator content is missing (the 2026-06-16 silent collapse) → alert.
+MOTO_SOURCES: frozenset[str] = frozenset(
     {name for name, _ in _BIKE_PRESS} | {name for name, _ in _HONDA_MOTO}
+)
+
+# Back-compat alias for job 2 above — same set, read at the collapse-alert call sites.
+NON_COMEDY_SOURCES: frozenset[str] = MOTO_SOURCES
+
+# Deterministic car-story exclusion for the moto feeds. The bike press is filtered on
+# "honda" alone (FUN_FEED_FILTERS), and several of these outlets — RideApart especially —
+# also cover Honda's CARS and EVs, so a Civic/CR-V/Prologue review sails straight through
+# into a motorcycle desk. Drop those at harvest rather than asking the writer to cope:
+# selection is mechanical, so it belongs in code (see the deterministic-vs-LLM fence).
+MOTO_EXCLUDE_TERMS: tuple[str, ...] = (
+    "civic", "cr-v", "crv", "hr-v", "hrv", "zr-v", "zrv", "prologue", "accord",
+    "e:ny1", "jazz hybrid", "hatchback", "saloon", "sedan", "estate car", "suv",
+    "four-wheel", "four wheels",
 )
 
 
 def is_comedy_source(name: str | None) -> bool:
     """True if a published fun item's credit is a comedian/creator (not a bike
     outlet/brand). Press + Honda-channel credits are motorcycle filler, not comedy."""
-    return bool(name) and name not in NON_COMEDY_SOURCES
+    return bool(name) and name not in MOTO_SOURCES
+
+
+def is_moto_source(name: str | None) -> bool:
+    """True if this credit is a MOTORCYCLE outlet or Honda channel.
+
+    The exact complement of :func:`is_comedy_source`, named for the vertical because
+    that is what the writer and the image prompt need to know: a "Honda" from one of
+    these sources is a BIKE, and must never be written or drawn as a car.
+    """
+    return bool(name) and name in MOTO_SOURCES
 
 
 def fun_desk_alert(fun_items: list[dict] | None, date_iso: str) -> str | None:
