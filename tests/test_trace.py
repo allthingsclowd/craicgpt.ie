@@ -33,7 +33,7 @@ def test_as_list_is_json_serialisable():
 
 def test_fallback_event_is_recorded():
     rec = TraceRecorder()
-    rec.fallback("brain", local="dgx/vllm/qwen3.6-35b-a3b-fp8", to="m3/mlx/qwen3.6-35b-a3b-unsloth-8bit",
+    rec.fallback("brain", local="dgx/vllm/qwen3.8-27b-nvfp4", to="m3/mlx/qwen3.6-35b-a3b-unsloth-8bit",
                  reason="timeout")
     e = rec.as_list()[0]
     assert e["kind"] == "fallback"

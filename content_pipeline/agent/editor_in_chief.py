@@ -11,8 +11,8 @@ TUTORIAL: create_deep_agent in three lines
 A deep agent is the planning tool (``write_todos``), a virtual filesystem, and
 subagent delegation (``task``) wrapped around a tool-calling model. We pass our
 four subagents and the house system prompt; deepagents wires the rest. The model
-is any LangChain chat model — here, a local open-source Qwen3.6 reached through
-the grazlab LiteLLM proxy, with a frontier fallback supplied by the caller.
+is any LangChain chat model — here, a local open-source Qwen3.8 reached through
+the grazlab LiteLLM proxy, with a cross-box local fallback supplied by the caller.
 
 Open source only: no LangSmith, no hosted platform. The agent's plan, subagent
 hand-offs, and tool calls are captured by ``trace.TraceRecorder`` for the
@@ -104,7 +104,7 @@ def _read_editor_cv() -> str:
 def build_brain(model_name: Optional[str] = None) -> BaseChatModel:
     """Return the tool-calling model that drives the agent loop.
 
-    Defaults to the configured brain route (DGX vLLM Qwen3.6 — confirmed
+    Defaults to the configured brain route (DGX vLLM Qwen3.8 — confirmed
     tool-calling-capable). Construction does no network I/O.
     """
     return get_litellm_llm(model_name or content_cfg.brain_model)
@@ -860,7 +860,7 @@ def run_edition(
     # Deterministically finalise persona/byline/disclaimer (the editor applies the
     # voice but doesn't reliably fill these fields), generate each fun story's
     # image in the harness (the editor invents stock URLs rather than using the
-    # FLUX tool output), then stamp model attribution.
+    # image tool output), then stamp model attribution.
     _finalize_fun(fun, date_iso)
     image_model = _generate_images(ai, fun, date_iso, generate=image_generate,
                                    image_model=image_model, gag_generate=gag_generate)

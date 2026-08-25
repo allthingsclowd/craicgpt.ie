@@ -72,7 +72,8 @@ def generate_image(
 
     Args:
         prompt: The image description (the editor builds this from the story).
-        model: Image route; defaults to ``content_cfg.image_model``.
+        model: Image route; defaults to ``content_cfg.image_model``
+            (``m3/comfy/flux-2-dev``).
         size: Output dimensions. Free-form on the ComfyUI route, but BOTH numbers
             must be multiples of 16 or the shim 400s (it checks before queueing, so
             a bad size costs no GPU time).
@@ -94,9 +95,17 @@ def generate_image(
     model = model or content_cfg.image_model
     fb = fallback_model if fallback_model is not None else content_cfg.image_fallback_model
     cli = client if client is not None else _default_client()
-    # Try the primary route, then the approved fallback — a DIFFERENT M3 server (Ollama),
-    # so an mlx outage doesn't hold the whole edition on missing images. NB: do NOT pass
-    # response_format — the Ollama image routes reject it (LiteLLM 400).
+    # Try the primary route, then the fallback, so an image failure doesn't hold the whole
+    # edition on missing images (review.validate_paper requires them). NB: both live routes
+    # are now served by the SAME ComfyUI process on the M3, so this covers a per-model
+    # failure rather than a whole-server outage — and crossing over pays a model-set reload,
+    # because ComfyUI is not resident and swaps on demand.
+    #
+    # Do NOT pass response_format. Re-verified 2026-08-24 against the ComfyUI route: LiteLLM
+    # rejects it with `UnsupportedParamsError` in ~0.05 s and the request never reaches the
+    # M3. (The original 2026-06 note blamed the Ollama image routes; those are retired, but
+    # the constraint survived the migration for a different reason, at a different layer.)
+    # tests/test_images.py locks this.
     routes = [model] + ([fb] if fb and fb != model else [])
 
     # steps/seed/negative_prompt are NOT typed kwargs on the OpenAI SDK, so they must

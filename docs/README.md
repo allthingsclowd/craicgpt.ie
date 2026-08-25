@@ -3,7 +3,7 @@
 This directory is a **deep-agent tutorial**: it explains how The Craic Gazette — an
 AI-powered Irish daily newspaper — is built with LangChain + `deepagents`, generating a
 fresh edition every morning, **open-source-first** (local models on a homelab fleet behind
-one LiteLLM proxy, with a frontier model as fallback).
+one LiteLLM proxy — no frontier model anywhere; the fallback is the other box).
 
 > **Architecture note.** This is the **v3 deep-agent daily paper**. Earlier designs — a
 > 3-way *model comparator* (v2) and an AWS Lambda pipeline (v1) — are dead. If a doc or
@@ -18,7 +18,7 @@ one LiteLLM proxy, with a frontier model as fallback).
    → deterministic harness → in-pipeline rubric judge → publish), the directory map, and a
    local quick start.
 2. **[02-lcel-and-chains.md](02-lcel-and-chains.md)** — LCEL chains, robust structured
-   (JSON) output, and the **local-first / frontier-fallback** wrapper (`run_with_fallback`).
+   (JSON) output, and the **local-first / cross-box-fallback** wrapper (`run_with_fallback`).
 3. **[03-langgraph-workflow.md](03-langgraph-workflow.md)** — `create_deep_agent`, why the
    **harness writes the articles** (not the agent), OSS human-in-the-loop (`interrupt()` +
    checkpointer), the **in-pipeline rubric judge** + publish gate, plus the run trace.

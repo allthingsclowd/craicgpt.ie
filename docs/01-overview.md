@@ -16,8 +16,8 @@ free of doom. Every morning it generates a fresh edition with two desks:
 
 **The twist:** the whole paper is researched by a single **LangChain deep agent** and the
 work is done **open-source-first** — local models on a homelab fleet (an M3 Ultra and a
-DGX Spark), reached through one **LiteLLM proxy**, with a frontier model used only as a
-fallback. The website's "Under the Hood" drawer replays the agent's *actual* run, so the
+DGX Spark), reached through one **LiteLLM proxy**. There is no frontier model anywhere in
+it — when a box wobbles, the work crosses to the *other box*. The website's "Under the Hood" drawer replays the agent's *actual* run, so the
 site is both a working newspaper and a live deep-agents tutorial.
 
 > **Heads up — this used to be something else.** v1 was an AWS Lambda pipeline; v2 was a
@@ -42,7 +42,7 @@ site is both a working newspaper and a live deep-agents tutorial.
 │                 tools: web_search (Serper) · fetch_page · validate_link      │
 │   2. CURATE     deterministic: merge curated feeds, drop grim/recent/dupe/   │
 │                 unreachable, HOLD if a desk is below its integrity floor     │
-│   3. WRITE      deterministic: generate/writer.py → prose (LiteLLM Qwen3.6)  │
+│   3. WRITE      deterministic: generate/writer.py → prose (LiteLLM Qwen3.8)  │
 │   4. IMAGES     deterministic: a cartoon per article, of a gag per article  │
 │   5. COMPILE    compile.py → schema-v3 paper_content.json                    │
 │   5b. OKF       deterministic: content_pipeline/okf builds the curated        │
@@ -54,7 +54,7 @@ site is both a working newspaper and a live deep-agents tutorial.
         ▼  6. JUDGE (in-pipeline) — rubric_review.grade_edition: a deepagents
            RubricMiddleware grades the finished ENGLISH edition (harmless/on-brand/
            attributed) ONCE on an INDEPENDENT local judge (qwen3-coder-next, M3 :8087 —
-           distinct from the writer's qwen3.6), frontier fallback. GROUNDED ON THE
+           distinct from the writer's Qwen3.8), cross-box fallback. GROUNDED ON THE
            OKF BUNDLE: the judge checks against the code-verified research, not its
            training data, so fresh stories aren't false-flagged as "made up"
         │
@@ -148,7 +148,7 @@ craicgpt.ie/
 │   │   ├── curation.py            ← curate_candidates + validate_source_link
 │   │   ├── feeds.py / ai_sources.py / fun_sources.py   ← deterministic RSS/Atom harvest
 │   │   └── recency.py
-│   ├── providers/litellm.py       ← get_litellm_llm + run_with_fallback (local-first→frontier)
+│   ├── providers/litellm.py       ← get_litellm_llm + run_with_fallback (local→cross-box)
 │   ├── compile.py                 ← build_paper (schema v3) + build_layout
 │   ├── content_config.py          ← all config from env (singleton content_cfg)
 │   └── notifications.py           ← Telegram lifecycle alerts (resilient send: 4096 clip + plain-text retry on 400 — arbitrary relayed text, e.g. tracebacks, must never die on parse_mode)
@@ -171,7 +171,8 @@ craicgpt.ie/
 - Python 3.11+
 - Access to a **LiteLLM proxy** that fronts at least one chat model and one image model
   (the grazlab default is `https://llm.grazlab.thescriptingpaddy.com/v1`; point
-  `LITELLM_BASE_URL` at your own if you have one). A frontier API key for the fallback.
+  `LITELLM_BASE_URL` at your own if you have one). Two chat routes on different boxes if
+  you want the cross-box fallback to mean anything.
 - A **Serper.dev API key** (`SERPER_API_KEY`) for `web_search` (Google SERP; replaced Brave).
 - AWS credentials with S3 put + CloudFront-invalidation permission (only for publishing).
 
@@ -200,10 +201,16 @@ python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LITELLM_BASE_URL` | The one proxy that fronts the fleet | grazlab proxy |
-| `BRAIN_MODEL` | Research-agent route (needs tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| `WRITE_MODEL` | Prose-writing route | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| `IMAGE_MODEL` | Image route | `m3/mlx/hidream-o1-image-dev` |
+| `BRAIN_MODEL` | Research-agent route (needs tool-calling) | `dgx/vllm/qwen3.8-27b-nvfp4` |
+| `WRITE_MODEL` | Prose-writing route | `dgx/vllm/qwen3.8-27b-nvfp4` |
+| `IMAGE_MODEL` | Image route | `m3/comfy/flux-2-dev` |
+| `IMAGE_FALLBACK_MODEL` | Image fallback (same ComfyUI process; crossing pays a reload) | `m3/comfy/qwen-image` |
+| `JUDGE_MODEL` | Rubric-judge route (independent of the writer) | `m3/mlx/qwen3-coder-next-4bit` |
 | `FALLBACK_TEXT_MODEL` | Local cross-box fallback (only on primary failure; the proxy has no frontier route) | `m3/mlx/qwen3.8-27b-8bit` |
+
+> The canonical env table lives in [`AGENTS.md`](../AGENTS.md#environment-variables); this is
+> the tutorial subset. Verify any route against `GET $LITELLM_BASE_URL/models` before trusting
+> either — defaults, prod `/etc/craicgpt.env` and the fleet deploy doc drift independently.
 | `SERPER_API_KEY` | Serper.dev (Google SERP) key for `web_search` | — |
 | `S3_BUCKET` / `CLOUDFRONT_DISTRIBUTION_ID` | Publishing target | `craicgpt-ie-production` / — |
 

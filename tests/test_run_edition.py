@@ -188,12 +188,12 @@ def test_run_edition_replaces_off_brand_persona():
 
 def test_run_edition_stamps_model_attribution():
     paper = run_edition("2026-06-02", generated_at="t", agent=_FakeAgent(_edition()),
-                        text_model="dgx/vllm/qwen3.6-35b-a3b-fp8",
-                        image_generate=lambda p: ("/tmp/x.png", "m3/ollama/flux2-klein"))
-    assert paper["ai"]["headliner"]["_text_model"] == "dgx/vllm/qwen3.6-35b-a3b-fp8"
-    assert paper["fun"][0]["_text_model"] == "dgx/vllm/qwen3.6-35b-a3b-fp8"
+                        text_model="dgx/vllm/qwen3.8-27b-nvfp4",
+                        image_generate=lambda p: ("/tmp/x.png", "m3/comfy/flux-2-dev"))
+    assert paper["ai"]["headliner"]["_text_model"] == "dgx/vllm/qwen3.8-27b-nvfp4"
+    assert paper["fun"][0]["_text_model"] == "dgx/vllm/qwen3.8-27b-nvfp4"
     # image model is whatever actually generated the image.
-    assert paper["fun"][0]["_image_model"] == "m3/ollama/flux2-klein"
+    assert paper["fun"][0]["_image_model"] == "m3/comfy/flux-2-dev"
 
 
 def test_run_edition_holds_if_no_candidates():

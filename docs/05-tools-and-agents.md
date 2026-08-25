@@ -157,7 +157,7 @@ longer a fleet of reviewer VMs polling S3; it's a LangChain `deepagents`
   transcript against an explicit `EDITION_RUBRIC` (harmless / no-defamation / every fun item
   attributed / the AI desk is substantive). The grader runs on an **independent** local model
   — `qwen3-coder-next` (Qwen3-Coder-Next 80B-A3B on the M3, a different family from the
-  writer's qwen3.6, so a genuine second opinion), with a frontier fallback if the local judge errors. It writes `verdict-rubric.json`
+  writer's Qwen3.8, so a genuine second opinion), with a cross-box fallback if the local judge errors. It writes `verdict-rubric.json`
   (decision + per-criterion reasons + the version id in the body).
 - The deterministic **gate** (`cli gate`, `content_pipeline/agent/review.py`) publishes
   live only on the **rubric `APPROVE`** + host structural validation + a live link-check.

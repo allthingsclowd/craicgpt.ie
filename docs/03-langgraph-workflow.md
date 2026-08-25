@@ -34,7 +34,7 @@ from content_pipeline.agent.subagents import EDITOR_IN_CHIEF_PROMPT, SUBAGENTS
 
 def build_editor_in_chief(*, model=None, checkpointer=None):
     return create_deep_agent(
-        model=model or build_brain(),        # a tool-calling LiteLLM route (Qwen3.6)
+        model=model or build_brain(),        # a tool-calling LiteLLM route (Qwen3.8)
         system_prompt=EDITOR_IN_CHIEF_PROMPT, # "research only; never fabricate"
         subagents=SUBAGENTS,                  # fun-news / ai-landscape / link-validator
         checkpointer=checkpointer,            # pass a durable saver in production
@@ -126,7 +126,7 @@ The live system doesn't keep a process paused for hours, and it no longer needs 
 fleet of reviewer agents. Instead the **judgement runs in-pipeline**: as the last build
 step, a LangChain `deepagents` **`RubricMiddleware`** grades the finished edition against an
 explicit publish rubric (harmless / on-brand / attributed) on an **independent** local model
-(`qwen3-coder-next` — Qwen3-Coder-Next 80B-A3B on the M3, distinct from the writer's qwen3.6),
+(`qwen3-coder-next` — Qwen3-Coder-Next 80B-A3B on the M3, distinct from the writer's Qwen3.8),
 writing the result to `verdict-rubric.json`. A
 separate, idempotent **gate** (`cli gate`) then publishes live only on the **rubric
 `APPROVE` + host structural validation + a live link-check**. Same human-in-the-loop
@@ -142,7 +142,7 @@ moving parts, still retriable and observable. See
 
 Every run records a flat, JSON-serialisable event list — the plan, each subagent
 delegation, every tool call (with a snippet of what it returned), each model route, and
-any local→frontier fallback. It's stored at `paper_content.context.agent_trace`, and the
+any cross-box model fallback. It's stored at `paper_content.context.agent_trace`, and the
 website's **"Under the Hood"** drawer renders it so readers learn deepagents by watching
 the Editor-in-Chief actually build the paper.
 
@@ -152,7 +152,7 @@ rec = TraceRecorder()
 rec.plan(["research fun news", "research AI landscape"])
 rec.delegate("ai-landscape-researcher", "rank the day's top 13 AI stories")
 rec.tool_call("web_search", "q=OpenAI", result="OpenAI ships … https://…")
-rec.model_route("write", "dgx/vllm/qwen3.6-35b-a3b-fp8")
+rec.model_route("write", "dgx/vllm/qwen3.8-27b-nvfp4")
 # ...plus extract_trace(messages) turns a real run's tool calls into the same shape.
 agent_trace = extract_trace(result["messages"]) + rec.as_list()
 ```
