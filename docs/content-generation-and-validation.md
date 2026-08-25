@@ -112,7 +112,7 @@ gates** so both grounded gates read the same research. Concepts join to articles
   http, qualifies; if a promoted lead lacks an image, `run_edition` regenerates one).
   It hard-holds **only** when nothing valid remains or the structural floor can't be met.
 - **L3 — edition rubric** (`agent/rubric_review.grade_edition`): an independent judge
-  (a different family from the writer — `qwen3-coder-next`, frontier fallback) grades
+  (a different family from the writer — `qwen3-coder-next`, cross-box fallback) grades
   the finished edition against `EDITION_RUBRIC`, grounded on the flattened OKF bundle —
   a publish-**safety** check (harmless / on-brand / attributed / substantive), not a
   fact re-check.

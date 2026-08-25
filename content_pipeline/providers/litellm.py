@@ -103,8 +103,10 @@ def run_with_fallback(
         local_error = f"{type(exc).__name__}: {exc}"
         logger.warning("[fallback] local model %s raised: %s", local_model, local_error)
 
-    # ── Attempt 2: frontier fallback ──────────────────────────────────────────
-    logger.info("[fallback] retrying on frontier model %s", fallback_model)
+    # ── Attempt 2: cross-box fallback ─────────────────────────────────────────
+    # NB: "fallback" here means the OTHER grazlab box, not a frontier provider —
+    # the proxy has no frontier route. See content_config.fallback_text_model.
+    logger.info("[fallback] retrying on fallback model %s", fallback_model)
     output = fn(fallback_model)  # if this raises, it propagates — no silent dud
     if not check(output):
         raise RuntimeError(
@@ -133,12 +135,12 @@ def get_litellm_llm(
 
     Args:
         model: A route name from the grazlab catalog (e.g.
-            ``m3/mlx/qwen3.6-35b-a3b-unsloth-8bit``).
+            ``m3/mlx/qwen3.8-27b-8bit``).
         temperature: Override the configured default.
         max_tokens: Override the configured default.
         extra_body: Extra request body fields forwarded to the proxy — e.g.
             ``{"chat_template_kwargs": {"enable_thinking": False}}`` to turn off
-            Qwen3.6's thinking preamble (which otherwise eats the token budget
+            the model's thinking preamble (which otherwise eats the token budget
             before any JSON is produced).
 
     Returns:

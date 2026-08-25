@@ -9,9 +9,9 @@ LLM judge that grades the finished edition against an explicit rubric, run via
 
 THE JUDGE IS INDEPENDENT: ``content_cfg.judge_model`` defaults to
 ``m3/mlx/qwen3-coder-next-4bit`` — a *different* model family from the writer
-(qwen3.6 on the DGX), so it is a genuine second opinion, not the author marking its
+(Qwen3.8 on the DGX), so it is a genuine second opinion, not the author marking its
 own homework. It runs locally, drives the ``RubricMiddleware`` reviewer-agent loop to
-a clean stop, and falls back ONCE to the frontier route on a grader error.
+a clean stop, and falls back ONCE to the cross-box route on a grader error.
 
 OKF GROUNDING (June 2026)
 -------------------------
@@ -33,8 +33,10 @@ Switching the judge
 NO code change is needed — set the ``JUDGE_MODEL`` env var (on the host, in
 ``/etc/craicgpt.env``) to another LiteLLM route::
 
-    JUDGE_MODEL=claude-sonnet-4-6             # frontier second opinion
     JUDGE_MODEL=m3/mlx/<other-route>         # any other local route that tool-calls
+
+There is NO frontier option: the grazlab proxy serves local routes only, and
+``claude-sonnet-4-6`` (suggested here until 2026-08-24) was always a DEAD route → HTTP 400.
 
 First confirm the candidate returns a REAL ``tool_calls`` field (not ``<tool_call>``
 text) — the deepagents grader silently retries/fails otherwise::
@@ -50,7 +52,7 @@ Non-null ``tool_calls`` is necessary but NOT sufficient. Also confirm the candid
 **terminates the grader loop in a handful of calls** — run ``grade_edition`` on a real
 edition and check it returns ``judge_model == <route>`` after a few LLM calls, not
 hundreds (the gemma-12b failure above). ``None`` / ``<tool_call>`` text, OR a runaway
-loop, → the grade stalls and the frontier fallback carries it.
+loop, → the grade stalls and the cross-box fallback carries it.
 
 TUTORIAL: Rubrics for deep agents
 ---------------------------------
