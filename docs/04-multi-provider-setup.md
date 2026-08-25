@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 
 def get_litellm_llm(model, *, temperature=None, max_tokens=None, extra_body=None):
     return ChatOpenAI(
-        model=model,                              # e.g. "dgx/vllm/qwen3.6-35b-a3b-fp8"
+        model=model,                              # e.g. "dgx/vllm/qwen3.8-27b-nvfp4"
         base_url=content_cfg.litellm_base_url,    # the ONE proxy
         api_key=content_cfg.litellm_api_key,      # "sk-no-key-required" — LiteLLM accepts a dummy
         temperature=content_cfg.temperature if temperature is None else temperature,
@@ -35,8 +35,8 @@ different model? Change the string. That's the whole multi-provider story.
 
 | Box | Role | Example routes |
 |-----|------|----------------|
-| **DGX Spark** | Research brain + prose (reliable tool-calling) | `dgx/vllm/qwen3.6-35b-a3b-fp8` |
-| **M3 Ultra (Mac Studio)** | Images + **independent rubric judge** + **TTS voice clones** (+ qwen3.6 cross-box fallback) | `m3/mlx/hidream-o1-image-dev`, `m3/mlx/qwen3-coder-next-4bit`, `Qwen3-TTS` (mlx-audio) |
+| **DGX Spark** | Research brain + prose (reliable tool-calling) | `dgx/vllm/qwen3.8-27b-nvfp4` |
+| **M3 Ultra (Mac Studio)** | Images + **independent rubric judge** + **TTS voice clones** (+ the cross-box text fallback) | `m3/comfy/flux-2-dev`, `m3/mlx/qwen3-coder-next-4bit`, `Qwen3-TTS` (mlx-audio), `m3/mlx/qwen3.8-27b-8bit` |
 | **Fallback** | Local cross-box (the proxy has **no** frontier route) | `m3/mlx/qwen3.8-27b-8bit` |
 
 Route names come from the fleet catalog (`grazlab-llm-fleet` repo, `catalog/models.yaml`).
@@ -52,30 +52,33 @@ The config picks a route per *role* (override any with an env var):
 
 ```python
 # content_pipeline/content_config.py
-brain_model         = os.getenv("BRAIN_MODEL",        "dgx/vllm/qwen3.6-35b-a3b-fp8")          # research agent loop
-write_model         = os.getenv("WRITE_MODEL",        "dgx/vllm/qwen3.6-35b-a3b-fp8")           # article prose
-image_model         = os.getenv("IMAGE_MODEL",        "m3/mlx/hidream-o1-image-dev")           # illustrations
+brain_model         = os.getenv("BRAIN_MODEL",        "dgx/vllm/qwen3.8-27b-nvfp4")            # research agent loop
+write_model         = os.getenv("WRITE_MODEL",        "dgx/vllm/qwen3.8-27b-nvfp4")            # article prose
+image_model         = os.getenv("IMAGE_MODEL",        "m3/comfy/flux-2-dev")                   # illustrations
 fallback_text_model = os.getenv("FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.8-27b-8bit")   # local cross-box fallback
 ```
 
 - **brain** needs solid tool-calling (it drives the agentic search/curation loop) — the
-  DGX vLLM Qwen3.6 route is confirmed tool-calling-capable.
-- **write** produces the prose; Qwen3.6 on the M3 handles the small structured calls well.
-- **image** is HiDream-O1 (MLX on the M3): it renders brand text/wordmarks far more
-  reliably than FLUX.2 Klein (which scrawled garbled faux-text on proper nouns). Approved
-  fallback: `z-image-turbo`. (We still prompt text-free for now — see `generate/image_styles.py`.)
+  DGX vLLM Qwen3.8 route is confirmed tool-calling-capable.
+- **write** produces the prose; the M3's Qwen3.8 sibling handles the small structured calls
+  well — and, crucially, accepts `response_format: json_schema` (the older 3.6 route
+  *stalls* on a schema rather than erroring, which is worse than failing).
+- **image** is FLUX.2 [dev] (32B DiT + Mistral-Small-24B encoder, BF16, via ComfyUI on the
+  M3), chosen for high-definition **text** rendering. Fallback: `m3/comfy/qwen-image`, which
+  is 4.4x faster but shares the same ComfyUI process, so crossing over pays a model-set
+  reload. (We still prompt text-free — see `generate/image_styles.py`.)
 
 ---
 
 ## Per-model quirks you set via `extra_body`
 
-LiteLLM forwards extra request fields to the engine. The most important one here: Qwen3.6
+LiteLLM forwards extra request fields to the engine. The most important one here: the Qwen routes
 emits a "thinking" preamble that can eat the whole token budget before any JSON appears, so
 the engine disables it:
 
 ```python
 get_litellm_llm(
-    "dgx/vllm/qwen3.6-35b-a3b-fp8",
+    "dgx/vllm/qwen3.8-27b-nvfp4",
     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
 )
 ```
@@ -86,13 +89,18 @@ chain code.
 
 ---
 
-## Local-first, frontier-fallback (the open-source-first contract)
+## Local-first, cross-box fallback (the open-source-first contract)
 
 We *want* the local models to do the work — that's the point of the project, and it's what
 the published "_text_model" note should usually say. But a flaky local run shouldn't ship a
 dud. `run_with_fallback` tries local, validates the output, and only on failure retries on
-the frontier — recording which model actually ran (honest attribution) and why local
-failed (so the eval loop can turn it into a regression case):
+the fallback route — recording which model actually ran (honest attribution) and why local
+failed (so the eval loop can turn it into a regression case).
+
+> **There is no frontier in this system.** The grazlab proxy serves local routes only, so
+> "fallback" means *the other box* — the DGX's work retried on the M3. `claude-sonnet-4-6`
+> was carried in these docs as a fallback for a while and was always a DEAD route (HTTP 400).
+> The contract is open-source top to bottom, not open-source-with-a-safety-net.
 
 ```python
 result = run_with_fallback(
@@ -117,9 +125,10 @@ If both attempts fail it raises — never a silent dud. See
 LITELLM_BASE_URL=https://llm.grazlab.thescriptingpaddy.com/v1
 LITELLM_API_KEY=sk-no-key-required
 
-BRAIN_MODEL=dgx/vllm/qwen3.6-35b-a3b-fp8
-WRITE_MODEL=dgx/vllm/qwen3.6-35b-a3b-fp8
-IMAGE_MODEL=m3/mlx/hidream-o1-image-dev
+BRAIN_MODEL=dgx/vllm/qwen3.8-27b-nvfp4
+WRITE_MODEL=dgx/vllm/qwen3.8-27b-nvfp4
+IMAGE_MODEL=m3/comfy/flux-2-dev
+IMAGE_FALLBACK_MODEL=m3/comfy/qwen-image
 FALLBACK_TEXT_MODEL=m3/mlx/qwen3.8-27b-8bit
 
 SERPER_API_KEY=...                  # web_search via Serper.dev (doc 05)
@@ -135,7 +144,7 @@ AWS_SECRET_ACCESS_KEY=...
 ## Running your own proxy
 
 No grazlab? Stand up LiteLLM in front of whatever you have (Ollama, vLLM, an MLX server, a
-frontier key) and point `LITELLM_BASE_URL` at it. Name your routes in LiteLLM's config,
+a hosted-provider key) and point `LITELLM_BASE_URL` at it. Name your routes in LiteLLM's config,
 then set `BRAIN_MODEL`/`WRITE_MODEL`/`IMAGE_MODEL`/`FALLBACK_TEXT_MODEL` to those names.
 The engine code doesn't change — that's the point of routing by name through one proxy.
 
@@ -155,5 +164,5 @@ The engine code doesn't change — that's the point of routing by name through o
 ## Key Takeaway
 
 > One `base_url`, many models. `get_litellm_llm("<route>")` reaches any box on the fleet by
-> name; `run_with_fallback` keeps the work open-source-first and falls back to a frontier
-> model only when it has to — honestly recording which one ran.
+> name; `run_with_fallback` keeps the work open-source-first and crosses to the other box
+> only when it has to — honestly recording which one ran.

@@ -11,12 +11,12 @@ from content_pipeline.agent.editor_in_chief import build_brain, build_editor_in_
 
 
 def test_build_brain_returns_proxy_bound_model():
-    llm = build_brain("dgx/vllm/qwen3.6-35b-a3b-fp8")
-    assert llm.model_name == "dgx/vllm/qwen3.6-35b-a3b-fp8"
+    llm = build_brain("dgx/vllm/qwen3.8-27b-nvfp4")
+    assert llm.model_name == "dgx/vllm/qwen3.8-27b-nvfp4"
 
 
 def test_build_editor_in_chief_compiles_a_graph():
-    agent = build_editor_in_chief(model=build_brain("dgx/vllm/qwen3.6-35b-a3b-fp8"))
+    agent = build_editor_in_chief(model=build_brain("dgx/vllm/qwen3.8-27b-nvfp4"))
     # create_deep_agent returns a compiled LangGraph we can invoke.
     assert isinstance(agent, CompiledStateGraph)
     assert hasattr(agent, "invoke")
@@ -26,7 +26,7 @@ def test_build_editor_in_chief_accepts_a_checkpointer():
     from langgraph.checkpoint.memory import InMemorySaver
 
     agent = build_editor_in_chief(
-        model=build_brain("dgx/vllm/qwen3.6-35b-a3b-fp8"),
+        model=build_brain("dgx/vllm/qwen3.8-27b-nvfp4"),
         checkpointer=InMemorySaver(),
     )
     assert isinstance(agent, CompiledStateGraph)

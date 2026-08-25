@@ -18,7 +18,7 @@ Split, per ``deciding-deterministic-vs-llm``:
 
 One BATCHED judge call (not N) returns the list of fabricated layout refs, so the
 call count stays bounded (the gemma-490-call runaway lesson). Local-first via the
-grazlab LiteLLM proxy with a frontier fallback; thinking is suppressed so the model
+grazlab LiteLLM proxy with a cross-box local fallback; thinking is suppressed so the model
 returns clean JSON.
 """
 

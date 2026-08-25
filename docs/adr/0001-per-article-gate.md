@@ -32,7 +32,7 @@ before narration), reusing the existing hard-hold path:
 
 1. **Bad set** = dead-link refs (deterministic) ∪ fabricated refs (one **batched**
    per-article LLM grade — `article_review.grade_articles`, thinking-off for clean
-   JSON, local-first w/ frontier fallback, bounded call count). The grade **fails
+   JSON, local-first w/ cross-box fallback, bounded call count). The grade **fails
    safe**: no usable verdict ⇒ hard hold.
 2. **Drop & publish the rest** (`article_review.auto_remediate`): drop the bad
    articles by layout ref, **rebuild the index-based layout**, and publish the clean
