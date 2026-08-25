@@ -10,16 +10,29 @@ relevant to its story. The rotation mirrors :func:`personas.assign_personas`:
 same seed (the edition date) → same lineup, different seed → a different look,
 so successive editions don't all come out the same.
 
-TEXT-FREE FOR NOW
------------------
-The current model still can't render legible text reliably, so every preset
-carries :data:`NO_TEXT_CLAUSE`. When a text-capable model (Qwen-Image) is promoted
-in the fleet catalog, drop the clause and let the images carry tasteful typography.
+TEXT: THE CLAUSE NO LONGER ENFORCES ANYTHING
+--------------------------------------------
+:data:`NO_TEXT_CLAUSE` was written when the image model could not render legible
+text. FLUX.2 [dev] can, and it does so whether or not it is asked: measured
+2026-08-25, all four style candidates returned a road sign reading "STOP" in clean
+capitals while carrying BOTH the full clause AND a negative prompt listing
+``text, letters, words, signage``. So the clause no longer buys wordless art — it
+buys UNCONTROLLED text. Whether to embrace deliberate captions or keep steering
+against them is issue #106; until that lands the clause stays, because steering
+against is still better than not trying.
+
+RENDER TIERS
+------------
+Images are not all worth the same money. FLUX.2 [dev] costs ~727 s at its baked
+28 steps and ~201 s at 8, and the paper makes 18 images a day against a 190-minute
+task cap — so the step count is per-item, not one global setting. See
+:data:`HERO` / :data:`STANDARD` / :data:`THUMBNAIL` and :func:`render_spec_for`.
 """
 
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from math import gcd
 
 # The exact no-typography framing (was inline in editor_in_chief._image_prompt).
@@ -29,6 +42,63 @@ NO_TEXT_CLAUSE = (
     "NO logos, NO brand names, NO screens showing text, NO watermarks, NO captions "
     "anywhere in the frame. A clean image with zero typography."
 )
+
+# What to keep OUT of the frame. The ComfyUI shim honours `negative_prompt`
+# (verified 2026-08-25: it produced a genuinely different image, not a cache hit),
+# and it is a far stronger lever than a "do not draw X" clause inside the positive
+# prompt, because diffusion models are poor at negation. Two jobs here:
+#   - ROUNDNESS, which is Graham's standing brief for the cartoons ("no sharp edges")
+#   - the text suppression that NO_TEXT_CLAUSE alone no longer achieves
+NEGATIVE_PROMPT = (
+    "sharp edges, hard corners, angular, jagged, spiky, harsh geometry, "
+    "photorealistic, photograph, gritty, grim, dark, horror, scary, gore, "
+    "text, letters, words, numbers, signage, watermark, caption, subtitles"
+)
+
+
+@dataclass(frozen=True)
+class RenderSpec:
+    """How much render one image slot is worth: output size and sampler steps.
+
+    Both are per-request on the ComfyUI route and nothing else is reachable
+    (issue #105), so this dataclass IS the complete cost dial.
+    """
+
+    size: str
+    steps: int
+
+    @property
+    def est_seconds(self) -> float:
+        """Rough wall-clock, from the 2026-08-25 measurements.
+
+        ~26 s/step at 1024x1024 and ~7 s/step at 512x512, plus a fixed ~14 s of text
+        encode + VAE decode + transfer that dominates once steps get small. Used to
+        budget an edition BEFORE spending three hours discovering it does not fit.
+        """
+        w, _, h = self.size.partition("x")
+        per_step = 26.0 if int(w) * int(h) > 512 * 512 else 7.0
+        return self.steps * per_step + 14.0
+
+
+# The three tiers. Graham's call, 2026-08-25: the page-leading images get the full
+# 28 steps; everything else is bought down. 3x28 + 5x8 + 10x8@512 lands the whole
+# edition around 65 minutes of images, inside the existing 190-minute cap and the
+# existing 06:00-08:00 publish-gate window — no cron changes needed (issue #101).
+HERO = RenderSpec("1024x1024", 28)        # the headliner + both subarticles
+STANDARD = RenderSpec("1024x1024", 8)     # the Craic & Throttle desk
+THUMBNAIL = RenderSpec("512x512", 8)      # the ten AI shorts
+
+_TIERS = {"hero": HERO, "standard": STANDARD, "thumbnail": THUMBNAIL}
+
+
+def render_spec_for(tier: str) -> RenderSpec:
+    """Look up a tier by name, defaulting to STANDARD for anything unknown.
+
+    Defaults rather than raises on purpose: a new slot type appearing upstream
+    should cost a middling image, not crash the edition.
+    """
+    return _TIERS.get(tier, STANDARD)
+
 
 # Each preset is a {name, descriptor}. Names are stamped on the item as
 # ``_image_style`` (shown in the UI / Under-the-Hood). Descriptors are written so
@@ -75,15 +145,23 @@ _MOTO_IMAGE_CLAUSE = (
 )
 
 
-def build_image_prompt(item: dict, style: dict) -> str:
-    """Compose a text-free image prompt: the story's subject rendered in ``style``."""
+def build_image_prompt(item: dict, style: dict, gag: str | None = None) -> str:
+    """Compose an image prompt: the story's subject, rendered in ``style``.
+
+    With a ``gag`` (see :mod:`image_gag`) the picture depicts the JOKE — which is
+    the whole point of the cartoon brief. Without one we fall back to the literal
+    title-plus-gist framing, which is what the paper did before and is still a
+    perfectly serviceable illustration; a missing gag must never cost us an image,
+    because ``review.validate_paper`` requires one.
+    """
     title = item.get("title", "")
-    gist = (item.get("body") or item.get("summary") or "")[:140]
     moto = _MOTO_IMAGE_CLAUSE if item.get("_vertical") == "moto" else ""
-    return (
-        f"{style['descriptor']}, depicting the scene of: {title}. {gist}{moto}\n"
-        f"{NO_TEXT_CLAUSE}"
-    )
+    if gag:
+        scene = f"{gag} A visual joke about: {title}."
+    else:
+        gist = (item.get("body") or item.get("summary") or "")[:140]
+        scene = f"depicting the scene of: {title}. {gist}"
+    return f"{style['descriptor']}, {scene}{moto}\n{NO_TEXT_CLAUSE}"
 
 
 def _seed_int(seed: str) -> int:

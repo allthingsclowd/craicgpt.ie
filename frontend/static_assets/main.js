@@ -418,7 +418,7 @@ function aiCard(item, kind) {
   const qc = qcStamp(item); if (qc) art.append(qc);
   art.append(headline(item.title, lead));
   if (item.standfirst) art.append(node('p', 'standfirst', item.standfirst));
-  const img = imageEl(item);            // headliner + subarticles carry a photo
+  const img = imageEl(item);            // every AI article carries a cartoon; shorts get a spot thumbnail
   if (img) art.append(img);
   art.append(body(item.body));
   art.append(meta(item, false));

@@ -160,11 +160,16 @@ def publish_paper(
     prefix = _prefix_for(base_prefix, language)
 
     # 1) Upload any locally-generated images and rewrite their URLs to the CDN.
-    #    This MUST cover the AI lead images (headliner + subarticles) as well as
-    #    the fun-story images — they are all written as local /tmp paths by the
-    #    image step, and any left un-uploaded render as broken images on the site.
+    #    This MUST cover EVERY illustrated slot — the AI leads (headliner +
+    #    subarticles), the AI SHORTS, and the fun stories. They are all written as
+    #    local /tmp paths by the image step, and any left un-uploaded render as a
+    #    broken image on the live site.
+    #    NB: shorts were added here in 2026-08 when the paper went to a cartoon per
+    #    article. Before that they carried audio only, and this list was the exact
+    #    place that assumption was encoded — miss it and every short 404s.
     ai = paper.get("ai") or {}
-    image_items = [ai.get("headliner"), *(ai.get("subarticles") or []), *(paper.get("fun") or [])]
+    image_items = [ai.get("headliner"), *(ai.get("subarticles") or []),
+                   *(ai.get("shorts") or []), *(paper.get("fun") or [])]
     for item in image_items:
         if not item:
             continue
@@ -182,7 +187,7 @@ def publish_paper(
 
     # 1b) Upload any locally-generated audio (per-article readings + the daily podcast +
     #     the TL;DR bulletin) and rewrite their URLs to the CDN — same pattern as images.
-    #     NB: shorts carry audio (they have no image); the podcast lives at
+    #     NB: the podcast lives at
     #     paper["podcast"] and the headline bulletin at paper["podcast_tldr"]. The
     #     Editor-in-Chief sections (the Editor's Brief and the About page) are narrated
     #     too — include them or their "Listen" button points at an un-uploaded local path.
