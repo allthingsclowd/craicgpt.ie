@@ -268,17 +268,27 @@ def harvest_fun_candidates(*, since_hours: Optional[int] = None, max_per_feed: i
     url on its ``Story`` objects. ``max_per_feed`` defaults to 2 (a creator uploads a
     handful a week — we only want their freshest), so no single creator dominates.
     """
-    from content_pipeline.research.fun_sources import FUN_FEED_FILTERS
+    from content_pipeline.research.fun_sources import (
+        FUN_FEED_FILTERS, MOTO_EXCLUDE_TERMS, is_moto_source,
+    )
 
     ladder = (since_hours,) if since_hours is not None else FUN_FRESHNESS_LADDER_HOURS
     target = FUN_MIN_POOL if min_pool is None else min_pool
     items = harvest(feeds_list if feeds_list is not None else FUN_FEEDS,
                     since_hours=ladder[-1], max_per_feed=max_per_feed, fetch=fetch)
 
-    # Press feeds contribute only their keyword matches (title or summary).
+    # Press feeds contribute only their keyword matches (title or summary), and a moto
+    # source never contributes a CAR story: several bike outlets also cover Honda's cars
+    # and EVs, and "honda" alone lets a Civic review into a motorcycle desk.
     def _passes(it: FeedItem) -> bool:
+        text = f"{it.title} {it.summary}".lower()
         kw = FUN_FEED_FILTERS.get(it.source)
-        return (not kw) or kw.lower() in f"{it.title} {it.summary}".lower()
+        if kw and kw.lower() not in text:
+            return False
+        if is_moto_source(it.source) and any(t in text for t in MOTO_EXCLUDE_TERMS):
+            logger.info("[feeds] dropped car story from moto source %s: %s", it.source, it.title)
+            return False
+        return True
 
     items = [it for it in items if _passes(it)]
 

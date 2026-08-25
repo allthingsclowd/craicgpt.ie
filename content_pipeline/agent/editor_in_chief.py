@@ -42,6 +42,7 @@ from content_pipeline.generate.personas import (
     persona_byline,
 )
 from content_pipeline.okf import build_craicgpt_bundle, bundle_to_json
+from content_pipeline.research.fun_sources import is_moto_source
 from content_pipeline.generate.writer import (
     loads_lenient,
     write_about,
@@ -350,15 +351,22 @@ def _write_fun(picked: list, date_iso: str, credit_by_url: dict, *, generate=Non
     for i, story in enumerate(picked):
         creator = credit_by_url.get(_norm_url(story.source_url), "")
         persona = personas[i] if i < len(personas) else None
+        # The desk VERTICAL, derived deterministically from the credit — the creator name
+        # IS the signal (MCN/Visordown/Honda UK == motorcycles). Routing is code; only the
+        # prose is the model's. Carried onto the item as `_vertical` so the ILLUSTRATOR
+        # gets the same fact — fixing only the prose still ships a drawing of a car.
+        moto = is_moto_source(creator)
         story_dict = {"title": story.title, "summary": story.summary, "source_url": story.source_url}
         try:
-            written = write_fun_story(story_dict, creator, persona=persona, generate=generate)
+            written = write_fun_story(story_dict, creator, persona=persona, moto=moto,
+                                      generate=generate)
         except Exception as exc:  # noqa: BLE001 — one bad rewrite shouldn't sink the edition
             logger.warning("[run_edition] fun rewrite failed (%s); using the raw story", exc)
             written = {"title": story.title, "body": story.summary, "source_url": story.source_url}
         written["kind"] = "article"
         written["source_url"] = story.source_url  # fidelity: the validated picked URL, not the writer's guess
         written["source"] = creator               # credit: the creator's name (Graham's attribution rule)
+        written["_vertical"] = "moto" if moto else "comedy"  # read by build_image_prompt
         if persona:
             written["persona"] = persona          # voice: stamped with a byline + disclaimer in _finalize_fun
         out.append(written)

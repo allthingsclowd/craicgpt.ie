@@ -97,7 +97,8 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │
    ├─ 3. WRITE (deterministic) — generate/writer.py turns candidates into prose
    │      (AI section in one JSON call; each fun story in Graham's voice, crediting
-   │      the creator). LiteLLM brain/writer = DGX/M3 Qwen3.6, frontier fallback.
+   │      the creator). MOTO items carry a hard "this is a BIKE, never a car"
+   │      constraint + a car-noun check with ONE re-write (writer.car_words_in). LiteLLM brain/writer = DGX/M3 Qwen3.6, frontier fallback.
    │      _snap_ai_sources forces every written source_url onto a validated candidate.
    │
    ├─ 4. IMAGES (deterministic) — generate/images.py (LiteLLM image route, HiDream-O1)
@@ -222,7 +223,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/generate/narration.py` | `narrate_paper(paper, language=…)` — the narration step: per-article audio (best-effort, alternating voices) + the podcast (banter UNGATED since 2026-06-10; render failure stays soft) + the deterministic TL;DR bulletin + trace events. **Loops every language** (driven by `language` or `edition.language`); voice clones are reused cross-lingually; the banter is generated in-language per edition |
 | `content_pipeline/generate/personas.py` | Parody-journalist roster (assigned day-stable to each fun item) + satire disclaimer + `persona_voice_key` (persona → voice-clone key the narrator resolves) + podcast hand-off helpers (`PERSONA_SENIORITY` / `introducer_for` — younger→Tom, older→Graham — and `real_name` to decode the punny byline) |
 | `content_pipeline/research/curation.py` | `curate_candidates`, `validate_source_link` (browser-UA link check), dedupe, diversity |
-| `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest. Fun desk (Craic & Throttle): Irish + British comedians (female-first) + Honda moto channels + Honda-filtered UK bike press (`FUN_FEED_FILTERS`); 24/48/96h freshness ladder, ranked by YouTube view count (`_views`) |
+| `content_pipeline/research/feeds.py` + `ai_sources.py` + `fun_sources.py` | Deterministic RSS/Atom harvest. Fun desk (Craic & Throttle): Irish + British comedians (female-first) + Honda moto channels + Honda-filtered UK bike press (`FUN_FEED_FILTERS`); 24/48/96h freshness ladder, ranked by YouTube view count (`_views`). **The moto vertical:** `MOTO_SOURCES` / `is_moto_source` mark the bike outlets, `MOTO_EXCLUDE_TERMS` drops Honda **car** stories at harvest (RideApart et al. cover cars too), and the flag rides onto each item as `_vertical` so the writer AND the illustrator both know it is a bike |
 | `content_pipeline/research/recency.py` | Exclude stories from the last few live editions |
 | `content_pipeline/compile.py` | `build_paper` (schema v3) + `build_layout` (interleaves fun among AI shorts) |
 | `content_pipeline/providers/litellm.py` | `get_litellm_llm` (ChatOpenAI → LiteLLM proxy) + `run_with_fallback` (local-first→frontier) |

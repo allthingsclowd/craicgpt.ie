@@ -65,12 +65,23 @@ STYLE_PRESETS: list[dict] = [
 ]
 
 
+# The moto vertical, for the ILLUSTRATOR. Fixing only the prose still ships a drawing of
+# a car: the image model sees just a title + a short gist, and "Honda CB1000GT" renders a
+# saloon perfectly happily. `_vertical` is stamped deterministically in
+# editor_in_chief._write_fun from the creator credit — never inferred here.
+_MOTO_IMAGE_CLAUSE = (
+    " The subject is a MOTORCYCLE — two wheels, a rider in a helmet. It is NOT a car: "
+    "no car, no saloon, no hatchback, no SUV, no four wheels, no steering wheel, no car doors."
+)
+
+
 def build_image_prompt(item: dict, style: dict) -> str:
     """Compose a text-free image prompt: the story's subject rendered in ``style``."""
     title = item.get("title", "")
     gist = (item.get("body") or item.get("summary") or "")[:140]
+    moto = _MOTO_IMAGE_CLAUSE if item.get("_vertical") == "moto" else ""
     return (
-        f"{style['descriptor']}, depicting the scene of: {title}. {gist}\n"
+        f"{style['descriptor']}, depicting the scene of: {title}. {gist}{moto}\n"
         f"{NO_TEXT_CLAUSE}"
     )
 
