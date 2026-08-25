@@ -216,3 +216,132 @@ def test_extra_body_carries_the_params_and_omits_them_when_unset():
     calls.clear()
     I.generate_image("p", model="r", client=_Client())
     assert "extra_body" not in calls[0], "an unset spec must not send an empty extra_body"
+
+
+# ── The daily style rotation (#100) ───────────────────────────────────────────
+from content_pipeline.generate.image_styles import (  # noqa: E402
+    TEXT_CLAUSE,
+    TEXT_STEP_FLOOR,
+    assign_styles,
+    negative_prompt_for,
+    style_for_edition,
+)
+
+_A_FORTNIGHT = [f"2026-09-{d:02d}" for d in range(1, 15)]
+
+
+def test_the_whole_edition_shares_one_style():
+    """Graham's call: rotate daily, not within an edition — a paper whose every
+    picture is a different art style reads as incoherent."""
+    assert len({s["name"] for s in assign_styles(18, seed="2026-09-01")}) == 1
+
+
+def test_consecutive_editions_never_repeat_a_style():
+    """A hash-mod looked evenly distributed over a year but put SEVEN consecutive
+    editions in plasticine. 'Rotate' means visit each in turn, so this counts days."""
+    names = [style_for_edition(d)["name"] for d in _A_FORTNIGHT]
+    assert all(a != b for a, b in zip(names, names[1:])), names
+
+
+def test_the_rotation_is_even_over_a_full_cycle():
+    cycle = len(STYLE_PRESETS)
+    names = [style_for_edition(d)["name"] for d in _A_FORTNIGHT[:cycle]]
+    assert len(set(names)) == cycle, "one full cycle must visit every style exactly once"
+
+
+def test_re_running_a_date_reproduces_its_look():
+    assert style_for_edition("2026-09-03")["name"] == style_for_edition("2026-09-03")["name"]
+
+
+def test_a_non_date_seed_still_yields_a_style():
+    """Tests and ad-hoc calls pass arbitrary seeds; there is no sequence to preserve."""
+    assert style_for_edition("not-a-date") in STYLE_PRESETS
+
+
+def test_every_preset_is_a_cartoon_with_no_sharp_edges():
+    """The brief was funny, colourful and round. Guard against a photoreal preset
+    creeping back in the way `editorial-photo` used to lead the rotation."""
+    for s in STYLE_PRESETS:
+        assert "photorealistic" not in s["descriptor"].lower(), s["name"]
+        assert any(w in s["descriptor"].lower() for w in ("cartoon", "comic", "claymation")), s["name"]
+
+
+# ── The text policy (#106) ────────────────────────────────────────────────────
+def test_only_the_hero_tier_may_carry_text():
+    """Graham's call: text on the 20+ step renders. At 8 steps FLUX letterforms come
+    out mangled, and a misspelled word reads as broken far more than a bad elbow."""
+    assert HERO.allows_text
+    assert not STANDARD.allows_text
+    assert not THUMBNAIL.allows_text
+    assert HERO.steps >= TEXT_STEP_FLOOR > STANDARD.steps
+
+
+def test_the_hero_prompt_permits_a_bubble_and_the_others_ban_text():
+    p_hero = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", HERO)
+    assert TEXT_CLAUSE in p_hero
+    for spec in (STANDARD, THUMBNAIL):
+        p = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", spec)
+        assert "absolutely NO text" in p
+
+
+def test_omitting_the_spec_bans_text():
+    """Fail SAFE: an un-specced call must not accidentally licence text."""
+    assert "absolutely NO text" in build_image_prompt({"title": "T"}, _STYLE, "a gag")
+
+
+def test_the_negative_prompt_drops_the_text_bans_only_for_the_hero():
+    assert "letters" not in negative_prompt_for(HERO)
+    assert "letters" in negative_prompt_for(STANDARD)
+    assert "letters" in negative_prompt_for(None), "no spec must stay text-free"
+    # Roundness is non-negotiable at every tier — it is the standing brief.
+    for spec in (HERO, STANDARD, THUMBNAIL, None):
+        assert "sharp edges" in negative_prompt_for(spec)
+
+
+def test_the_text_clause_keeps_it_short():
+    """A few words in a bubble is where the joke lives; a paragraph is where a
+    diffusion model's spelling falls apart."""
+    assert "FIVE words" in TEXT_CLAUSE
+    assert "paragraph" in TEXT_CLAUSE
+
+
+def test_generate_images_gives_the_hero_a_text_budget_and_shorts_none(monkeypatch):
+    from content_pipeline.agent import editor_in_chief as eic
+
+    monkeypatch.setattr("content_pipeline.generate.image_gag.build_gag", lambda item, **kw: "g")
+    prompts = []
+    ai = {"headliner": {"title": "H", "body": "b"}, "subarticles": [],
+          "shorts": [{"title": "S", "body": "b"}]}
+    eic._generate_images(ai, [], "2026-09-01",
+                         generate=lambda p: prompts.append(p) or ("/tmp/x.png", "m"))
+    assert TEXT_CLAUSE in prompts[0], "the headliner may letter a bubble"
+    assert "absolutely NO text" in prompts[1], "a 512px short must stay wordless"
+
+
+# ── The edition's style reaches the reader (#100 tutorial payoff) ─────────────
+def test_every_preset_has_a_human_label():
+    """The footer shows the label, not the slug — 'Beano-style British comic', not
+    'beano-comic'."""
+    for s in STYLE_PRESETS:
+        assert s.get("label"), s["name"]
+        assert s["label"] != s["name"]
+
+
+def test_the_trace_covers_every_illustrated_slot_including_shorts():
+    """Regression: `_trace_images` built its own literal list of slots and omitted the
+    shorts — the same mistake publish.py made. A slot missing here is generated and
+    published but INVISIBLE in the Under-the-Hood drawer, which is the one surface a
+    tutorial reader uses to see what the pipeline did.
+    """
+    from content_pipeline.agent.editor_in_chief import _trace_images
+    from content_pipeline.agent.trace import TraceRecorder
+
+    def _art(t):
+        return {"title": t, "image_url": "/tmp/x.png", "_image_style": "beano-comic",
+                "_image_tier": "thumbnail", "image_alt": t}
+
+    ai = {"headliner": _art("H"), "subarticles": [_art("S1")], "shorts": [_art(f"sh{i}") for i in range(10)]}
+    rec = TraceRecorder()
+    _trace_images(rec, ai, [_art("f1")], "m3/comfy/flux-2-dev")
+    drawn = [e for e in rec.as_list() if e.get("name") == "generate_image"]
+    assert len(drawn) == 13, f"expected every slot traced, got {len(drawn)}"

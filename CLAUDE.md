@@ -103,6 +103,11 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │
    ├─ 4. IMAGES (deterministic) — generate/images.py (LiteLLM image route, FLUX.2 [dev])
    │      a cartoon for EVERY article (18: headliner + 2 subs + 10 shorts + 5 fun).
+   │      ONE house cartoon style per edition, rotating DAILY across four looks
+   │      (Beano / Simpsons / Saturday-morning / plasticine) — a true day-ordinal
+   │      cycle, so consecutive editions never repeat. Text is allowed ONLY on the
+   │      28-step heroes (8-step lettering comes out mangled); translations share
+   │      those images, so a hero bubble stays English on every language.
    │      Each depicts a one-line VISUAL GAG invented per story (generate/image_gag.py)
    │      rather than a literal headline. Cost is TIERED — hero 1024²@28 steps,
    │      fun 1024²@8, shorts 512²@8 — which is what makes 18 images fit the
@@ -247,7 +252,8 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
   "date": "YYYY-MM-DD",
   "generated_at": "ISO8601",
   "pipeline_version": "3.0",
-  "edition": { "approved_by": null, "approved_at": null, "language": "en", "available_languages": ["en","de","es","it","ja","fr"], "translated_by": null },
+  "edition": { "approved_by": null, "approved_at": null, "language": "en", "available_languages": ["en","de","es","it","ja","fr"], "translated_by": null,
+               "cartoon_style": { "name": "beano-comic", "label": "Beano-style British comic" } },
   "editors_brief": { "title": "", "body": "" },
   "ai": {
     "headliner":    { "title": "", "standfirst": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_audio_model": "" },
