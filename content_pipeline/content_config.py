@@ -206,6 +206,22 @@ class ContentConfig:
     request_timeout: float = field(
         default_factory=lambda: float(os.getenv("CONTENT_REQUEST_TIMEOUT", "180"))
     )
+    # IMAGE requests need their own, far longer ceiling — an image is not a chat call.
+    # A 28-step FLUX.2 [dev] render at 1024x1024 takes ~720 s, and the openai SDK's
+    # DEFAULT read timeout is 600 s. On 2026-08-26 that mismatch cost a whole edition:
+    # every hero image hung up at 600 s mid-render, fell back to qwen-image, and left
+    # ComfyUI still finishing the abandoned flux job (it does not cancel) — so the
+    # fallback queued behind it AND forced a 93 GB model-set swap in both directions.
+    # Two images in 129 minutes; the run was terminated.
+    #
+    # 1800 s is what every OTHER hop already allows, so the client was the only ceiling:
+    #   LiteLLM image routes   timeout: 1800, num_retries: 0
+    #   nginx                  proxy_read_timeout / proxy_send_timeout 1800s
+    #   ComfyUI shim           QUEUE_WAIT_SEC 1500
+    # Keep this >= the slowest tier's RenderSpec.est_seconds — there is a test for it.
+    image_request_timeout: float = field(
+        default_factory=lambda: float(os.getenv("IMAGE_REQUEST_TIMEOUT", "1800"))
+    )
 
     # ── Daily composition (resolved during grilling: 13 AI + 5 fun) ───────────
     num_ai_shorts: int = field(

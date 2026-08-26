@@ -345,3 +345,52 @@ def test_the_trace_covers_every_illustrated_slot_including_shorts():
     _trace_images(rec, ai, [_art("f1")], "m3/comfy/flux-2-dev")
     drawn = [e for e in rec.as_list() if e.get("name") == "generate_image"]
     assert len(drawn) == 13, f"expected every slot traced, got {len(drawn)}"
+
+
+# ── The image client must out-wait the slowest render (2026-08-26 incident) ───
+# The openai SDK defaults to a 600 s read timeout. A 28-step flux render takes ~720 s.
+# On 2026-08-26 that mismatch cost a whole edition: every hero image hung up mid-render,
+# silently fell back to qwen-image, and left ComfyUI finishing the abandoned job — two
+# images in 129 minutes before the run was terminated. These are the guards.
+def test_the_image_client_sets_an_explicit_timeout():
+    """Without this the SDK default (600 s) applies and every hero image falls back."""
+    from content_pipeline.generate import images as I
+
+    client = I._default_client()
+    assert client.timeout is not None, "no timeout set — the SDK's 600 s default will apply"
+
+
+def test_the_image_timeout_outlasts_the_slowest_tier():
+    """THE regression assertion. A tier whose render outruns the client is a silent
+    fallback, not an error — you get a picture from a route nobody chose."""
+    from content_pipeline.content_config import content_cfg
+
+    slowest = max(HERO.est_seconds, STANDARD.est_seconds, THUMBNAIL.est_seconds)
+    assert content_cfg.image_request_timeout > slowest, (
+        f"image_request_timeout={content_cfg.image_request_timeout}s does not cover the "
+        f"slowest tier ({slowest:.0f}s) — raise it or lower the tier"
+    )
+
+
+def test_the_image_timeout_matches_the_rest_of_the_path():
+    """Every other hop allows 1800 s (LiteLLM image routes, nginx, the ComfyUI shim's
+    1500 s queue wait). The client should not be the tightest link again."""
+    from content_pipeline.content_config import content_cfg
+
+    assert content_cfg.image_request_timeout >= 1800
+
+
+def test_the_image_timeout_is_env_tunable(monkeypatch):
+    """Same convention as GENERATE_TIMEOUT_S — a degraded day is tuned without a redeploy."""
+    from content_pipeline.content_config import ContentConfig
+
+    monkeypatch.setenv("IMAGE_REQUEST_TIMEOUT", "2400")
+    assert ContentConfig().image_request_timeout == 2400.0
+
+
+def test_the_chat_timeout_is_not_reused_for_images():
+    """CONTENT_REQUEST_TIMEOUT is 180 s — three minutes. Pointing the image client at it
+    would reintroduce the bug in a worse form."""
+    from content_pipeline.content_config import content_cfg
+
+    assert content_cfg.image_request_timeout != content_cfg.request_timeout
