@@ -43,14 +43,16 @@ day-ordinal rotation, so consecutive editions never repeat and a week shows the 
 
 Cost is **tiered**, because 18 images at full quality would not fit the daily budget: the
 headliner and both subarticles render at 1024² / 28 steps, the Craic & Throttle desk at
-1024² / 20, and the ten AI shorts as 512² / 20 spot thumbnails. That is ~61 minutes of GPU
+1024² / 20, and the ten AI shorts as 768² / 20 spot thumbnails. That is ~75 minutes of GPU
 against a 180-minute task cap. **No tier goes below 20 steps** — FLUX.2 [dev] is designed for
 20–50, and under-sampling it costs limbs and legible lettering, not just fine detail.
 
-Text is permitted **only on the heroes** — an editorial choice about the page, not a
-by-product of the step count. A misspelled word reads as broken in a way a misshapen elbow
-never does, so lettering is asked for the way the model documents: the exact words in quotes,
-bound to a surface in the scene, five words at most.
+**Every cartoon carries words, and the words are written before the picture is.** The same
+call that invents the gag also writes the caption — what a character says, or what a sign in
+the frame reads — and the image prompt hands that exact string to the renderer. Asking a
+diffusion model to invent text of its own gets you mush; giving it a string to copy gets you
+lettering. Budgets scale with the canvas: twelve words on a hero, eight on the fun desk, five
+on a thumbnail.
 
 **Open-source only:** generation runs on **Qwen3.8-27B** (text, NVFP4 on the DGX Spark) and
 **FLUX.2 [dev]** (images, BF16 via ComfyUI on the M3 Ultra), and the daily **voice clones** on **Qwen3-TTS** (M3 mlx-audio), all via a

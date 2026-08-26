@@ -16,6 +16,7 @@ import json
 
 import pytest
 
+from content_pipeline.generate.image_gag import Gag
 from content_pipeline.agent.editor_in_chief import (
     EditionHeld,
     _search_failures,
@@ -68,7 +69,7 @@ def _no_network_gags(monkeypatch):
     """
     monkeypatch.setattr(
         "content_pipeline.generate.image_gag.build_gag",
-        lambda item, **kw: "a fake visual gag",
+        lambda item, **kw: Gag(gag="a fake visual gag", caption="FAKE CAPTION"),
     )
 
 

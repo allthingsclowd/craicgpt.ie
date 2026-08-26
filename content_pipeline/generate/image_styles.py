@@ -124,6 +124,7 @@ class RenderSpec:
     size: str
     steps: int
     allows_text: bool = False
+    caption_words: int = 5
 
     @property
     def est_seconds(self) -> float:
@@ -141,7 +142,10 @@ class RenderSpec:
         Used to budget an edition BEFORE spending three hours discovering it does not fit.
         """
         w, _, h = self.size.partition("x")
-        per_step = 14.2 if int(w) * int(h) > 512 * 512 else 4.0
+        # Linear in PIXELS, not a size bucket. The bucket version treated 768x768 as though
+        # it cost the same as 1024x1024 and over-budgeted an edition by 20 minutes. Fitted to
+        # both real measurements: 14.2 s/step at 1024x1024 and 4.0 at 512x512.
+        per_step = 1.3e-5 * (int(w) * int(h)) + 0.6
         return self.steps * per_step + 14.0
 
 
@@ -167,9 +171,17 @@ class RenderSpec:
 #
 # TEXT_STEP_FLOOR still applies as a PHYSICAL floor: a tier may only opt in if it has enough
 # steps to letter legibly. A test enforces that pairing.
-HERO = RenderSpec("1024x1024", 28, allows_text=True)   # the headliner + both subarticles
-STANDARD = RenderSpec("1024x1024", 20)                 # the Craic & Throttle desk
-THUMBNAIL = RenderSpec("512x512", 20)                  # the ten AI shorts
+# Word budgets scale with the canvas rather than sitting at a flat five. The evidence for
+# the hero number is direct: on 2026-08-26 a THIRTEEN-word headline rendered cleanly at
+# 1024x1024 / 28 steps. Five everywhere was an over-correction from a general guideline,
+# contradicted by our own output.
+#
+# Shorts moved 512 -> 768 (2026-08-26) so lettering has pixels to land in; five words in a
+# 512px frame is roughly 40px of text height, which is where FLUX letterforms smear. 768 is
+# a multiple of 16, which the ComfyUI shim requires.
+HERO = RenderSpec("1024x1024", 28, allows_text=True, caption_words=12)
+STANDARD = RenderSpec("1024x1024", 20, allows_text=True, caption_words=8)
+THUMBNAIL = RenderSpec("768x768", 20, allows_text=True, caption_words=5)
 
 _TIERS = {"hero": HERO, "standard": STANDARD, "thumbnail": THUMBNAIL}
 
@@ -223,7 +235,7 @@ _MOTO_IMAGE_CLAUSE = (
 
 
 def build_image_prompt(item: dict, style: dict, gag: str | None = None,
-                       spec: "RenderSpec | None" = None) -> str:
+                       spec: "RenderSpec | None" = None, caption: str = "") -> str:
     """Compose an image prompt: the story's subject, rendered in ``style``.
 
     With a ``gag`` (see :mod:`image_gag`) the picture depicts the JOKE — which is
@@ -243,7 +255,17 @@ def build_image_prompt(item: dict, style: dict, gag: str | None = None,
     else:
         gist = (item.get("body") or item.get("summary") or "")[:140]
         scene = f"depicting the scene of: {title}. {gist}"
-    text_rule = TEXT_CLAUSE if (spec and spec.allows_text) else NO_TEXT_CLAUSE
+    # THE CAPTION IS SUPPLIED, NEVER REQUESTED. Asking a diffusion model to letter "the
+    # exact words" without giving it any is what produced "STEMIVALIINGS MONIS AII APOR!"
+    # on 2026-08-26 — it invents letterforms, and invented letterforms are mush. Give it a
+    # concrete string and it copies it. TEXT_CLAUSE (the old generic ask) is gone.
+    if caption and spec and spec.allows_text:
+        text_rule = (
+            f'The words "{caption}" appear in the picture in bold hand-lettered cartoon '
+            f"capitals, on a speech bubble or a sign, spelled exactly as written here."
+        )
+    else:
+        text_rule = NO_TEXT_CLAUSE
     return f"{style['descriptor']}, {scene}{moto}\n{text_rule}"
 
 

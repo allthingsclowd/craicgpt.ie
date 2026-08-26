@@ -553,13 +553,22 @@ def _generate_images(
 
     for (item, tier), style in zip(targets, styles):
         spec = render_spec_for(tier)
-        gag = build_gag(item, generate=gag_generate)  # None on failure — never raises
+        # The tier owns the caption budget — a 768px thumbnail cannot carry what a 1024px
+        # hero can, so it is passed IN rather than guessed inside the gag step.
+        result = build_gag(item, max_caption_words=spec.caption_words,
+                           generate=gag_generate)  # None on failure — never raises
+        gag = result.gag if result else None
+        caption = result.caption if result else ""
         if gag:
             item["_image_gag"] = gag
+        if caption:
+            item["_image_caption"] = caption
         gen = generate or _default_for(spec)
         try:
-            path, model = gen(build_image_prompt(item, style, gag, spec))
+            path, model = gen(build_image_prompt(item, style, gag, spec, caption))
             item["image_url"] = path
+            # alt text describes the PICTURE, so it is the gag — not the caption, whose
+            # words are already visible to anyone who can see the image.
             item["image_alt"] = gag or item.get("title", "")
             item["_image_model"] = model or image_model
             item["_image_style"] = style["name"]
