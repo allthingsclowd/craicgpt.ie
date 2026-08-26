@@ -128,7 +128,12 @@ _CAPTION_RETRY = (
 # Characters a caption may contain. Anything else is a sign the model wandered off into
 # glyphs the renderer will smear — "ANNAKED" and friends. ASCII letters, digits, spaces and
 # the punctuation that actually appears in comic lettering.
-_CAPTION_OK = re.compile(r"^[A-Za-z0-9 .,!?'\-&%$]+$")
+# Colons and semicolons were missing from the first version and cost a needless retry on the
+# live 2026-08-26 run ("unrenderable characters: [':', '>']") — a colon is perfectly ordinary
+# comic lettering. Keep the list to punctuation a sign painter would actually letter; the
+# point is to catch the stray Cyrillic or CJK glyph that the renderer smears, not to police
+# style.
+_CAPTION_OK = re.compile(r"^[A-Za-z0-9 .,:;!?'\-&%$£€]+$")
 
 
 def caption_problems(caption: str, max_words: int) -> list[str]:

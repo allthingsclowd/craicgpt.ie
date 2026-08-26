@@ -502,6 +502,19 @@ def test_caption_problems_rejects_unrenderable_characters():
     assert caption_problems('he said "hi"', 8)      # we add the quotes; the model must not
 
 
+@pytest.mark.parametrize("caption", [
+    "AI: THE SEQUEL",          # a colon is ordinary comic lettering
+    "HALF PRICE; ALL HYPE",
+    "COST: $10.2BN",
+    "PINT 5.50 EUR",
+])
+def test_caption_problems_allows_ordinary_sign_punctuation(caption):
+    """The first charset omitted colons and cost a needless retry on the live 2026-08-26
+    run — "unrenderable characters: [':', '>']". The job is catching stray Cyrillic and CJK
+    glyphs the renderer smears, not policing punctuation a sign painter would letter."""
+    assert caption_problems(caption, 8) == []
+
+
 def test_a_bad_caption_costs_exactly_one_retry_then_goes_wordless():
     """Never a raise, never a loop. A nonsense caption is worse than none."""
     seen = []
