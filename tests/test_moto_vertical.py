@@ -11,6 +11,8 @@ them alone leaves a hole:
   4. illustration — the image prompt is told too, or we ship a drawing of a car
 """
 
+import re
+
 import pytest
 
 from content_pipeline.generate.image_styles import STYLE_PRESETS, build_image_prompt
@@ -150,7 +152,14 @@ def test_a_failing_rewrite_falls_back_to_the_first_draft():
 def test_image_prompt_tells_the_illustrator_it_is_a_bike():
     p = build_image_prompt({"title": "Honda CB1000GT", "body": "b", "_vertical": "moto"},
                            STYLE_PRESETS[0])
-    assert "MOTORCYCLE" in p and "NOT a car" in p
+    # Described POSITIVELY — naming the car words we want avoided is what makes this
+    # encoder draw them (see test_no_prompt_fragment_uses_english_negation).
+    assert "two-wheeled motorcycle" in p
+    assert "helmet" in p
+    # Word boundaries matter: "car" is a substring of "cartoon", which is in every descriptor.
+    for car_word in ("car", "cars", "saloon", "hatchback", "SUV", "steering wheel"):
+        assert not re.search(rf"\b{re.escape(car_word)}\b", p, re.I), \
+            f"{car_word!r} in the prompt invites the model to draw one"
 
 
 @pytest.mark.parametrize("item", [
@@ -158,7 +167,7 @@ def test_image_prompt_tells_the_illustrator_it_is_a_bike():
     {"title": "t", "body": "b"},                       # AI desk items carry no vertical
 ])
 def test_image_prompt_stays_clean_for_everything_else(item):
-    assert "MOTORCYCLE" not in build_image_prompt(item, STYLE_PRESETS[0])
+    assert "two-wheeled motorcycle" not in build_image_prompt(item, STYLE_PRESETS[0])
 
 
 # ── 1. harvest: a car story never enters a motorcycle desk ────────────────────

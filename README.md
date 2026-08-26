@@ -42,11 +42,15 @@ four looks — Beano/Dandy, flat 2D TV, Saturday-morning, and plasticine stop-mo
 day-ordinal rotation, so consecutive editions never repeat and a week shows the full range.
 
 Cost is **tiered**, because 18 images at full quality would not fit the daily budget: the
-headliner and both subarticles render at 1024² / 28 steps (~12 min each), the Craic & Throttle
-desk at 1024² / 8 steps, and the ten AI shorts as 512² spot thumbnails. That is ~67 minutes of
-GPU against a 180-minute task cap. Text is permitted **only** on the 28-step heroes — at 8 steps
-the lettering mangles, and a misspelled word reads as broken in a way a misshapen elbow never
-does.
+headliner and both subarticles render at 1024² / 28 steps, the Craic & Throttle desk at
+1024² / 20, and the ten AI shorts as 512² / 20 spot thumbnails. That is ~61 minutes of GPU
+against a 180-minute task cap. **No tier goes below 20 steps** — FLUX.2 [dev] is designed for
+20–50, and under-sampling it costs limbs and legible lettering, not just fine detail.
+
+Text is permitted **only on the heroes** — an editorial choice about the page, not a
+by-product of the step count. A misspelled word reads as broken in a way a misshapen elbow
+never does, so lettering is asked for the way the model documents: the exact words in quotes,
+bound to a surface in the scene, five words at most.
 
 **Open-source only:** generation runs on **Qwen3.8-27B** (text, NVFP4 on the DGX Spark) and
 **FLUX.2 [dev]** (images, BF16 via ComfyUI on the M3 Ultra), and the daily **voice clones** on **Qwen3-TTS** (M3 mlx-audio), all via a

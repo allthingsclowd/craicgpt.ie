@@ -108,10 +108,11 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │      rather than a literal headline. ONE house cartoon style per edition, rotating
    │      DAILY across four looks (Beano / Simpsons / Saturday-morning / plasticine) —
    │      a true day-ordinal cycle, so consecutive editions never repeat. Cost is
-   │      TIERED — hero 1024²@28 steps, fun 1024²@8, shorts 512²@8 — which is what
-   │      makes 18 images fit the 190-min task cap (28 steps everywhere = 3h38m).
-   │      Text is allowed ONLY on the 28-step heroes (8-step lettering mangles);
-   │      translations share those images, so a hero bubble stays English everywhere.
+   │      TIERED — hero 1024²@28, fun 1024²@20, shorts 512²@20 ≈ 61 min. NO tier
+   │      below 20: FLUX.2 targets 20-50 and under-sampling costs LIMBS, not detail.
+   │      Text ONLY on heroes (RenderSpec.allows_text, an explicit flag — it is an
+   │      editorial choice, not a function of steps); translations share those
+   │      images, so a hero bubble stays English on every language.
    │
    ├─ 5. COMPILE (compile.py, schema v3)
    │
@@ -274,6 +275,17 @@ floated 512px spot thumbnail (`.card--ai.card--short .card-img`). Illustrated it
 the additive `_image_gag` (the visual joke, reused as `image_alt` because it describes what is
 actually in the frame) and `_image_tier` (`hero`/`standard`/`thumbnail`).
 
+> **FLUX.2 is guidance-distilled — never raise `cfg`, and never negate.** Two rules that cost
+> a full edition on 2026-08-26. (1) The ComfyUI graph must run KSampler `cfg 1.0` with a
+> `FluxGuidance` node (3.5) on the positive conditioning. It ran `cfg 4.0` with no FluxGuidance
+> at all, which engaged real two-pass CFG on a model built not to need it — **2x the compute**
+> (742s → 411s once fixed, grazlab-llm-fleet #166). (2) The Mistral encoder reads English
+> negation as things to DRAW — BFL's own example is that "without glasses" renders glasses. Our
+> nine-NO text ban coincided with every style candidate rendering a "STOP" sign anyway. Every
+> prompt fragment is now positive, and `tests/test_image_pipeline.py` fails on any negation in
+> a clause or style descriptor. **A negative prompt is inert here** (no unconditional pass to
+> attach one to) — `negative_prompt_for` returns "".
+
 > **A silent fallback is a different result, not a degraded one.** `generate_image` falls back
 > from `IMAGE_MODEL` to `IMAGE_FALLBACK_MODEL` on ANY exception — including a client timeout. On
 > 2026-08-26 the image client had no explicit timeout, so the SDK's 600s default applied against
@@ -370,7 +382,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `JUDGE_MODEL` (rubric judge) | No | `m3/mlx/qwen3-coder-next-4bit` (independent of the writer) |
 | `IMAGE_MODEL` | No | `m3/comfy/flux-2-dev` (high-def text; 727s @28 steps, 201s @8) |
 | `IMAGE_FALLBACK_MODEL` | No | `m3/comfy/qwen-image` (same ComfyUI process — crossing over pays a model-set reload) |
-| `IMAGE_REQUEST_TIMEOUT` | No | `1800` — **must exceed the slowest render.** The openai SDK defaults to 600s; a 28-step flux render is ~720s. See the gotcha below |
+| `IMAGE_REQUEST_TIMEOUT` | No | `1800` — **must exceed the slowest render.** The openai SDK defaults to 600s and to `max_retries=2`; both are overridden in `images.py`. A 28-step flux render was ~720s before the graph fix, ~353-411s after |
 | `AUDIO_TTS_BASE_URL` (narration; M3 mlx-audio direct) | No | `http://192.168.50.206:8081/v1` |
 | `AUDIO_TTS_MODEL` (voice clone) | No | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` |
 | `GRAHAM_REF_AUDIO` / `TOM_REF_AUDIO` (M3-side ref WAVs) | No | `/Users/graz/ai-models/voice-ref/{graham,tom}/ref.wav` |

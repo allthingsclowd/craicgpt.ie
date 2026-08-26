@@ -53,10 +53,15 @@ from datetime import date
 
 # The exact no-typography framing (was inline in editor_in_chief._image_prompt).
 # Centralised here so every style is guaranteed text-free in one place.
+# Say what we WANT, never what we want to avoid. FLUX.2's Mistral encoder treats English
+# negation as semantically loaded — Black Forest Labs' own guidance is "always describe what
+# you want, not what you want to avoid", and their worked example is that "without glasses"
+# renders glasses. The previous version of this clause was nine consecutive NOs about text,
+# and every one of the four style candidates rendered a "STOP" sign anyway. The ban was
+# plausibly SUMMONING the lettering it meant to forbid.
 NO_TEXT_CLAUSE = (
-    "IMPORTANT: absolutely NO text, NO letters, NO words, NO numbers, NO signage, "
-    "NO logos, NO brand names, NO screens showing text, NO watermarks, NO captions "
-    "anywhere in the frame. A clean image with zero typography."
+    "A purely visual scene that tells the joke through action, expression and body language "
+    "alone — plain uncluttered surfaces, blank walls, unmarked props."
 )
 
 # What to keep OUT of the frame. The ComfyUI shim honours `negative_prompt`
@@ -65,21 +70,22 @@ NO_TEXT_CLAUSE = (
 # prompt, because diffusion models are poor at negation. Two jobs here:
 #   - ROUNDNESS, which is Graham's standing brief for the cartoons ("no sharp edges")
 #   - the text suppression that NO_TEXT_CLAUSE alone no longer achieves
-_NEGATIVE_BASE = (
-    "sharp edges, hard corners, angular, jagged, spiky, harsh geometry, "
-    "photorealistic, photograph, gritty, grim, dark, horror, scary, gore"
-)
-_NEGATIVE_TEXT = (
-    ", text, letters, words, numbers, signage, watermark, caption, subtitles"
-)
-
-# Text-free by default; the hero tier drops the text bans (see TEXT_STEP_FLOOR).
-NEGATIVE_PROMPT = _NEGATIVE_BASE + _NEGATIVE_TEXT
+# NO NEGATIVE PROMPT. FLUX.2 [dev] is guidance-distilled: the unconditional pathway is
+# collapsed into the network, so there is no second forward pass for a negative embedding to
+# attach to. Sending one is inert at best. At the cfg the shim currently runs it was actively
+# harmful — the string used to read "sharp edges, hard corners, angular, jagged", and
+# LETTERFORMS ARE SHARP EDGES AND HARD CORNERS, so the sampler was pushing legible type out
+# of the very tier that is allowed a speech bubble.
+#
+# Roundness is now asked for POSITIVELY, in the style descriptors themselves — every preset
+# below says "rounded", "soft outlines" or "moulded". That is the durable place for it.
+NEGATIVE_PROMPT = ""
 
 
 def negative_prompt_for(spec: "RenderSpec | None" = None) -> str:
-    """The negative prompt for a slot — text bans included unless text is allowed."""
-    return _NEGATIVE_BASE if (spec and spec.allows_text) else NEGATIVE_PROMPT
+    """Always empty — see NEGATIVE_PROMPT. Kept as a seam so the caller need not care, and
+    so a future non-distilled route (qwen-image uses true CFG) can reintroduce one here."""
+    return ""
 
 
 # Text is permitted only on renders with enough steps to letter it cleanly.
@@ -95,11 +101,15 @@ TEXT_STEP_FLOOR = 20
 # What to ASK for when text is allowed. Deliberately modest: a few hand-lettered
 # words in a bubble is where a Beano panel's joke lives, but a paragraph is where
 # a diffusion model's spelling falls apart.
+# FLUX.2 renders text well, but only when asked the documented way: put the string in
+# QUOTES and BIND it to a physical surface, because the model paints letters onto objects
+# rather than compositing a caption. Reliability falls off past four or five words per
+# quoted block, which is where the five-word cap comes from — it is the model's limit, not
+# a stylistic preference.
 TEXT_CLAUSE = (
-    "You MAY include a short hand-lettered speech bubble or a few words of comic "
-    "signage if it sharpens the joke — at most FIVE words, spelled correctly, in "
-    "clear cartoon lettering. Never a paragraph, never body text, never a watermark. "
-    "If the gag works without words, use none."
+    "If a few words sharpen the joke, letter them onto a surface in the scene — a speech "
+    "bubble, a sign, a banner — writing the exact words in quotes, at most FIVE words, in "
+    "bold hand-lettered cartoon capitals. Otherwise let the picture carry the joke alone."
 )
 
 
@@ -113,32 +123,53 @@ class RenderSpec:
 
     size: str
     steps: int
-
-    @property
-    def allows_text(self) -> bool:
-        """Whether this render has enough steps to letter text legibly."""
-        return self.steps >= TEXT_STEP_FLOOR
+    allows_text: bool = False
 
     @property
     def est_seconds(self) -> float:
-        """Rough wall-clock, from the 2026-08-25 measurements.
+        """Rough wall-clock, re-measured 2026-08-26 AFTER the ComfyUI graph fix.
 
-        ~26 s/step at 1024x1024 and ~7 s/step at 512x512, plus a fixed ~14 s of text
-        encode + VAE decode + transfer that dominates once steps get small. Used to
-        budget an edition BEFORE spending three hours discovering it does not fit.
+        ~14 s/step at 1024x1024 and ~4 s/step at 512x512, plus a fixed ~14 s of text
+        encode + VAE decode + transfer that dominates once steps get small.
+
+        These roughly HALVED on 2026-08-26 (from 26 and 7). The flux graph had been
+        running true two-pass classifier-free guidance on a guidance-distilled model —
+        cfg 4.0 with no FluxGuidance node — so every image cost two model evaluations
+        per step. Measured same prompt and seed, 28 steps at 1024x1024: 742 s before,
+        411 s after (grazlab-llm-fleet #166).
+
+        Used to budget an edition BEFORE spending three hours discovering it does not fit.
         """
         w, _, h = self.size.partition("x")
-        per_step = 26.0 if int(w) * int(h) > 512 * 512 else 7.0
+        per_step = 14.2 if int(w) * int(h) > 512 * 512 else 4.0
         return self.steps * per_step + 14.0
 
 
-# The three tiers. Graham's call, 2026-08-25: the page-leading images get the full
-# 28 steps; everything else is bought down. 3x28 + 5x8 + 10x8@512 lands the whole
-# edition around 65 minutes of images, inside the existing 190-minute cap and the
-# existing 06:00-08:00 publish-gate window — no cron changes needed (issue #101).
-HERO = RenderSpec("1024x1024", 28)        # the headliner + both subarticles
-STANDARD = RenderSpec("1024x1024", 8)     # the Craic & Throttle desk
-THUMBNAIL = RenderSpec("512x512", 8)      # the ten AI shorts
+# The three tiers. The page-leading images get the full 28 steps (Graham's call); the
+# rest are bought down — but NOT below 20.
+#
+# THE 8-STEP TIERS WERE A MISTAKE, corrected 2026-08-26. FLUX.2 [dev] targets 20-50
+# sampling steps; at 8 it under-samples badly, and that is what produced the missing
+# limbs and the garbled small lettering ("CHAKE SOME NOISE" on a motorcycle fairing) in
+# the 2026-08-26 edition. 8 was chosen purely to fit the budget, before anyone had looked
+# at what it did to the pictures.
+#
+# What makes 20 affordable is the ComfyUI graph fix (grazlab-llm-fleet #166) — flux was
+# paying double for two-pass CFG it does not need, so every render roughly halved:
+#
+#     3 x 1024@28  + 5 x 1024@20 + 10 x 512@20  =  ~61 min of images
+#
+# against ~67 min for the OLD all-8-step layout. More steps everywhere, and cheaper.
+# `allows_text` is an EXPLICIT flag, not a function of the step count. It was derived from
+# steps until 2026-08-26, when raising the cheap tiers from 8 to 20 silently switched text ON
+# for the whole paper — Graham's decision was "text is allowed in the hero images", and that
+# is an editorial choice about the page, not a side effect of a cost knob.
+#
+# TEXT_STEP_FLOOR still applies as a PHYSICAL floor: a tier may only opt in if it has enough
+# steps to letter legibly. A test enforces that pairing.
+HERO = RenderSpec("1024x1024", 28, allows_text=True)   # the headliner + both subarticles
+STANDARD = RenderSpec("1024x1024", 20)                 # the Craic & Throttle desk
+THUMBNAIL = RenderSpec("512x512", 20)                  # the ten AI shorts
 
 _TIERS = {"hero": HERO, "standard": STANDARD, "thumbnail": THUMBNAIL}
 
@@ -173,7 +204,7 @@ STYLE_PRESETS: list[dict] = [
     {"name": "plasticine", "label": "plasticine stop-motion",
      "descriptor": "A soft claymation and plasticine stop-motion scene: rounded modelled "
                    "figures with visible thumbprint texture, chunky tactile shapes, warm "
-                   "studio lighting, every form moulded with no sharp edges"},
+                   "studio lighting, every form moulded soft and rounded"},
 ]
 
 
@@ -181,9 +212,13 @@ STYLE_PRESETS: list[dict] = [
 # a car: the image model sees just a title + a short gist, and "Honda CB1000GT" renders a
 # saloon perfectly happily. `_vertical` is stamped deterministically in
 # editor_in_chief._write_fun from the creator credit — never inferred here.
+# Same rule, and this one is load-bearing for #104. The old wording listed every car word we
+# were trying to avoid ("It is NOT a car: no car, no saloon, no hatchback...") — which on this
+# encoder is a list of cars to draw. Describe the motorcycle instead, positively and
+# concretely, and never name the thing we do not want.
 _MOTO_IMAGE_CLAUSE = (
-    " The subject is a MOTORCYCLE — two wheels, a rider in a helmet. It is NOT a car: "
-    "no car, no saloon, no hatchback, no SUV, no four wheels, no steering wheel, no car doors."
+    " The vehicle is a two-wheeled motorcycle: a rider in a full helmet and leathers sitting "
+    "astride it, hands on the handlebars, both wheels visible, exhaust pipe and kickstand."
 )
 
 
@@ -200,7 +235,11 @@ def build_image_prompt(item: dict, style: dict, gag: str | None = None,
     title = item.get("title", "")
     moto = _MOTO_IMAGE_CLAUSE if item.get("_vertical") == "moto" else ""
     if gag:
-        scene = f"{gag} A visual joke about: {title}."
+        # The gag alone IS the scene. The title used to be appended here as "A visual joke
+        # about: <title>", and on 2026-08-26 the model dutifully lettered the entire 13-word
+        # headline into a speech bubble — well past the five-word reliability limit, and a
+        # duplicate of the headline sitting directly above the picture on the page.
+        scene = gag
     else:
         gist = (item.get("body") or item.get("summary") or "")[:140]
         scene = f"depicting the scene of: {title}. {gist}"
