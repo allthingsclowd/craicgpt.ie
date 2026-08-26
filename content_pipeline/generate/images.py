@@ -51,9 +51,14 @@ def _default_client() -> Any:
     """Build an OpenAI client pointed at the LiteLLM proxy (lazy import)."""
     from openai import OpenAI
 
+    # The timeout is NOT optional. Without it the SDK applies its 600 s default, which is
+    # SHORTER than a 28-step flux render (~720 s) — the client hangs up mid-render, the
+    # fallback fires, and ComfyUI keeps rendering the abandoned job anyway. See
+    # content_cfg.image_request_timeout for the incident this encodes.
     return OpenAI(
         base_url=content_cfg.litellm_base_url,
         api_key=content_cfg.litellm_api_key,
+        timeout=content_cfg.image_request_timeout,
     )
 
 

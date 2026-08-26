@@ -274,6 +274,18 @@ floated 512px spot thumbnail (`.card--ai.card--short .card-img`). Illustrated it
 the additive `_image_gag` (the visual joke, reused as `image_alt` because it describes what is
 actually in the frame) and `_image_tier` (`hero`/`standard`/`thumbnail`).
 
+> **A silent fallback is a different result, not a degraded one.** `generate_image` falls back
+> from `IMAGE_MODEL` to `IMAGE_FALLBACK_MODEL` on ANY exception — including a client timeout. On
+> 2026-08-26 the image client had no explicit timeout, so the SDK's 600s default applied against
+> a ~720s 28-step flux render: every hero hung up mid-render, fell back to qwen-image, and left
+> ComfyUI finishing the abandoned job (it does not cancel) — which then queued the fallback
+> behind it AND forced a 93GB model-set swap each way. Two images in 129 minutes; the run was
+> terminated. The published pictures were fallback output, so the chosen route never served a
+> request and the hero text policy was inert. `IMAGE_REQUEST_TIMEOUT` now covers it, with a test
+> asserting it exceeds the slowest tier's `est_seconds`. **Diagnose by the ComfyUI log on the
+> M3** (`~/Library/Logs/grazlab-comfy/comfyui.err.log`): ~25 s/it is flux, ~6.3 s/it at 28 steps
+> is the fallback.
+
 > **The "literal list of slots" gotcha — it has bitten THREE times.** `publish.py`'s image-upload
 > walk, `_trace_images`, and the frontend each hard-code which slots carry an image. Shorts were
 > added to all three in 2026-08. A slot missing from the publish walk keeps its local `/tmp` path
@@ -358,6 +370,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `JUDGE_MODEL` (rubric judge) | No | `m3/mlx/qwen3-coder-next-4bit` (independent of the writer) |
 | `IMAGE_MODEL` | No | `m3/comfy/flux-2-dev` (high-def text; 727s @28 steps, 201s @8) |
 | `IMAGE_FALLBACK_MODEL` | No | `m3/comfy/qwen-image` (same ComfyUI process — crossing over pays a model-set reload) |
+| `IMAGE_REQUEST_TIMEOUT` | No | `1800` — **must exceed the slowest render.** The openai SDK defaults to 600s; a 28-step flux render is ~720s. See the gotcha below |
 | `AUDIO_TTS_BASE_URL` (narration; M3 mlx-audio direct) | No | `http://192.168.50.206:8081/v1` |
 | `AUDIO_TTS_MODEL` (voice clone) | No | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` |
 | `GRAHAM_REF_AUDIO` / `TOM_REF_AUDIO` (M3-side ref WAVs) | No | `/Users/graz/ai-models/voice-ref/{graham,tom}/ref.wav` |
