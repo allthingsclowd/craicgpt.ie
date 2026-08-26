@@ -71,9 +71,6 @@ def test_without_a_gag_we_still_get_a_usable_prompt():
     assert "T" in p and "the body text" in p
 
 
-def test_the_negative_prompt_covers_roundness_and_text():
-    for term in ("sharp edges", "angular", "photorealistic", "text", "watermark"):
-        assert term in NEGATIVE_PROMPT
 
 
 def test_presets_are_wellformed():
@@ -267,42 +264,27 @@ def test_every_preset_is_a_cartoon_with_no_sharp_edges():
 
 
 # ── The text policy (#106) ────────────────────────────────────────────────────
-def test_only_the_hero_tier_may_carry_text():
-    """Graham's call: text on the 20+ step renders. At 8 steps FLUX letterforms come
-    out mangled, and a misspelled word reads as broken far more than a bad elbow."""
-    assert HERO.allows_text
-    assert not STANDARD.allows_text
-    assert not THUMBNAIL.allows_text
-    assert HERO.steps >= TEXT_STEP_FLOOR > STANDARD.steps
 
 
-def test_the_hero_prompt_permits_a_bubble_and_the_others_ban_text():
+def test_the_hero_prompt_permits_a_bubble_and_the_others_stay_wordless():
     p_hero = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", HERO)
-    assert TEXT_CLAUSE in p_hero
+    assert "letter them onto a surface" in p_hero
     for spec in (STANDARD, THUMBNAIL):
         p = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", spec)
-        assert "absolutely NO text" in p
+        assert "purely visual scene" in p
+        assert "letter them onto a surface" not in p
 
 
-def test_omitting_the_spec_bans_text():
-    """Fail SAFE: an un-specced call must not accidentally licence text."""
-    assert "absolutely NO text" in build_image_prompt({"title": "T"}, _STYLE, "a gag")
+def test_omitting_the_spec_stays_wordless():
+    """Fail SAFE: an un-specced call must not accidentally licence lettering."""
+    assert "purely visual scene" in build_image_prompt({"title": "T"}, _STYLE, "a gag")
 
 
-def test_the_negative_prompt_drops_the_text_bans_only_for_the_hero():
-    assert "letters" not in negative_prompt_for(HERO)
-    assert "letters" in negative_prompt_for(STANDARD)
-    assert "letters" in negative_prompt_for(None), "no spec must stay text-free"
-    # Roundness is non-negotiable at every tier — it is the standing brief.
-    for spec in (HERO, STANDARD, THUMBNAIL, None):
-        assert "sharp edges" in negative_prompt_for(spec)
 
 
 def test_the_text_clause_keeps_it_short():
-    """A few words in a bubble is where the joke lives; a paragraph is where a
-    diffusion model's spelling falls apart."""
+    """Five words is FLUX.2's documented reliability limit per quoted block, not taste."""
     assert "FIVE words" in TEXT_CLAUSE
-    assert "paragraph" in TEXT_CLAUSE
 
 
 def test_generate_images_gives_the_hero_a_text_budget_and_shorts_none(monkeypatch):
@@ -314,8 +296,8 @@ def test_generate_images_gives_the_hero_a_text_budget_and_shorts_none(monkeypatc
           "shorts": [{"title": "S", "body": "b"}]}
     eic._generate_images(ai, [], "2026-09-01",
                          generate=lambda p: prompts.append(p) or ("/tmp/x.png", "m"))
-    assert TEXT_CLAUSE in prompts[0], "the headliner may letter a bubble"
-    assert "absolutely NO text" in prompts[1], "a 512px short must stay wordless"
+    assert "letter them onto a surface" in prompts[0], "the headliner may letter a bubble"
+    assert "purely visual scene" in prompts[1], "a 512px short must stay wordless"
 
 
 # ── The edition's style reaches the reader (#100 tutorial payoff) ─────────────
@@ -394,3 +376,87 @@ def test_the_chat_timeout_is_not_reused_for_images():
     from content_pipeline.content_config import content_cfg
 
     assert content_cfg.image_request_timeout != content_cfg.request_timeout
+
+
+# ── FLUX.2 hates negation — every prompt fragment must be positive ────────────
+# Black Forest Labs: "FLUX.2 does not support negative prompts. Always describe what you
+# want, not what you want to avoid." The Mistral encoder treats negation as semantically
+# LOADED — their worked example is that "without glasses" renders glasses. On 2026-08-26 our
+# nine-NO text ban coincided with every style candidate rendering a "STOP" sign anyway.
+_NEGATION = __import__("re").compile(r"\b(no|not|never|without|avoid|zero)\b", __import__("re").I)
+
+
+def _fragments():
+    from content_pipeline.generate import image_styles as st
+
+    yield "NO_TEXT_CLAUSE", st.NO_TEXT_CLAUSE
+    yield "TEXT_CLAUSE", st.TEXT_CLAUSE
+    yield "_MOTO_IMAGE_CLAUSE", st._MOTO_IMAGE_CLAUSE
+    for p in st.STYLE_PRESETS:
+        yield f"preset:{p['name']}", p["descriptor"]
+
+
+def test_no_prompt_fragment_uses_english_negation():
+    offenders = {name: _NEGATION.findall(text) for name, text in _fragments()
+                 if _NEGATION.search(text)}
+    assert not offenders, (
+        f"negation found in {offenders} — FLUX.2's encoder reads these as things to DRAW. "
+        "Rewrite positively: say what should be in the frame."
+    )
+
+
+def test_the_negative_prompt_is_empty():
+    """Guidance-distilled models have no unconditional pass to attach one to."""
+    from content_pipeline.generate.image_styles import HERO, STANDARD, negative_prompt_for
+
+    for spec in (HERO, STANDARD, None):
+        assert negative_prompt_for(spec) == ""
+
+
+def test_the_gag_alone_is_the_scene():
+    """The headline must not be handed to the model as renderable text — on 2026-08-26 it
+    lettered a 13-word headline into a speech bubble, well past the 5-word reliability limit."""
+    from content_pipeline.generate.image_styles import HERO, build_image_prompt
+
+    long_title = "Mistral's Saudi Gamble The Sovereign AI Playbook Goes To The Gulf"
+    p = build_image_prompt({"title": long_title, "body": "b"}, _STYLE, "a chef serves a brain", HERO)
+    assert long_title not in p
+    assert "a chef serves a brain" in p
+
+
+def test_the_text_clause_asks_for_quoted_words_on_a_surface():
+    """FLUX.2 paints letters onto objects; it needs the string quoted and bound to a surface."""
+    from content_pipeline.generate.image_styles import TEXT_CLAUSE
+
+    assert "quotes" in TEXT_CLAUSE
+    assert "FIVE words" in TEXT_CLAUSE
+
+
+def test_the_image_client_does_not_retry_expensive_renders():
+    """SDK default is 2 retries; each one launches a fresh 12-minute GPU render."""
+    from content_pipeline.generate import images as I
+
+    assert I._default_client().max_retries == 0
+
+
+def test_only_the_hero_opts_into_text():
+    """Graham's call: text on the HERO images. It is an editorial choice about the page,
+    not a by-product of the step count — raising the cheap tiers to 20 steps on
+    2026-08-26 silently switched text on everywhere until this was made explicit."""
+    assert HERO.allows_text
+    assert not STANDARD.allows_text
+    assert not THUMBNAIL.allows_text
+
+
+def test_any_tier_allowing_text_has_enough_steps_to_letter_it():
+    """The physical constraint that survives: below ~20 steps FLUX letterforms mangle."""
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        if spec.allows_text:
+            assert spec.steps >= TEXT_STEP_FLOOR, f"{spec} lets text through at {spec.steps} steps"
+
+
+def test_no_tier_under_samples_flux():
+    """FLUX.2 [dev] targets 20-50 steps. The 8-step tiers shipped missing limbs and
+    garbled lettering on 2026-08-26; 20 is the floor now, for every tier."""
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        assert spec.steps >= 20, f"{spec} under-samples FLUX.2 at {spec.steps} steps"

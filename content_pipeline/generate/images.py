@@ -55,10 +55,16 @@ def _default_client() -> Any:
     # SHORTER than a 28-step flux render (~720 s) — the client hangs up mid-render, the
     # fallback fires, and ComfyUI keeps rendering the abandoned job anyway. See
     # content_cfg.image_request_timeout for the incident this encodes.
+    # max_retries=0 is deliberate. The SDK defaults to 2, and on 2026-08-26 that turned a
+    # 600 s timeout into a 30-minute stall: three attempts, each launching a SEPARATE
+    # 12-minute ComfyUI render, all discarded. Retrying an image generation is not free the
+    # way retrying a chat call is — the GPU has already done the work. `generate_image`
+    # already walks to the fallback route, which is the retry that actually helps.
     return OpenAI(
         base_url=content_cfg.litellm_base_url,
         api_key=content_cfg.litellm_api_key,
         timeout=content_cfg.image_request_timeout,
+        max_retries=0,
     )
 
 
