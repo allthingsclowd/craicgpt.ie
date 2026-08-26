@@ -9,7 +9,7 @@ the prompt composition are getting their first coverage here.
 
 import pytest
 
-from content_pipeline.generate.image_gag import build_gag
+from content_pipeline.generate.image_gag import Gag, build_gag, caption_problems
 from content_pipeline.generate.image_styles import (
     HERO,
     NEGATIVE_PROMPT,
@@ -80,12 +80,14 @@ def test_presets_are_wellformed():
 
 
 # ── The gag step (#102) ───────────────────────────────────────────────────────
-def _gen(gag):
-    return lambda prompt: {"gag": gag}
+def _gen(gag, caption="A FINE CAPTION"):
+    return lambda prompt: {"gag": gag, "caption": caption}
 
 
-def test_build_gag_returns_the_line():
-    assert build_gag({"title": "T", "body": "B"}, generate=_gen("a funny thing")) == "a funny thing"
+def test_build_gag_returns_the_line_and_the_caption():
+    g = build_gag({"title": "T", "body": "B"}, generate=_gen("a funny thing", "HELLO THERE"))
+    assert g.gag == "a funny thing"
+    assert g.caption == "HELLO THERE"
 
 
 def test_build_gag_tells_the_model_when_it_is_a_motorcycle():
@@ -125,7 +127,7 @@ def test_generate_images_stamps_the_gag_and_tier(monkeypatch):
     from content_pipeline.agent import editor_in_chief as eic
 
     monkeypatch.setattr("content_pipeline.generate.image_gag.build_gag",
-                        lambda item, **kw: f"gag for {item['title']}")
+                        lambda item, **kw: Gag(gag=f"gag for {item['title']}", caption="A CAPTION"))
     ai = {"headliner": {"title": "H", "body": "b"}, "subarticles": [],
           "shorts": [{"title": "S", "body": "b"}]}
     eic._generate_images(ai, [], "2026-08-25", generate=lambda p: ("/tmp/x.png", "m"))
@@ -141,7 +143,8 @@ def test_generate_images_stamps_the_gag_and_tier(monkeypatch):
 def test_a_failed_image_clears_the_url_rather_than_raising(monkeypatch):
     from content_pipeline.agent import editor_in_chief as eic
 
-    monkeypatch.setattr("content_pipeline.generate.image_gag.build_gag", lambda item, **kw: "g")
+    monkeypatch.setattr("content_pipeline.generate.image_gag.build_gag",
+                        lambda item, **kw: Gag(gag="g", caption="C"))
 
     def boom(prompt):
         raise RuntimeError("comfy down")
@@ -266,13 +269,28 @@ def test_every_preset_is_a_cartoon_with_no_sharp_edges():
 # ── The text policy (#106) ────────────────────────────────────────────────────
 
 
-def test_the_hero_prompt_permits_a_bubble_and_the_others_stay_wordless():
-    p_hero = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", HERO)
-    assert "letter them onto a surface" in p_hero
-    for spec in (STANDARD, THUMBNAIL):
-        p = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", spec)
+def test_a_supplied_caption_appears_verbatim_on_every_tier():
+    """THE regression guard. The prompt must CONTAIN the words, never ask for words it has
+    not been given — that is what produced "STEMIVALIINGS MONIS AII APOR!" on 2026-08-26."""
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        p = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", spec,
+                               caption="TASTE THE FUTURE")
+        assert '"TASTE THE FUTURE"' in p, f"{spec} lost the caption"
+        assert "purely visual scene" not in p
+
+
+def test_no_prompt_ever_asks_for_words_without_supplying_them():
+    """The old TEXT_CLAUSE said "writing the exact words in quotes" and gave none."""
+    for spec in (HERO, STANDARD, THUMBNAIL, None):
+        for cap in ("", "SOME WORDS"):
+            p = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", spec, caption=cap)
+            assert "the exact words in quotes" not in p
+
+
+def test_an_empty_caption_falls_back_to_a_wordless_picture():
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        p = build_image_prompt({"title": "T", "body": "b"}, _STYLE, "a gag", spec, caption="")
         assert "purely visual scene" in p
-        assert "letter them onto a surface" not in p
 
 
 def test_omitting_the_spec_stays_wordless():
@@ -287,17 +305,6 @@ def test_the_text_clause_keeps_it_short():
     assert "FIVE words" in TEXT_CLAUSE
 
 
-def test_generate_images_gives_the_hero_a_text_budget_and_shorts_none(monkeypatch):
-    from content_pipeline.agent import editor_in_chief as eic
-
-    monkeypatch.setattr("content_pipeline.generate.image_gag.build_gag", lambda item, **kw: "g")
-    prompts = []
-    ai = {"headliner": {"title": "H", "body": "b"}, "subarticles": [],
-          "shorts": [{"title": "S", "body": "b"}]}
-    eic._generate_images(ai, [], "2026-09-01",
-                         generate=lambda p: prompts.append(p) or ("/tmp/x.png", "m"))
-    assert "letter them onto a surface" in prompts[0], "the headliner may letter a bubble"
-    assert "purely visual scene" in prompts[1], "a 512px short must stay wordless"
 
 
 # ── The edition's style reaches the reader (#100 tutorial payoff) ─────────────
@@ -439,13 +446,6 @@ def test_the_image_client_does_not_retry_expensive_renders():
     assert I._default_client().max_retries == 0
 
 
-def test_only_the_hero_opts_into_text():
-    """Graham's call: text on the HERO images. It is an editorial choice about the page,
-    not a by-product of the step count — raising the cheap tiers to 20 steps on
-    2026-08-26 silently switched text on everywhere until this was made explicit."""
-    assert HERO.allows_text
-    assert not STANDARD.allows_text
-    assert not THUMBNAIL.allows_text
 
 
 def test_any_tier_allowing_text_has_enough_steps_to_letter_it():
@@ -460,3 +460,99 @@ def test_no_tier_under_samples_flux():
     garbled lettering on 2026-08-26; 20 is the floor now, for every tier."""
     for spec in (HERO, STANDARD, THUMBNAIL):
         assert spec.steps >= 20, f"{spec} under-samples FLUX.2 at {spec.steps} steps"
+
+
+# ── Captions: supply the words, never ask for them (2026-08-26) ───────────────
+# The hero shipped `"STEMIVALIINGS MONIS AII APOR!"` because the prompt instructed the model
+# to letter "the exact words in quotes" and supplied none. A diffusion model asked to INVENT
+# text produces mush; asked to COPY a given string, it renders it.
+def test_caption_budgets_scale_with_the_canvas():
+    """Not five everywhere — a 13-word headline rendered cleanly at 1024/28 on 2026-08-26,
+    which is why the hero budget is 12 and not the general-guidance five."""
+    assert HERO.caption_words > STANDARD.caption_words > THUMBNAIL.caption_words
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        assert spec.caption_words >= 1
+
+
+def test_every_tier_may_carry_text_and_has_the_steps_for_it():
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        assert spec.allows_text
+        assert spec.steps >= TEXT_STEP_FLOOR, f"{spec} lets text through at {spec.steps} steps"
+
+
+def test_every_tier_size_is_a_multiple_of_16():
+    """The ComfyUI shim 400s otherwise — and the shorts tier moved 512 -> 768."""
+    for spec in (HERO, STANDARD, THUMBNAIL):
+        w, _, h = spec.size.partition("x")
+        assert int(w) % 16 == 0 and int(h) % 16 == 0, spec.size
+
+
+@pytest.mark.parametrize("caption,limit,expect", [
+    ("TASTE THE FUTURE", 8, []),
+    ("", 8, ["empty"]),
+    ("one two three four five six", 5, ["6 words, limit is 5"]),
+])
+def test_caption_problems_reports_the_evidence(caption, limit, expect):
+    assert caption_problems(caption, limit) == expect
+
+
+def test_caption_problems_rejects_unrenderable_characters():
+    """A stray glyph is how "ANNAKED" happens — the renderer smears what it cannot letter."""
+    assert caption_problems("HELLO ЖДЭ", 8)
+    assert caption_problems('he said "hi"', 8)      # we add the quotes; the model must not
+
+
+def test_a_bad_caption_costs_exactly_one_retry_then_goes_wordless():
+    """Never a raise, never a loop. A nonsense caption is worse than none."""
+    seen = []
+
+    def gen(prompt):
+        seen.append(prompt)
+        return {"gag": "a chef waves", "caption": "far too many words for this tiny frame"}
+
+    g = build_gag({"title": "T", "body": "B"}, max_caption_words=3, generate=gen)
+    assert len(seen) == 2, "one escalated retry, not a loop"
+    assert "rejected" in seen[1], "the retry must quote the problem back"
+    assert g.gag == "a chef waves"
+    assert g.caption == "", "unusable caption falls back to wordless"
+
+
+def test_the_retry_keeps_a_good_second_attempt():
+    calls = []
+
+    def gen(prompt):
+        calls.append(prompt)
+        return ({"gag": "g", "caption": "one two three four five"} if len(calls) == 1
+                else {"gag": "g", "caption": "SHORT"})
+
+    assert build_gag({"title": "T"}, max_caption_words=2, generate=gen).caption == "SHORT"
+
+
+def test_the_gag_step_is_told_the_tier_budget():
+    seen = []
+    build_gag({"title": "T", "body": "B"}, max_caption_words=12,
+              generate=lambda p: seen.append(p) or {"gag": "g", "caption": "C"})
+    assert "MAX 12 WORDS" in seen[0]
+
+
+# ── No leprechauns ────────────────────────────────────────────────────────────
+def test_the_gag_prompt_does_not_frame_the_paper_as_irish():
+    """4 of 18 gags reached for a leprechaun on 2026-08-26 — on Alibaba's funding round,
+    Anthropic vs OpenAI, Apple silicon and IBM Granite. Told it is an Irish paper and asked
+    to be funny, the model staples on the nearest Irish signifier."""
+    from content_pipeline.generate.image_gag import _GAG_PROMPT
+
+    assert "Irish satirical daily" not in _GAG_PROMPT
+    for cliche in ("leprechaun", "shamrock", "pots of gold"):
+        assert cliche in _GAG_PROMPT.lower(), f"{cliche} must be explicitly ruled out"
+
+
+def test_negation_is_allowed_in_the_gag_prompt_but_not_the_image_prompt():
+    """Two models, two rules. The gag step is a text-to-text LLM that handles negation
+    normally; the FLUX prompt goes through an encoder that reads negation as things to DRAW.
+    Conflating them is what produced a nine-NO text ban that summoned a STOP sign."""
+    from content_pipeline.generate.image_gag import _GAG_PROMPT
+
+    assert "Do NOT reach for national stereotypes" in _GAG_PROMPT   # fine here
+    for _, text in _fragments():                                    # never on the image side
+        assert not _NEGATION.search(text)

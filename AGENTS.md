@@ -108,11 +108,11 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │      rather than a literal headline. ONE house cartoon style per edition, rotating
    │      DAILY across four looks (Beano / Simpsons / Saturday-morning / plasticine) —
    │      a true day-ordinal cycle, so consecutive editions never repeat. Cost is
-   │      TIERED — hero 1024²@28, fun 1024²@20, shorts 512²@20 ≈ 61 min. NO tier
+   │      TIERED — hero 1024²@28, fun 1024²@20, shorts 768²@20 ≈ 75 min. NO tier
    │      below 20: FLUX.2 targets 20-50 and under-sampling costs LIMBS, not detail.
-   │      Text ONLY on heroes (RenderSpec.allows_text, an explicit flag — it is an
-   │      editorial choice, not a function of steps); translations share those
-   │      images, so a hero bubble stays English on every language.
+   │      EVERY tier carries a caption, supplied verbatim from the gag step (never
+   │      requested); budgets 12/8/5 words. Translations share these images, so a
+   │      caption stays English on every language.
    │
    ├─ 5. COMPILE (compile.py, schema v3)
    │
@@ -259,7 +259,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
   "ai": {
     "headliner":    { "title": "", "standfirst": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_audio_model": "" },
     "subarticles":  [ { "title": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "" } ],
-    "shorts":       [ { "title": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_image_gag": "", "_image_tier": "thumbnail" } ]
+    "shorts":       [ { "title": "", "body": "", "source_url": "", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "", "_image_gag": "", "_image_caption": "", "_image_tier": "thumbnail" } ]
   },
   "fun": [ { "title": "", "body": "", "source_url": "", "source": "<creator credit>", "image_url": "", "audio_url": "", "_text_model": "", "_image_model": "" } ],
   "about": { "title": "", "body": "" },
@@ -273,7 +273,23 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 Every article now carries `image_url` — **including the 10 AI shorts**, which render as a
 floated 512px spot thumbnail (`.card--ai.card--short .card-img`). Illustrated items also carry
 the additive `_image_gag` (the visual joke, reused as `image_alt` because it describes what is
-actually in the frame) and `_image_tier` (`hero`/`standard`/`thumbnail`).
+actually in the frame), `_image_caption` (the words lettered INTO the picture) and
+`_image_tier` (`hero`/`standard`/`thumbnail`).
+
+> **Supply the caption, never ask for one.** `build_image_prompt` injects the literal string —
+> `The words "TASTE THE FUTURE" appear…`. The old clause told the model to letter "the exact
+> words in quotes" and gave it none, so it invented letterforms and the 2026-08-26 hero shipped
+> `"STEMIVALIINGS MONIS AII APOR!"`. A diffusion model asked to INVENT text produces mush;
+> asked to COPY a given string, it renders it. The caption comes from the gag step
+> (`image_gag.build_gag`), is validated by `caption_problems`, gets ONE escalated retry, then
+> falls back to a wordless picture rather than shipping nonsense.
+>
+> **Word budgets scale with the canvas** — hero 12, fun 8, shorts 5. Not five everywhere: a
+> 13-word headline rendered cleanly at 1024²/28 on 2026-08-26.
+>
+> **No leprechauns.** The gag prompt used to open "an Irish satirical daily" and 4 of 18 gags
+> stapled a leprechaun onto stories about chip foundries and funding rounds. The desk's
+> Irishness lives in the WRITER's voice, not in every picture.
 
 > **FLUX.2 is guidance-distilled — never raise `cfg`, and never negate.** Two rules that cost
 > a full edition on 2026-08-26. (1) The ComfyUI graph must run KSampler `cfg 1.0` with a
