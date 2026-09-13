@@ -411,7 +411,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `AI_FEED_HOURS` | No | `48` |
 | `S3_BUCKET` | Yes (publish) | `craicgpt-ie-production` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | Yes (live publish) | — |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yes (publish) | — |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yes (publish) | sourced from 1Password `op://AgentCredentials/AWS craicgpt-publish IAM` by `deploy_frontend.sh` (fully-qualified; ambient fallback) |
 | `TELEGRAM_OPENCLAW_BOT_TOKEN` / `TELEGRAM_HERMES_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | No | — |
 
 ---
@@ -433,6 +433,30 @@ The autonomous schedule (`craicgpt_daily_0500` @05:00 generate-and-judge,
 `craicgpt_publish_gate_poll` @06–08, UTC) does the rest — the rubric judge now runs
 **in-pipeline** at generation time, so the old agent-VM `craicgpt-review.timer` is retired.
 The daily workflow `craicgpt_daily_content` (v3) chains **generate → narrate → gate**.
+
+### The reader-facing frontend deploy (`deploy_frontend.sh`)
+
+`./deploy_frontend.sh` regenerates the per-language HTML shells, syncs `frontend/` → the S3
+bucket (excluding the pipeline-owned `content/*`/`preview/*`, with `Cache-Control: no-cache`
+so a deploy is not held stale in the browser), and invalidates CloudFront. The **daily publish
+gate also syncs `frontend/`**, so the shell is redeployed on every live edition — a manual run
+is only for an out-of-cycle frontend change.
+
+**Credentials are sourced from 1Password — the Agent Credentials vault** — so an unattended
+service-account token can resolve them. One item, **`AWS craicgpt-publish IAM`**, carries the
+access key (`username`), secret (`credential`), `s3 bucket`, `region` and `cloudfront distribution
+id`; the deploy reads them with a **fully-qualified** reference, e.g.
+`op read "op://AgentCredentials/AWS craicgpt-publish IAM/username"`.
+
+> **GOTCHA — a service account MUST fully-qualify the vault.** An unqualified
+> `op://<item>/<field>` fails with *"a vault query must be provided when this command is called by
+> a service account"*. Always `op://<vault>/<item>/<field>`. (The old `.env` used unqualified
+> refs — which is why unattended deploys broke.) Override the item with `CRAICGPT_OP_ITEM`.
+
+If 1Password is unreachable the script falls back to an optional `.env`, then to the **ambient
+AWS credentials** (as the geek + paddy deploys use). The same principle holds for the other
+properties: deploy creds should live in the Agent Credentials vault (`AWS geek-worker IAM`, …),
+always fully-qualified.
 
 ### CRITICAL GOTCHA — two SEPARATE worker services on `.75` (this cost real debugging time)
 
