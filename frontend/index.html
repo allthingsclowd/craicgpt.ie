@@ -97,6 +97,11 @@
     </div>
 
     <div class="masthead-dateline">
+      <!-- Page BACK through the daily editions — skips a "day off" gap, disabled when
+           nothing older is within the probe window (#134). Localised via data-i18n;
+           main.js wires the click + a localised aria-label + the enabled/disabled state. -->
+      <button type="button" id="nav-older" class="edition-nav-btn"
+              data-i18n="navOlder" aria-label="Go to the previous (older) edition">◀ Older</button>
       <span id="current-date" class="dateline-date">Loading edition…</span>
       <span class="dateline-sep">|</span>
       <label for="date-picker" class="sr-only">Choose an edition date</label>
@@ -106,6 +111,9 @@
       <input type="text" id="date-picker" class="date-input">
       <label for="version-select" class="sr-only">Edition version</label>
       <select id="version-select" class="version-select" hidden></select>
+      <!-- Page FORWARD — never probes past today; disabled on the most recent edition (#134). -->
+      <button type="button" id="nav-newer" class="edition-nav-btn"
+              data-i18n="navNewer" aria-label="Go to the next (newer) edition">Newer ▶</button>
     </div>
   </div>
 
