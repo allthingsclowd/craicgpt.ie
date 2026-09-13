@@ -25,15 +25,23 @@ error() { echo -e "${RED}[deploy]${RESET} $*" >&2; }
 
 # ── Load .env ─────────────────────────────────────────────────────────────────
 
-if [ ! -f "$ENV_FILE" ]; then
-  error ".env not found. Copy .env.example and fill in your AWS credentials."
-  exit 1
+# Load .env if present (best-effort). It may reference 1Password op:// items that
+# only resolve with an interactive vault; ignore those failures and fall back to the
+# ambient AWS credentials / shell environment, exactly like the geek + paddy deploys.
+if [ -f "$ENV_FILE" ]; then
+  set -a; source "$ENV_FILE" 2>/dev/null || true; set +a
 fi
 
-set -a; source "$ENV_FILE"; set +a
+# If the .env left AWS creds empty or as an unresolved op:// ref, drop them so the
+# ambient AWS config/profile is used instead of an empty/invalid override.
+case "${AWS_ACCESS_KEY_ID:-}" in ""|op://*) unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY 2>/dev/null || true ;; esac
+case "${S3_BUCKET:-}"        in ""|op://*) S3_BUCKET="craicgpt-ie-production" ;; esac
+case "${CLOUDFRONT_DISTRIBUTION_ID:-}" in ""|op://*) CLOUDFRONT_DISTRIBUTION_ID="E1DJEM9WBUG1C1" ;; esac
+AWS_REGION="${AWS_REGION:-eu-west-1}"
 
-if [ -z "${S3_BUCKET:-}" ] || [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
-  error "S3_BUCKET and AWS credentials must be set in .env"
+# Require an authenticated AWS session (ambient creds are fine; no secret lives in-repo).
+if ! aws sts get-caller-identity >/dev/null 2>&1; then
+  error "no authenticated AWS session (set up AWS creds, or fill .env)."
   exit 1
 fi
 
