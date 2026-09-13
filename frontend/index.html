@@ -49,7 +49,7 @@
         <img class="logo" src="/static_assets/images/favicon-64x64.png" alt="The Craic Gazette">
         <span class="brand-text">
           <span class="wordmark">THE CRAIC <span class="em">GAZETTE</span></span>
-          <span class="tagline">An Irish daily, minus the doom</span>
+          <span class="tagline" data-i18n="tagline">An Irish daily, minus the doom</span>
         </span>
       </a>
 
@@ -90,9 +90,9 @@
   <!-- ── DATELINE BAR — edition info + date/version pickers + language switcher ── -->
   <div class="dateline-bar">
     <div class="masthead-top-strip">
-      <span class="masthead-price">FREE (as in speech, not beer)</span>
-      <span class="masthead-subtitle-inline">All the craic that's fit to hallucinate</span>
-      <span class="masthead-edition" id="edition-attribution">v3 · draft</span>
+      <span class="masthead-price" data-i18n="mastheadPrice">FREE (as in speech, not beer)</span>
+      <span class="masthead-subtitle-inline" data-i18n="mastheadSubtitle">All the craic that's fit to hallucinate</span>
+      <span class="masthead-edition" id="edition-attribution" data-i18n="editionDraft">v3 · draft</span>
       <!-- main.js appends the language switcher (#lang-switcher) here. -->
     </div>
 
@@ -100,7 +100,10 @@
       <span id="current-date" class="dateline-date">Loading edition…</span>
       <span class="dateline-sep">|</span>
       <label for="date-picker" class="sr-only">Choose an edition date</label>
-      <input type="text" id="date-picker" class="date-input" placeholder="📅 change date">
+      <!-- Native date inputs ignore placeholder text, so a visible label makes the
+           bare dd/mm/yyyy control discoverable (#132). Localised via data-i18n. -->
+      <label for="date-picker" class="dateline-change-label" data-i18n="changeDate">📅 change date</label>
+      <input type="text" id="date-picker" class="date-input">
       <label for="version-select" class="sr-only">Edition version</label>
       <select id="version-select" class="version-select" hidden></select>
     </div>

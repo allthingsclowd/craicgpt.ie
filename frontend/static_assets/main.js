@@ -51,6 +51,12 @@ const I18N = {
         transcript: 'transcript', download: 'Download the', latest: 'latest',
         fetching: "Fetching today's edition…", noEdition: 'No edition found for',
         dayOff: 'The Craic Gazette was probably on holidays.', changeDate: '📅 change date',
+        tagline: 'An Irish daily, minus the doom',
+        mastheadPrice: 'FREE (as in speech, not beer)',
+        mastheadSubtitle: "All the craic that's fit to hallucinate",
+        editionDraft: 'v3 · draft', approved: '✓ approved', draftLabel: '⏳ draft',
+        aboutTitle: 'About the Editor', aboutSubtitle: "Who's behind all this craic, anyway?",
+        placeholderDateline: 'No recent edition',
         navToday: 'Today', navAi: 'AI Desk', navCraic: 'Craic', navLang: 'Languages', navListen: 'Listen',
         translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
         readOriginal: 'Read the English original ↗',
@@ -63,6 +69,12 @@ const I18N = {
         transcript: 'Transkript', download: 'Herunterladen:', latest: 'aktuell',
         fetching: 'Heutige Ausgabe wird geladen…', noEdition: 'Keine Ausgabe gefunden für',
         dayOff: 'Die Craic Gazette macht wohl gerade Urlaub.', changeDate: '📅 Datum ändern',
+        tagline: 'Eine irische Tageszeitung, ohne den Weltuntergang',
+        mastheadPrice: 'GRATIS (wie Freiheit, nicht wie Freibier)',
+        mastheadSubtitle: 'Der ganze Craic, der zu halluzinieren lohnt',
+        editionDraft: 'v3 · Entwurf', approved: '✓ freigegeben', draftLabel: '⏳ Entwurf',
+        aboutTitle: 'Über den Redakteur', aboutSubtitle: 'Wer steckt hinter all dem Craic?',
+        placeholderDateline: 'Keine aktuelle Ausgabe',
         navToday: 'Heute', navAi: 'KI-Desk', navCraic: 'Craic', navLang: 'Sprachen', navListen: 'Hören',
         translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
         readOriginal: 'Zum englischen Original ↗',
@@ -75,6 +87,12 @@ const I18N = {
         transcript: 'transcripción', download: 'Descargar', latest: 'última',
         fetching: 'Cargando la edición de hoy…', noEdition: 'No se encontró edición para',
         dayOff: 'La Craic Gazette estaría de vacaciones.', changeDate: '📅 cambiar fecha',
+        tagline: 'Un diario irlandés, sin el fatalismo',
+        mastheadPrice: 'GRATIS (como en libertad, no como en cerveza)',
+        mastheadSubtitle: 'Todo el craic digno de alucinar',
+        editionDraft: 'v3 · borrador', approved: '✓ aprobado', draftLabel: '⏳ borrador',
+        aboutTitle: 'Sobre el editor', aboutSubtitle: '¿Quién está detrás de todo este craic?',
+        placeholderDateline: 'Sin edición reciente',
         navToday: 'Hoy', navAi: 'Mesa IA', navCraic: 'Craic', navLang: 'Idiomas', navListen: 'Escuchar',
         translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
         readOriginal: 'Leer el original en inglés ↗',
@@ -87,6 +105,12 @@ const I18N = {
         transcript: 'trascrizione', download: 'Scarica', latest: 'ultima',
         fetching: "Caricamento dell'edizione di oggi…", noEdition: 'Nessuna edizione trovata per',
         dayOff: 'La Craic Gazette sarà in vacanza.', changeDate: '📅 cambia data',
+        tagline: 'Un quotidiano irlandese, senza catastrofismo',
+        mastheadPrice: 'GRATIS (come libertà, non come birra)',
+        mastheadSubtitle: 'Tutto il craic che vale la pena allucinare',
+        editionDraft: 'v3 · bozza', approved: '✓ approvato', draftLabel: '⏳ bozza',
+        aboutTitle: 'Informazioni sul redattore', aboutSubtitle: 'Chi c’è dietro tutto questo craic?',
+        placeholderDateline: 'Nessuna edizione recente',
         navToday: 'Oggi', navAi: 'Desk IA', navCraic: 'Craic', navLang: 'Lingue', navListen: 'Ascolta',
         translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
         readOriginal: "Leggi l'originale in inglese ↗",
@@ -99,6 +123,12 @@ const I18N = {
         transcript: '文字起こし', download: 'ダウンロード', latest: '最新',
         fetching: '本日のエディションを読み込み中…', noEdition: 'エディションが見つかりません：',
         dayOff: 'クレイク・ガゼットはお休みのようです。', changeDate: '📅 日付を変更',
+        tagline: 'アイルランドの日刊紙、暗い話題は抜きで',
+        mastheadPrice: '無料（自由の意味で、ビールではなく）',
+        mastheadSubtitle: '幻覚するに値するすべてのクレイク',
+        editionDraft: 'v3 · 下書き', approved: '✓ 承認済み', draftLabel: '⏳ 下書き',
+        aboutTitle: '編集長について', aboutSubtitle: 'このクレイクの裏にいるのは誰？',
+        placeholderDateline: '最近のエディションなし',
         navToday: '本日', navAi: 'AIデスク', navCraic: 'クレイク', navLang: '言語', navListen: '聴く',
         translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
         readOriginal: '英語の原文を読む ↗',
@@ -111,6 +141,12 @@ const I18N = {
         transcript: 'transcription', download: 'Télécharger', latest: 'récente',
         fetching: "Chargement de l'édition du jour…", noEdition: 'Aucune édition trouvée pour',
         dayOff: 'La Craic Gazette est sans doute en vacances.', changeDate: '📅 changer de date',
+        tagline: 'Un quotidien irlandais, sans la sinistrose',
+        mastheadPrice: 'GRATUIT (comme la liberté, pas comme la bière)',
+        mastheadSubtitle: 'Tout le craic digne d’être halluciné',
+        editionDraft: 'v3 · brouillon', approved: '✓ approuvé', draftLabel: '⏳ brouillon',
+        aboutTitle: 'À propos du rédacteur', aboutSubtitle: 'Qui se cache derrière tout ce craic ?',
+        placeholderDateline: 'Aucune édition récente',
         navToday: "Aujourd'hui", navAi: 'Bureau IA', navCraic: 'Craic', navLang: 'Langues', navListen: 'Écouter',
         translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
         readOriginal: "Lire l'original en anglais ↗",
@@ -309,6 +345,7 @@ function renderPaper(data) {
   renderAttribution(data);
   renderHood(data);
   renderTranslationNote(data);
+  updateNavVisibility();   // reveal AI/Craic/Listen anchors now their targets exist (#132)
 }
 
 /** The subtle, light-hearted 'this page was machine-translated' note at the foot of a
@@ -554,7 +591,7 @@ function meta(item, isFun) {
 function renderAttribution(data) {
   const note = el('edition-attribution');
   if (note) {
-    const approved = data.edition?.approved_by ? '✓ approved' : '⏳ draft';
+    const approved = data.edition?.approved_by ? t('approved') : t('draftLabel');
     note.textContent = `${data.pipeline_version ? 'v' + data.pipeline_version : ''} · ${approved}`;
   }
 }
@@ -718,9 +755,14 @@ function renderHood(data) {
 function renderPlaceholder() {
   const grid = el('edition');
   if (grid) grid.innerHTML =
-    `<article class="card card--lead" style="grid-column:1/-1"><div class="kicker kicker--red">${escapeHtml(t('placeholderKicker'))}</div>
+    `<article class="card card--lead card--placeholder" style="grid-column:1/-1"><div class="kicker kicker--red">${escapeHtml(t('placeholderKicker'))}</div>
      <h2 class="headline headline--lead">${escapeHtml(t('placeholderHeadline'))}</h2>
      <div class="body"><p>${escapeHtml(t('placeholderBody'))}</p></div></article>`;
+  // The dateline is seeded with "Loading edition…" and only replaced by updateDateDisplay()
+  // when an edition loads — on the placeholder it would stay stuck (and English). (#130)
+  const dateEl = el('current-date');
+  if (dateEl) dateEl.textContent = t('placeholderDateline');
+  updateNavVisibility();   // no AI/Craic desks or podcast strip to scroll to (#132)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -735,8 +777,8 @@ function updateDateDisplay(date) {
 function initDatePicker() {
   const input = el('date-picker');
   if (!input) return;
-  input.type = 'date';
-  if (input.placeholder) input.placeholder = t('changeDate');
+  input.type = 'date';   // native date inputs ignore placeholder — the visible
+                         // .dateline-change-label (data-i18n) is the affordance now (#132)
   input.max = toISODate(new Date());
   input.addEventListener('change', e => { if (e.target.value) loadEditionForDate(e.target.value); });
 }
@@ -771,12 +813,25 @@ function initNewsletter() {
   });
 }
 
-/** Localise the shell-nav labels from the i18n table (the English root keeps English;
- *  the generated per-language shells are also localised statically by i18n_html.py). */
+/** Localise every static [data-i18n] chrome element from the i18n table — the shell-nav
+ *  labels plus the masthead strip (price/subtitle/tagline/edition), the change-date label
+ *  and the About title band (the English root keeps English; the generated per-language
+ *  shells are also localised statically by i18n_html.py). #edition-attribution gets a
+ *  localised pre-load value here; renderAttribution() overwrites it once an edition loads. */
 function applyNavLabels() {
-  document.querySelectorAll('.shell-nav [data-i18n]').forEach(span => {
-    const key = span.getAttribute('data-i18n');
-    if (key) span.textContent = t(key);
+  document.querySelectorAll('[data-i18n]').forEach(elm => {
+    const key = elm.getAttribute('data-i18n');
+    if (key) elm.textContent = t(key);
+  });
+}
+
+/** Hide the in-page section-nav anchors whose target isn't rendered (a placeholder has no
+ *  AI/Craic desks; an audio-less edition keeps #podcast-strip hidden), so "Listen"/section
+ *  links never scroll nowhere (#132). #top and #lang-switcher are always present. */
+function updateNavVisibility() {
+  document.querySelectorAll('.shell-nav a[href^="#"]').forEach(a => {
+    const target = document.getElementById(a.getAttribute('href').slice(1));
+    a.hidden = !(target && !target.hidden);
   });
 }
 
