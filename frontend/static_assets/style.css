@@ -1,28 +1,20 @@
 /* ============================================================================
-   The Craic Gazette — base stylesheet (Modern Mono)
+   The Craic Gazette — base stylesheet  ·  "Geek with the Peak" brand
    ============================================================================
-   Design language: a quiet, modern broadsheet. Near-white paper, near-black
-   ink, generous whitespace, hairline rules, and ONE muted-red accent used
-   sparingly (kickers, links, the masthead full-stop). The wit lives in the
-   words, not the colour — The Onion's restraint by way of Farrow & Ball.
+   This is site 2 of the Geek-with-the-Peak brand family (site 1 =
+   thegeekwiththepeak.com, canonical tokens in geek-red-team-academy/shared/
+   brand/brand.css). It carries the SHARED chrome — the five-colour ribbon, the
+   navy brand masthead + wordmark, the three-layout shell nav (bottom tabs / left
+   rail / top nav, no JS width detection), the dark-mode token set + toggle, and
+   the navy footer with the family cross-links — laid over The Craic Gazette's own
+   newspaper body (a quiet serif reading column with one warm-red editorial
+   accent). The daily edition grid + article cards live in style-v3.css, which
+   reuses these :root tokens.
 
-   This file is the shared base: tokens, masthead, kicker strip, the dark
-   "Under the Hood" drawer shell, and the footer. The daily edition grid and
-   the article cards live in style-v3.css, which reuses these :root tokens.
-
-   (History: the loud Beano/tabloid skin and the v2 model-comparator chrome —
-   model-bar, compare panel, the 4-up paper grid — were retired with this
-   redesign. v2 is dead; the live front end is the v3 deep-agent edition.)
-
-   Colour tokens (set once, used everywhere):
-     --paper / --white   page + card surfaces (near-white → white)
-     --ink / --ink-soft  text + rules
-     --hairline          1px rules
-     --accent            the single muted-red moment
-
-   Typography:
-     Archivo        — grotesque sans: masthead, kickers, UI labels, headlines
-     Source Serif 4 — serif: standfirsts and all reading copy
+   Token pattern (identical to the brand): the LIGHT palette lives on a bare
+   :root; the SAME names are re-declared for dark under a prefers-color-scheme
+   guard (so it never fights an explicit choice) AND under [data-theme="dark"]
+   (so the header toggle wins in both directions).
    ========================================================================== */
 
 
@@ -32,61 +24,113 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  min-width: 0;
 }
 
 :root {
-  /* Modern-Mono palette: ink on paper, one red accent */
-  --paper:        #FAFAF8;
-  --paper-2:      #F2F1EC;   /* subtle alternate surface (inputs, quiet bands) */
-  --white:        #FFFFFF;
-  --ink:          #1A1A1A;
-  --ink-soft:     #565650;
-  --hairline:     #E4E2DC;
-  --accent:       #B23A36;   /* the one red moment */
+  /* Brand accent palette (identical in both themes) — used for the chrome. */
+  --blue:   #2563eb;
+  --red:    #e11d48;
+  --amber:  #f59e0b;
+  --green:  #16a34a;
+  --teal:   #0d9488;
+
+  /* Navy brand band (masthead + footer + the Under-the-Hood drawer). */
+  --band:      #0b1020;
+  --band-ink:  #eef2ff;   /* text on the band */
+  --band-dim:  #aab4d4;   /* muted text on the band */
+
+  /* Newspaper neutrals — near-white paper, near-black ink. */
+  --paper:      #FAFAF8;   /* page background */
+  --paper-2:    #F2F1EC;   /* subtle alternate surface (inputs, quiet bands) */
+  --white:      #FFFFFF;   /* card surface (alias below → --card) */
+  --card:       #FFFFFF;
+  --ink:        #1A1A1A;   /* headings / strong text */
+  --ink-soft:   #565650;   /* secondary text */
+  --muted:      #565650;
+  --hairline:   #E4E2DC;   /* 1px rules */
+  --line:       #E4E2DC;   /* brand alias for --hairline */
+
+  /* The one warm-red editorial moment in the newspaper body (kickers, links,
+     the AI-desk marker). Distinct from the brand rose --red used in the chrome. */
+  --accent:       #B23A36;
   --accent-dark:  #8E2C29;
   --accent-tint:  #b23a360f;
 
-  /* Back-compat aliases — style-v3.css and a few rules still call the old
-     token names; map them onto the new palette so the whole page stays
-     mono-plus-one-red rather than the old three-colour tabloid scheme. */
-  --red:            var(--accent);
+  /* Back-compat aliases still referenced by style-v3.css. */
   --red-dark:       var(--accent-dark);
   --red-light:      var(--accent-tint);
   --newsprint:      var(--paper);
   --newsprint-dark: var(--hairline);
-  --flash:          var(--accent);     /* former Beano yellow → the red accent */
-  --flash-dark:     var(--ink-soft);   /* former gold rules → a quiet ink rule */
+  --flash:          var(--accent);
+  --flash-dark:     var(--ink-soft);
 
-  /* Muted hues — used ONLY to colour-code the "Under the Hood" trace rows
-     inside the dark drawer (an educational panel where a little colour helps).
-     Desaturated on purpose so they never read as the old loud provider chips. */
+  /* Muted hues — colour-code the "Under the Hood" trace rows only. */
   --claude:  #9c8cc4;   /* sub-agent rows  (muted lavender) */
   --gemini:  #7fa3c4;   /* tool-call rows  (muted slate-blue) */
   --local:   #86b08a;   /* model-route rows (muted sage) */
 
-  /* Typography */
-  --font-display:  'Archivo', 'Helvetica Neue', Arial, sans-serif;
-  --font-headline: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
-  --font-body:     'Source Serif 4', Georgia, 'Times New Roman', serif;
-  --font-ui:       'Archivo', system-ui, -apple-system, sans-serif;
+  --shadow: 0 1px 2px rgba(20,30,50,.05), 0 4px 14px rgba(20,30,50,.06);
 
-  /* Spacing & shape — more air, thinner rules, gentler radius */
+  /* Typography */
+  --font-display:  'Inter', 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --font-headline: 'Archivo', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+  --font-body:     'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-ui:       'Inter', 'Archivo', system-ui, -apple-system, sans-serif;
+
+  /* Spacing scale — one ramp used across the chrome (4 → 32px). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --tap:    44px;          /* minimum touch target (WCAG 2.5.5) */
+  --rail-w: 104px;         /* tablet icon-rail width */
+  --mast-h: 68px;          /* nominal masthead height (rail clears it) */
   --gap:    1.6rem;
   --radius: 2px;
-  --border-thick: 2px solid var(--ink);
-  --border-mid:   1px solid var(--ink);
   --border-thin:  1px solid var(--hairline);
-
   --page-width: 1180px;
 }
 
-html { scroll-behavior: smooth; }
+/* DARK — system preference, unless the visitor forced light via the toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0b1020; --paper-2: #141a2e; --white: #151a2e; --card: #151a2e;
+    --ink: #eef2ff; --ink-soft: #c9d1e6; --muted: #9aa4bf;
+    --hairline: #26304d; --line: #26304d;
+    --band: #080c18; --band-ink: #eef2ff; --band-dim: #9aa4bf;
+    --accent: #f2687f; --accent-dark: #f68a9c; --accent-tint: #f2687f1f;
+    --shadow: 0 6px 22px rgba(0,0,0,.45);
+  }
+}
+/* DARK — explicit choice (header toggle → localStorage), wins over system. */
+:root[data-theme="dark"] {
+  --paper: #0b1020; --paper-2: #141a2e; --white: #151a2e; --card: #151a2e;
+  --ink: #eef2ff; --ink-soft: #c9d1e6; --muted: #9aa4bf;
+  --hairline: #26304d; --line: #26304d;
+  --band: #080c18; --band-ink: #eef2ff; --band-dim: #9aa4bf;
+  --accent: #f2687f; --accent-dark: #f68a9c; --accent-tint: #f2687f1f;
+  --shadow: 0 6px 22px rgba(0,0,0,.45);
+}
+
+/* color-scheme keeps native controls (scrollbars, the <select>, date input) in
+   step with the active theme; the toggle overrides it explicitly. */
+:root { color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { color-scheme: dark; } }
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 
 body {
   font-family: var(--font-body);
   background: var(--paper);
   color: var(--ink);
   line-height: 1.65;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -113,73 +157,154 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   white-space: nowrap;
 }
 
-
-/* ── 1. MASTHEAD ────────────────────────────────────────────────────────────
-   A centred wordmark on paper, framed by hairline rules. No red field, no
-   black bar — just type and air. */
-
-.masthead {
-  background: var(--paper);
-  color: var(--ink);
-  border-bottom: 1px solid var(--ink);
+/* The five-colour brand ribbon — 6px, equal fifths. Used on top of the masthead
+   and above the footer, on every page. */
+.ribbon,
+.site-header::before,
+.site-footer::before {
+  content: ""; display: block; height: 6px;
+  background: linear-gradient(90deg,
+    var(--blue) 0 20%, var(--red) 20% 40%, var(--amber) 40% 60%,
+    var(--green) 60% 80%, var(--teal) 80% 100%);
 }
 
-/* ── Audio strip: subtle daily-podcast + 90-sec controls (play / download) ──── */
-.podcast-strip {
-  display: flex; align-items: center; flex-wrap: wrap; gap: .55rem;
-  margin: 0 auto; padding: .4rem 1rem;
-  font: 500 .82rem/1.2 "Archivo", system-ui, sans-serif;
-  color: var(--ink-soft, #555);
-  background: var(--paper, #f5f0e8);
-  border-bottom: 1px solid rgba(26, 26, 26, .12);
+
+/* ── 1. MASTHEAD — navy brand band + the three-layout shell nav ──────────────
+   ONE <nav class="shell-nav"> in the DOM, laid out three ways by CSS with NO
+   JavaScript width detection (the approved shell, mirrored from site 1):
+     • phone  <600px   → fixed bottom TAB BAR
+     • tablet 600–1199 → fixed left icon+label RAIL
+     • desktop ≥1200   → TOP-NAV inside the masthead row
+   44px tap targets throughout; safe-area padding on the bottom bar. */
+
+.site-header {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--band); color: var(--band-ink);
 }
-.podcast-strip .ps-lead {
-  text-transform: uppercase; letter-spacing: .08em; font-size: .68rem;
-  color: var(--ink-soft, #777);
+.site-header .inner {
+  max-width: var(--page-width); margin: 0 auto;
+  padding: var(--space-3) var(--space-5);
+  display: flex; align-items: center; gap: var(--space-4);
 }
-.podcast-strip .ps-item { display: inline-flex; align-items: center; gap: .3rem; }
-.podcast-strip .ps-sep { color: rgba(26, 26, 26, .22); }
-.podcast-strip .ps-play {
-  background: none; border: 1px solid rgba(26, 26, 26, .2);
-  border-radius: 999px; padding: .12rem .65rem; cursor: pointer;
-  color: var(--ink, #1a1a1a); font: inherit;
-  transition: background .15s ease, border-color .15s ease, color .15s ease;
+.site-header .brand {
+  display: flex; align-items: center; gap: var(--space-3);
+  text-decoration: none; color: var(--band-ink); min-width: 0;
 }
-.podcast-strip .ps-play:hover,
-.podcast-strip .ps-play:focus-visible {
-  background: var(--accent, #c8001e); border-color: var(--accent, #c8001e); color: #fff;
+.site-header .brand:hover { text-decoration: none; }
+.site-header img.logo { height: 44px; width: auto; border-radius: 8px; flex: 0 0 auto; }
+.site-header .brand-text { display: flex; flex-direction: column; line-height: 1.08; min-width: 0; }
+.site-header .wordmark {
+  font-family: var(--font-ui);
+  font-weight: 900; font-size: 1.2rem; letter-spacing: .04em; color: var(--band-ink);
 }
-.podcast-strip .ps-dl {
-  text-decoration: none; color: var(--ink-soft, #777);
-  font-size: 1.05rem; line-height: 1; padding: 0 .1rem;
-}
-.podcast-strip .ps-dl:hover { color: var(--accent, #c8001e); }
-.podcast-strip .ps-tx {
-  background: none; border: none; padding: 0; cursor: pointer; font: inherit;
-  color: var(--ink-soft, #888); text-decoration: underline dotted;
-}
-.podcast-strip .ps-tx:hover { color: var(--accent, #c8001e); }
-.podcast-transcript-panel {
-  margin: 0 auto; padding: .5rem 1rem;
-  background: var(--paper, #f5f0e8);
-  border-bottom: 1px solid rgba(26, 26, 26, .12);
-}
-.podcast-transcript-panel .ptp-title {
-  display: block; font: 600 .72rem/1.3 "Archivo", system-ui, sans-serif;
-  text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft, #777);
-  margin-bottom: .3rem;
-}
-.podcast-transcript-panel .transcript-text {
-  white-space: pre-wrap; font: .8rem/1.5 "Libre Baskerville", Georgia, serif;
-  margin: 0; max-height: 38vh; overflow: auto; color: var(--ink, #1a1a1a);
+.site-header .wordmark .em { color: var(--red); }
+.site-header .tagline {
+  font-family: var(--font-ui);
+  font-size: .67rem; letter-spacing: 1.3px; text-transform: uppercase;
+  color: var(--band-dim); font-weight: 700;
 }
 
-/* The slim info line that used to be a black bar — now a quiet hairline strip. */
+/* SVG icon shared by every shell link + the theme toggle */
+.site-header .ic {
+  flex: 0 0 auto; stroke: currentColor; fill: none;
+  stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* the three-layout shell nav — base rules shared by every breakpoint */
+.shell-nav a {
+  display: flex; align-items: center; text-decoration: none;
+  font-weight: 800; min-height: var(--tap);
+}
+.shell-nav a:hover { text-decoration: none; }
+.shell-nav a .ic { width: 24px; height: 24px; }
+
+/* the account cluster (theme toggle) — far right of the masthead row */
+.account { display: flex; align-items: center; gap: var(--space-2); margin-left: auto; }
+
+/* dark-mode toggle — moon in light, sun in dark; one button, CSS swaps the glyph */
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--tap); height: var(--tap); padding: 0; cursor: pointer;
+  background: rgba(255,255,255,.08); color: var(--band-ink);
+  border: 1px solid rgba(255,255,255,.22); border-radius: 10px;
+}
+.theme-toggle:hover { background: rgba(255,255,255,.16); }
+.theme-toggle .ic { width: 20px; height: 20px; }
+.theme-toggle .ic-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .ic-sun { display: block; }
+:root[data-theme="dark"] .theme-toggle .ic-moon { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .ic-sun { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle .ic-moon { display: none; }
+}
+
+/* ── PHONE <600px: fixed bottom TAB BAR ─────────────────────────────────────── */
+@media (max-width: 599px) {
+  .shell-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    display: flex; justify-content: space-around;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
+    box-shadow: 0 -6px 22px rgba(11,16,32,.10);
+  }
+  .shell-nav a {
+    flex-direction: column; gap: 3px; color: var(--muted);
+    font-size: .6rem; letter-spacing: .03em; text-transform: uppercase;
+    min-width: var(--tap); min-height: var(--tap); justify-content: center; padding: 4px 6px;
+  }
+  .shell-nav a[aria-current="page"] { color: var(--blue); }
+  .site-header .inner { padding-left: var(--space-4); }
+  /* clear the fixed bar (safe-area aware) */
+  body { padding-bottom: calc(var(--tap) + 22px + env(safe-area-inset-bottom)); }
+}
+
+/* ── TABLET 600–1199px: fixed left icon+label RAIL ──────────────────────────── */
+@media (min-width: 600px) and (max-width: 1199px) {
+  .shell-nav {
+    position: fixed; top: 0; bottom: 0; left: 0; width: var(--rail-w); z-index: 40;
+    display: flex; flex-direction: column; gap: var(--space-1);
+    padding: calc(var(--mast-h) + 20px) 10px 12px;
+    background: var(--card); border-right: 1px solid var(--line); overflow-y: auto;
+  }
+  .shell-nav a {
+    flex-direction: column; gap: 5px; color: var(--muted);
+    font-size: .6rem; text-transform: uppercase; letter-spacing: .02em;
+    padding: 11px 4px; border-radius: 14px; justify-content: center; text-align: center;
+  }
+  .shell-nav a[aria-current="page"] { background: color-mix(in srgb, var(--blue) 13%, transparent); color: var(--blue); }
+  /* content clears the rail; the masthead breaks out to full width so its navy
+     band + ribbon still span edge-to-edge (rail sits UNDER it, z40 < z50), and the
+     brand indents past the rail so the logo/wordmark never tuck behind it. */
+  body { padding-left: var(--rail-w); }
+  .site-header { margin-left: calc(-1 * var(--rail-w)); width: calc(100% + var(--rail-w)); }
+  .site-header .inner { padding-left: calc(var(--rail-w) + var(--space-4)); }
+}
+
+/* ── DESKTOP ≥1200px: TOP-NAV inside the masthead row ───────────────────────── */
+@media (min-width: 1200px) {
+  .shell-nav { display: flex; gap: var(--space-1); margin-left: auto; }
+  .shell-nav a { gap: var(--space-2); padding: 9px 15px; border-radius: 11px; font-size: .92rem; color: var(--band-ink); }
+  .shell-nav a .ic { width: 19px; height: 19px; }
+  .shell-nav a:hover { background: rgba(255,255,255,.08); }
+  .shell-nav a[aria-current="page"] { background: color-mix(in srgb, var(--blue) 30%, transparent); color: #fff; }
+  /* with the nav filling the row, the account cluster keeps its own left gap */
+  .account { margin-left: var(--space-3); }
+}
+
+
+/* ── 2. DATELINE BAR — the newspaper strip under the navy masthead ───────────
+   Carries the edition attribution, the live date + date/version pickers, and
+   (appended by main.js) the language switcher. A quiet paper strip, hairline
+   framed — the newspaper voice returning after the branded band. */
+
+.dateline-bar { background: var(--paper); border-bottom: 1px solid var(--hairline); }
+
 .masthead-top-strip {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
   max-width: var(--page-width);
   margin: 0 auto;
   padding: 0.5rem 1.5rem;
@@ -189,71 +314,29 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-soft);
-  border-bottom: 1px solid var(--hairline);
 }
-
 .masthead-top-strip span { color: var(--ink-soft); }
 .masthead-top-strip a { color: var(--ink-soft); text-decoration: none; }
 .masthead-top-strip a:hover { color: var(--accent); }
-
-.masthead-main {
-  max-width: var(--page-width);
-  margin: 0 auto;
-  padding: 1.7rem 1.5rem 1.1rem;
-  text-align: center;
-}
-
-/* The wordmark (inline SVG): sized here, coloured via currentColor so the lone
-   red full-stop is the only chroma in the masthead. */
-.masthead-wordmark { margin: 0; line-height: 1; color: var(--ink); }
-.masthead-wordmark svg {
-  width: min(560px, 82vw);
-  height: auto;
-  display: block;
-  margin: 0 auto;
-}
-
-/* A smaller wordmark that links home — used on the About-page masthead. */
-.masthead-wordmark-link { display: block; width: min(320px, 70vw); margin: 0 auto 0.6rem; color: var(--ink); }
-.masthead-wordmark-link:hover { color: var(--ink); }
-.masthead-wordmark-link svg { width: 100%; height: auto; display: block; }
-
-.masthead-subtitle {
-  font-family: var(--font-body);
-  font-style: italic;
-  font-size: clamp(0.85rem, 1.5vw, 1.05rem);
-  color: var(--ink-soft);
-  margin-top: 0.6rem;
-  letter-spacing: 0.01em;
-}
-
-/* About-page masthead keeps a typographic title (it has no wordmark image). */
-.masthead-title {
-  font-family: var(--font-display);
-  font-weight: 800;
-  font-size: clamp(1.8rem, 5vw, 3rem);
-  line-height: 1;
-  letter-spacing: -0.01em;
-  text-transform: uppercase;
-  color: var(--ink);
-}
+.masthead-subtitle-inline { font-style: italic; text-transform: none; letter-spacing: 0; font-weight: 500; }
 
 .masthead-dateline {
+  max-width: var(--page-width);
+  margin: 0 auto;
   background: var(--paper);
   color: var(--ink-soft);
   text-align: center;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem 1.5rem;
   font-family: var(--font-ui);
   font-size: 0.74rem;
   letter-spacing: 0.04em;
   border-top: 1px solid var(--hairline);
 }
-
 .dateline-date { font-weight: 700; color: var(--ink); }
 .dateline-sep { margin: 0 0.7rem; color: var(--hairline); }
 
 .date-input {
-  background: var(--white);
+  background: var(--card);
   border: 1px solid var(--hairline);
   color: var(--ink-soft);
   padding: 0.3rem 0.5rem;
@@ -264,13 +347,85 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 }
 .date-input:hover { border-color: var(--ink-soft); color: var(--ink); }
 
-@media (max-width: 768px) {
-  .masthead-top-strip { flex-direction: column; gap: 0.2rem; text-align: center; }
+/* About-page: a typographic title band under the masthead (no wordmark image). */
+.page-title-band { background: var(--paper); border-bottom: 1px solid var(--hairline); text-align: center; padding: 1.2rem 1.5rem; }
+.masthead-title {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.masthead-subtitle {
+  font-family: var(--font-body);
+  font-style: italic;
+  font-size: clamp(0.85rem, 1.5vw, 1.05rem);
+  color: var(--ink-soft);
+  margin-top: 0.4rem;
+  letter-spacing: 0.01em;
+}
+
+@media (max-width: 640px) {
+  .masthead-top-strip { justify-content: center; text-align: center; }
 }
 
 
-/* ── 2. KICKER STRIP (the day's standfirst) ─────────────────────────────────
-   Was a yellow banner; now a quiet line with a single red label. */
+/* ── 3. AUDIO STRIP — daily-podcast + 90-sec controls (play / download) ──────── */
+.podcast-strip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: .55rem;
+  max-width: var(--page-width);          /* AUDIT FIX: was full-bleed — cap to the page */
+  margin: 0 auto; padding: .4rem 1.5rem;
+  scroll-margin-top: 80px;               /* the "Listen" nav anchor clears the sticky masthead */
+  font: 500 .82rem/1.2 var(--font-ui);
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-bottom: 1px solid var(--hairline);
+}
+.podcast-strip .ps-lead {
+  text-transform: uppercase; letter-spacing: .08em; font-size: .68rem;
+  color: var(--ink-soft);
+}
+.podcast-strip .ps-item { display: inline-flex; align-items: center; gap: .3rem; }
+.podcast-strip .ps-sep { color: var(--hairline); }
+.podcast-strip .ps-play {
+  background: none; border: 1px solid var(--hairline);
+  border-radius: 999px; padding: .12rem .65rem; cursor: pointer;
+  color: var(--ink); font: inherit;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.podcast-strip .ps-play:hover,
+.podcast-strip .ps-play:focus-visible {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.podcast-strip .ps-dl {
+  text-decoration: none; color: var(--ink-soft);
+  font-size: 1.05rem; line-height: 1; padding: 0 .1rem;
+}
+.podcast-strip .ps-dl:hover { color: var(--accent); }
+.podcast-strip .ps-tx {
+  background: none; border: none; padding: 0; cursor: pointer; font: inherit;
+  color: var(--ink-soft); text-decoration: underline dotted;
+}
+.podcast-strip .ps-tx:hover { color: var(--accent); }
+.podcast-transcript-panel {
+  max-width: var(--page-width); margin: 0 auto; padding: .5rem 1.5rem;
+  background: var(--paper);
+  border-bottom: 1px solid var(--hairline);
+}
+.podcast-transcript-panel .ptp-title {
+  display: block; font: 600 .72rem/1.3 var(--font-ui);
+  text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft);
+  margin-bottom: .3rem;
+}
+.podcast-transcript-panel .transcript-text {
+  white-space: pre-wrap; font: .8rem/1.5 var(--font-body);
+  margin: 0; max-height: 38vh; overflow: auto; color: var(--ink);
+}
+
+
+/* ── 4. KICKER STRIP (the day's standfirst) ─────────────────────────────────── */
 
 .kicker-strip {
   max-width: var(--page-width);
@@ -284,7 +439,6 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   font-size: 0.92rem;
   color: var(--ink-soft);
 }
-
 .kicker-label {
   font-family: var(--font-ui);
   font-size: 0.66rem;
@@ -295,7 +449,6 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   white-space: nowrap;
   flex-shrink: 0;
 }
-
 .kicker-text { line-height: 1.45; }
 
 @media (max-width: 640px) {
@@ -303,17 +456,16 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 }
 
 
-/* ── 3. UNDER THE HOOD DRAWER (kept dark — the one deliberate contrast) ──────
-   A near-black drawer so the "how it was built" lesson reads as a distinct,
-   calm panel. Its inner chips/rows are styled in style-v3.css. */
+/* ── 5. UNDER THE HOOD DRAWER — the navy brand band (the "how it built" lesson)
+   Navy in BOTH themes so it reads as a distinct, calm panel; its inner rows/chips
+   flip with the theme (styled in style-v3.css). */
 
 .hood-drawer {
-  background: var(--ink);
-  color: var(--paper);
-  border-top: 1px solid var(--ink);
+  background: var(--band);
+  color: var(--band-ink);
+  border-top: 1px solid var(--band);
   margin-top: 2.5rem;
 }
-
 .hood-toggle {
   width: 100%;
   max-width: var(--page-width);
@@ -324,47 +476,43 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   padding: 0.95rem 1.5rem;
   background: none;
   border: none;
-  color: var(--paper);
+  color: var(--band-ink);
   cursor: pointer;
   font-family: var(--font-ui);
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   text-align: left;
 }
-
 .hood-toggle:hover { color: #fff; }
 .hood-toggle-icon { font-size: 1rem; }
-
 .hood-toggle-arrow {
   margin-left: auto;
   transition: transform 0.2s;
   display: inline-block;
 }
 .hood-toggle[aria-expanded="true"] .hood-toggle-arrow { transform: rotate(180deg); }
-
 .hood-content {
   padding: 1.5rem;
   border-top: 1px solid rgba(255,255,255,0.12);
 }
 
 
-/* ── 4. SITE FOOTER ─────────────────────────────────────────────────────────*/
+/* ── 6. SITE FOOTER — navy brand band, five-colour ribbon above it ───────────── */
 
 .site-footer {
-  background: var(--paper);
-  color: var(--ink-soft);
-  border-top: 1px solid var(--ink);
-  padding: 2rem 1.5rem;
+  background: var(--band);
+  color: var(--band-dim);
+  margin-top: var(--space-6);
+  position: relative;
 }
-
 .footer-inner {
   max-width: var(--page-width);
   margin: 0 auto;
+  padding: 30px var(--space-5);
   text-align: center;
 }
-
 .footer-social {
   display: flex;
   flex-wrap: wrap;
@@ -377,39 +525,51 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.footer-social a { color: var(--ink); text-decoration: none; }
-.footer-social a:hover { color: var(--accent); }
-
+.footer-social a { color: var(--band-ink); text-decoration: none; }
+.footer-social a:hover { color: #fff; }
 .footer-copy {
   font-family: var(--font-body);
   font-size: 0.85rem;
   margin-bottom: 0.5rem;
+  color: var(--band-dim);
 }
-.footer-copy em { color: var(--ink-soft); }
-
+.footer-copy em { color: var(--band-ink); }
 .footer-tech {
   font-family: var(--font-ui);
   font-size: 0.72rem;
-  color: var(--ink-soft);
+  color: var(--band-dim);
   line-height: 1.6;
 }
 .footer-tech a {
-  color: var(--ink-soft);
+  color: var(--band-dim);
   text-decoration: underline;
-  text-decoration-color: var(--hairline);
+  text-decoration-color: rgba(255,255,255,.25);
 }
-.footer-tech a:hover { color: var(--accent); }
+.footer-tech a:hover { color: var(--band-ink); }
+/* the family cross-links — the shared Geek-with-the-Peak network */
+.footer-family {
+  margin-top: 0.9rem; padding-top: 0.9rem;
+  border-top: 1px solid rgba(255,255,255,.12);
+  font-family: var(--font-ui); font-size: 0.72rem; font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.footer-family a { color: var(--band-dim); text-decoration: none; }
+.footer-family a:hover { color: #fff; }
 
 
-/* ── 5. UTILITIES / STATES ──────────────────────────────────────────────────*/
+/* ── 7. UTILITIES / STATES ──────────────────────────────────────────────────── */
 
 @keyframes pulse {
   0%, 100% { opacity: 0.55; }
   50%      { opacity: 1;    }
 }
-
 .loading {
   animation: pulse 1.4s ease-in-out infinite;
   color: var(--ink-soft);
   font-style: italic;
+}
+
+@media print {
+  .site-header, .site-footer, .shell-nav, .theme-toggle { display: none; }
+  body { color: #000; background: #fff; padding: 0; }
 }

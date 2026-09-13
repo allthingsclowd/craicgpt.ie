@@ -29,6 +29,9 @@
   align-content: start;
 }
 .edition-fun { grid-area: fun; display: flex; flex-direction: column; gap: var(--gap); }
+/* The shell nav's "AI Desk" / "Craic" anchors (#ai-desk / #craic-desk) target these
+   regions — clear the sticky masthead so the heading isn't tucked under it. */
+.edition-ai, .edition-fun { scroll-margin-top: 84px; }
 /* Headliner + the deepened shorts span both AI columns; subarticles take one each. */
 .edition-ai .card--lead,
 .edition-ai .card--short { grid-column: 1 / -1; }
@@ -220,18 +223,18 @@
 .newsletter-sub { font-family: var(--font-body); color: var(--ink-soft); margin: .35rem 0 1.1rem; }
 .newsletter-form { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; }
 .newsletter-input { font-family: var(--font-ui); padding: .55rem .8rem; border: 1px solid var(--hairline); border-radius: var(--radius); min-width: 240px; background: var(--white); color: var(--ink); }
-.newsletter-btn { font-family: var(--font-ui); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: .55rem 1.2rem; border: none; border-radius: var(--radius); background: var(--ink); color: var(--paper); cursor: pointer; transition: background .15s ease; }
+.newsletter-btn { font-family: var(--font-ui); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; padding: .55rem 1.2rem; border: none; border-radius: var(--radius); background: var(--blue); color: #fff; cursor: pointer; transition: background .15s ease; }
 .newsletter-btn:hover { background: var(--accent); }
 .newsletter-msg { font-family: var(--font-ui); font-size: .8rem; color: var(--accent); margin: .7rem 0 0; min-height: 1em; }
 
 /* ── Under the Hood — agent visualiser ────────────────────────────────────── */
 /* The drawer is dark (style.css), so force readable dark text on the light chips
    and inline code we add here — otherwise it's light-on-light and unreadable. */
-.hood-intro { font-family: var(--font-body); font-size: .95rem; line-height: 1.6; max-width: 72ch; margin: 0 auto 1.1rem; color: var(--paper); }
-.hood-intro code { background: rgba(255,255,255,0.14); color: var(--paper); padding: .05em .4em; border-radius: 2px; font-weight: 700; }
-.hood-intro strong { color: var(--accent); }
+.hood-intro { font-family: var(--font-body); font-size: .95rem; line-height: 1.6; max-width: 72ch; margin: 0 auto 1.1rem; color: var(--band-ink); }
+.hood-intro code { background: rgba(255,255,255,0.14); color: var(--band-ink); padding: .05em .4em; border-radius: 2px; font-weight: 700; }
+.hood-intro strong { color: #ff8fa3; }
 .hood-stats { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin-bottom: 1rem; }
-.hood-stat { font-family: var(--font-ui); font-size: .78rem; font-weight: 700; background: var(--white); color: var(--ink); border-radius: 999px; padding: .3rem .8rem; }
+.hood-stat { font-family: var(--font-ui); font-size: .78rem; font-weight: 700; background: rgba(255,255,255,0.10); color: var(--band-ink); border-radius: 999px; padding: .3rem .8rem; }
 
 .hood-trace { max-width: 880px; margin: 0 auto; display: flex; flex-direction: column; gap: .4rem; }
 /* Rows sit on a white chip inside the DARK drawer, so they MUST carry their own
@@ -294,7 +297,7 @@
   position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem; z-index: 50;
   display: flex; align-items: center; gap: .7rem;
   max-width: min(680px, 94vw); width: max-content;
-  padding: .55rem .7rem; background: var(--ink); color: var(--white);
+  padding: .55rem .7rem; background: var(--band); color: var(--band-ink);
   border-radius: 10px; box-shadow: 0 8px 28px rgba(0, 0, 0, .28);
 }
 .sticky-player .np-label {
@@ -303,7 +306,7 @@
 }
 .sticky-player audio { height: 34px; }
 .sticky-player .np-close {
-  background: none; border: none; color: var(--white);
+  background: none; border: none; color: var(--band-ink);
   font-size: 1rem; cursor: pointer; opacity: .8;
 }
 .sticky-player .np-close:hover { opacity: 1; }
@@ -349,13 +352,13 @@
 .lang-menu .lang-option.is-current .lang-name { color: var(--accent, #B23A36); }
 
 .translation-note {
-  max-width: 1100px; margin: 1.25rem auto 0; padding: .7rem 1rem;
-  border-top: 1px dashed rgba(0,0,0,.18);
-  font-family: 'Source Serif 4', Georgia, serif; font-style: italic;
-  font-size: .82rem; line-height: 1.5; color: #565650; text-align: center;
+  max-width: var(--page-width); margin: 1.25rem auto 0; padding: .7rem 1rem;
+  border-top: 1px dashed var(--hairline);
+  font-family: var(--font-body); font-style: italic;
+  font-size: .82rem; line-height: 1.5; color: var(--ink-soft); text-align: center;
 }
 .translation-note .translation-note-link {
-  font-style: normal; font-weight: 600; color: var(--red, #B23A36);
+  font-style: normal; font-weight: 600; color: var(--accent);
   white-space: nowrap; text-decoration: none;
 }
 .translation-note .translation-note-link:hover { text-decoration: underline; }
