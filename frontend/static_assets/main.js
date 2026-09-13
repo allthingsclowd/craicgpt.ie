@@ -51,6 +51,7 @@ const I18N = {
         transcript: 'transcript', download: 'Download the', latest: 'latest',
         fetching: "Fetching today's edition…", noEdition: 'No edition found for',
         dayOff: 'The Craic Gazette was probably on holidays.', changeDate: '📅 change date',
+        navToday: 'Today', navAi: 'AI Desk', navCraic: 'Craic', navLang: 'Languages', navListen: 'Listen',
         translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
         readOriginal: 'Read the English original ↗',
         qcLabel: 'Quality control', qcNote: 'Flagged by our automated fact-check — read with a pinch of salt:',
@@ -62,6 +63,7 @@ const I18N = {
         transcript: 'Transkript', download: 'Herunterladen:', latest: 'aktuell',
         fetching: 'Heutige Ausgabe wird geladen…', noEdition: 'Keine Ausgabe gefunden für',
         dayOff: 'Die Craic Gazette macht wohl gerade Urlaub.', changeDate: '📅 Datum ändern',
+        navToday: 'Heute', navAi: 'KI-Desk', navCraic: 'Craic', navLang: 'Sprachen', navListen: 'Hören',
         translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
         readOriginal: 'Zum englischen Original ↗',
         qcLabel: 'Qualitätskontrolle', qcNote: 'Von unserer automatischen Faktenprüfung markiert — mit Vorsicht zu genießen:',
@@ -73,6 +75,7 @@ const I18N = {
         transcript: 'transcripción', download: 'Descargar', latest: 'última',
         fetching: 'Cargando la edición de hoy…', noEdition: 'No se encontró edición para',
         dayOff: 'La Craic Gazette estaría de vacaciones.', changeDate: '📅 cambiar fecha',
+        navToday: 'Hoy', navAi: 'Mesa IA', navCraic: 'Craic', navLang: 'Idiomas', navListen: 'Escuchar',
         translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
         readOriginal: 'Leer el original en inglés ↗',
         qcLabel: 'Control de calidad', qcNote: 'Marcado por nuestra verificación automática — tómalo con cautela:',
@@ -84,6 +87,7 @@ const I18N = {
         transcript: 'trascrizione', download: 'Scarica', latest: 'ultima',
         fetching: "Caricamento dell'edizione di oggi…", noEdition: 'Nessuna edizione trovata per',
         dayOff: 'La Craic Gazette sarà in vacanza.', changeDate: '📅 cambia data',
+        navToday: 'Oggi', navAi: 'Desk IA', navCraic: 'Craic', navLang: 'Lingue', navListen: 'Ascolta',
         translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
         readOriginal: "Leggi l'originale in inglese ↗",
         qcLabel: 'Controllo qualità', qcNote: 'Segnalato dal nostro fact-check automatico — da prendere con le pinze:',
@@ -95,6 +99,7 @@ const I18N = {
         transcript: '文字起こし', download: 'ダウンロード', latest: '最新',
         fetching: '本日のエディションを読み込み中…', noEdition: 'エディションが見つかりません：',
         dayOff: 'クレイク・ガゼットはお休みのようです。', changeDate: '📅 日付を変更',
+        navToday: '本日', navAi: 'AIデスク', navCraic: 'クレイク', navLang: '言語', navListen: '聴く',
         translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
         readOriginal: '英語の原文を読む ↗',
         qcLabel: '品質チェック', qcNote: '自動ファクトチェックがフラグを立てました。話半分でどうぞ：',
@@ -106,6 +111,7 @@ const I18N = {
         transcript: 'transcription', download: 'Télécharger', latest: 'récente',
         fetching: "Chargement de l'édition du jour…", noEdition: 'Aucune édition trouvée pour',
         dayOff: 'La Craic Gazette est sans doute en vacances.', changeDate: '📅 changer de date',
+        navToday: "Aujourd'hui", navAi: 'Bureau IA', navCraic: 'Craic', navLang: 'Langues', navListen: 'Écouter',
         translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
         readOriginal: "Lire l'original en anglais ↗",
         qcLabel: 'Contrôle qualité', qcNote: 'Signalé par notre vérification automatique — à prendre avec des pincettes :',
@@ -277,6 +283,9 @@ function renderPaper(data) {
   const briefRegion = node('section', 'edition-brief');
   const aiRegion = node('section', 'edition-ai');
   const funRegion = node('aside', 'edition-fun');
+  // Anchor targets for the shell nav's "AI Desk" / "Craic" links.
+  aiRegion.id = 'ai-desk';
+  funRegion.id = 'craic-desk';
   grid.append(briefRegion, aiRegion, funRegion);
 
   const brief = briefCard(data.editors_brief);
@@ -762,6 +771,49 @@ function initNewsletter() {
   });
 }
 
+/** Localise the shell-nav labels from the i18n table (the English root keeps English;
+ *  the generated per-language shells are also localised statically by i18n_html.py). */
+function applyNavLabels() {
+  document.querySelectorAll('.shell-nav [data-i18n]').forEach(span => {
+    const key = span.getAttribute('data-i18n');
+    if (key) span.textContent = t(key);
+  });
+}
+
+/** Dark-mode toggle. The before-paint <head> script already restored a saved theme
+ *  (data-theme = "dark"|"light", or unset = follow the OS). A click flips to the
+ *  opposite of what's shown NOW and persists it; storage is wrapped in try/catch. */
+function initThemeToggle() {
+  const btn = el('theme-toggle');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const cur = document.documentElement.dataset.theme;   // '', 'dark' or 'light'
+    let next;
+    if (cur === 'dark') next = 'light';
+    else if (cur === 'light') next = 'dark';
+    else {   // unset → currently following the OS; flip away from it
+      const sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      next = sysDark ? 'light' : 'dark';
+    }
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('craic_theme', next); } catch (e) {}
+  });
+}
+
+/** The "Languages" shell-nav item opens the existing masthead language switcher
+ *  (rendered by renderLangSwitcher into .masthead-top-strip). The href scrolls the
+ *  switcher into view; this then pops its menu open. */
+function initNavLanguages() {
+  const link = el('nav-languages');
+  if (!link) return;
+  link.addEventListener('click', () => {
+    setTimeout(() => {
+      const trigger = document.querySelector('#lang-switcher .lang-trigger');
+      if (trigger && trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
+    }, 60);
+  });
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = String(str ?? '');
@@ -784,6 +836,9 @@ async function init() {
   document.documentElement.lang = LANG;          // crawlers + a11y: the page's real language
   const fy = el('footer-year');
   if (fy) fy.textContent = new Date().getFullYear();
+  applyNavLabels();
+  initThemeToggle();
+  initNavLanguages();
   renderLangSwitcher();
   initDatePicker();
   initVersionSelect();

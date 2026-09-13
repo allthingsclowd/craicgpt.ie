@@ -90,6 +90,8 @@ META: dict[str, dict[str, dict[str, str]]] = {
 CHROME: dict[str, dict[str, str]] = {
     "de": {
         "today_label": "HEUTE",
+        "nav_today": "Heute", "nav_ai": "KI-Desk", "nav_craic": "Craic",
+        "nav_lang": "Sprachen", "nav_listen": "Hören",
         "kicker_text": "Irlands Lustigstes, plus was sich in der KI wirklich geändert hat — über "
                        "Nacht von Open-Source-Modellen geschrieben. Keine Menschen im Spiel, kein "
                        "Weltuntergang im Feed.",
@@ -100,6 +102,8 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "es": {
         "today_label": "HOY",
+        "nav_today": "Hoy", "nav_ai": "Mesa IA", "nav_craic": "Craic",
+        "nav_lang": "Idiomas", "nav_listen": "Escuchar",
         "kicker_text": "Lo más divertido de Irlanda, además de lo que realmente cambió en la IA — "
                        "escrito durante la noche por modelos de código abierto. Sin humanos de por "
                        "medio, sin fatalismo en el feed.",
@@ -110,6 +114,8 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "it": {
         "today_label": "OGGI",
+        "nav_today": "Oggi", "nav_ai": "Desk IA", "nav_craic": "Craic",
+        "nav_lang": "Lingue", "nav_listen": "Ascolta",
         "kicker_text": "Il meglio dell'umorismo irlandese, più ciò che è davvero cambiato nell'IA — "
                        "scritto nella notte da modelli open-source. Nessun umano in mezzo, nessuna "
                        "catastrofe nel feed.",
@@ -121,6 +127,8 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "ja": {
         "today_label": "本日",
+        "nav_today": "本日", "nav_ai": "AIデスク", "nav_craic": "クレイク",
+        "nav_lang": "言語", "nav_listen": "聴く",
         "kicker_text": "アイルランド一おもしろいニュースに、AIで実際に変わったこと——オープンソースの"
                        "モデルが夜通し執筆。人間は関与せず、暗い話題もなし。",
         "newsletter_title": "クレイクを、あなたの受信箱に",
@@ -130,6 +138,8 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "fr": {
         "today_label": "AUJOURD'HUI",
+        "nav_today": "Aujourd'hui", "nav_ai": "Bureau IA", "nav_craic": "Craic",
+        "nav_lang": "Langues", "nav_listen": "Écouter",
         "kicker_text": "Le plus drôle d'Irlande, plus ce qui a vraiment changé dans l'IA — écrit "
                        "pendant la nuit par des modèles open source. Aucun humain dans la boucle, "
                        "aucune sinistrose dans le fil.",
@@ -149,6 +159,13 @@ _CHROME_RULES: list[tuple[str, str]] = [
     (r'(<h3 class="newsletter-title">).*?(</h3>)', "newsletter_title"),
     (r'(<p class="newsletter-sub">).*?(</p>)', "newsletter_sub"),
     (r'(<span class="hood-toggle-text">).*?(</span>)', "hood_toggle"),
+    # The three-layout shell-nav labels (data-i18n-anchored so the About page's
+    # cross-page nav localises too). main.js also applies these at runtime via t().
+    (r'(<span data-i18n="navToday">).*?(</span>)', "nav_today"),
+    (r'(<span data-i18n="navAi">).*?(</span>)', "nav_ai"),
+    (r'(<span data-i18n="navCraic">).*?(</span>)', "nav_craic"),
+    (r'(<span data-i18n="navLang">).*?(</span>)', "nav_lang"),
+    (r'(<span data-i18n="navListen">).*?(</span>)', "nav_listen"),
 ]
 # The footer note is a unique sentence shared by index + about — a plain string swap.
 _FOOTER_NOTE_EN = "No hallucinations were harmed in the making of this newspaper."

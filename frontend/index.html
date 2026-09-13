@@ -2,12 +2,17 @@
   The Craic Gazette — Ireland's Most Artificially Intelligent Newspaper.
   A daily fun-news + AI-landscape paper written by open-source LLMs (Qwen3.8 +
   FLUX.2) orchestrated by a LangChain deep agent. Schema v3.
+
+  Chrome = the shared "Geek with the Peak" brand (site 2 of 3): a five-colour
+  ribbon, a navy brand masthead + the three-layout shell nav, dark mode, and the
+  navy footer with the family cross-links. Body = The Craic Gazette's own paper,
+  rendered client-side by main.js.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>The Craic Gazette — Ireland's Most Artificially Intelligent Newspaper</title>
   <meta name="description" content="A daily Irish paper of fun world news and AI-landscape coverage, written by open-source LLMs and orchestrated by a LangChain deep agent.">
 
@@ -16,8 +21,12 @@
   <link rel="stylesheet" href="/static_assets/style-v3.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Inter:wght@400;600;700;800;900&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
   <link rel="icon" href="/favicon.ico">
+
+  <!-- Before-paint theme restore: apply a saved choice (dark|light) before the first
+       paint so there's no flash; an unset value follows the OS. Wrapped in try/catch. -->
+  <script>(function(){try{var t=localStorage.getItem('craic_theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t;}catch(e){}})();</script>
 
   <!-- hreflang: every language alternate + x-default (→ English). The per-language HTML
        generator (content_pipeline/agent/i18n_html.py) copies this block verbatim, since
@@ -33,28 +42,58 @@
 
 <body class="v3">
 
-  <!-- ── MASTHEAD ─────────────────────────────────────────────────────────── -->
-  <header class="masthead" role="banner">
+  <!-- ── MASTHEAD — navy brand band + the three-layout shell nav ─────────────── -->
+  <header class="site-header" role="banner" id="top">
+    <div class="inner">
+      <a class="brand" href="index.html" aria-label="The Craic Gazette — today's edition">
+        <img class="logo" src="/static_assets/images/favicon-64x64.png" alt="The Craic Gazette">
+        <span class="brand-text">
+          <span class="wordmark">THE CRAIC <span class="em">GAZETTE</span></span>
+          <span class="tagline">An Irish daily, minus the doom</span>
+        </span>
+      </a>
+
+      <!-- ONE nav in the DOM, laid out three ways by CSS (bottom tabs / left rail /
+           top nav). Craic is a single-page paper, so these navigate IN-PAGE. -->
+      <nav class="shell-nav" aria-label="Sections">
+        <a href="#top" aria-current="page">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h13v14H6a2 2 0 0 1-2-2z"/><path d="M17 8h3v9a2 2 0 0 1-2 2"/><path d="M7 8h7M7 12h7M7 16h4"/></svg>
+          <span data-i18n="navToday">Today</span>
+        </a>
+        <a href="#ai-desk">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 9h6v6H9z"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <span data-i18n="navAi">AI Desk</span>
+        </a>
+        <a href="#craic-desk">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></svg>
+          <span data-i18n="navCraic">Craic</span>
+        </a>
+        <a href="#lang-switcher" id="nav-languages">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg>
+          <span data-i18n="navLang">Languages</span>
+        </a>
+        <a href="#podcast-strip">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 14v-2a9 9 0 0 1 18 0v2"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/></svg>
+          <span data-i18n="navListen">Listen</span>
+        </a>
+      </nav>
+
+      <div class="account">
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <svg class="ic ic-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          <svg class="ic ic-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.5 1.5M17.5 17.5L19 19M19 5l-1.5 1.5M6.5 17.5L5 19"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── DATELINE BAR — edition info + date/version pickers + language switcher ── -->
+  <div class="dateline-bar">
     <div class="masthead-top-strip">
       <span class="masthead-price">FREE (as in speech, not beer)</span>
-      <span class="masthead-tagline">Ireland's Most Artificially Intelligent Newspaper</span>
+      <span class="masthead-subtitle-inline">All the craic that's fit to hallucinate</span>
       <span class="masthead-edition" id="edition-attribution">v3 · draft</span>
-    </div>
-
-    <div class="masthead-main">
-      <h1 class="masthead-wordmark">
-        <svg viewBox="0 0 760 104" role="img" aria-label="The Craic Gazette" xmlns="http://www.w3.org/2000/svg">
-          <!-- The "ai" in crAIc is picked out in the accent red — the wink that
-               this is an AI paper (CraicGPT). It's the masthead's one red moment. -->
-          <text x="380" y="70" text-anchor="middle" fill="currentColor"
-                font-family="'Source Serif 4', Georgia, 'Times New Roman', serif"
-                font-size="72" font-weight="600" letter-spacing="0.5">The Cr<tspan fill="#B23A36">ai</tspan>c Gazette</text>
-          <text x="380" y="96" text-anchor="middle" fill="#565650"
-                font-family="'Archivo', Arial, sans-serif"
-                font-size="13" font-weight="700" letter-spacing="3.2">IRELAND'S AI NEWSPAPER · EST. 2026</text>
-        </svg>
-      </h1>
-      <p class="masthead-subtitle">All the craic that's fit to hallucinate</p>
+      <!-- main.js appends the language switcher (#lang-switcher) here. -->
     </div>
 
     <div class="masthead-dateline">
@@ -65,7 +104,7 @@
       <label for="version-select" class="sr-only">Edition version</label>
       <select id="version-select" class="version-select" hidden></select>
     </div>
-  </header>
+  </div>
 
   <!-- ── AUDIO STRIP — daily podcast + 90-sec TL;DR, subtle play/download ───── -->
   <section class="podcast-strip" id="podcast-strip" aria-label="Listen to the audio editions" hidden></section>
@@ -130,8 +169,8 @@
     </div>
   </section>
 
-  <!-- ── FOOTER ───────────────────────────────────────────────────────────── -->
-  <footer class="site-footer">
+  <!-- ── FOOTER — navy brand band, five-colour ribbon above it ──────────────── -->
+  <footer class="site-footer" role="contentinfo">
     <div class="footer-inner">
       <p class="footer-social">
         <a href="https://www.linkedin.com/in/grahamjland" target="_blank" rel="noopener">LinkedIn</a>
@@ -148,9 +187,14 @@
         + <a href="https://langchain-ai.github.io/langgraph/" target="_blank" rel="noopener">LangGraph</a>.
         Source on <a href="https://github.com/allthingsclowd/craicgpt.ie" target="_blank" rel="noopener">GitHub</a>.
       </p>
-      <!-- Filled from edition.cartoon_style by main.js — the day's cartoon look, so the
-           tutorial reader can see the rotation happening rather than be told about it. -->
+      <!-- Filled from edition.cartoon_style by main.js — the day's cartoon look. -->
       <p class="footer-tech" id="footer-style" hidden></p>
+      <!-- The shared Geek-with-the-Peak network cross-links. -->
+      <p class="footer-family">
+        <a href="https://thegeekwiththepeak.com" target="_blank" rel="noopener">thegeekwiththepeak.com</a> ·
+        <a href="https://thescriptingpaddy.com" target="_blank" rel="noopener">thescriptingpaddy.com</a> ·
+        <a href="https://allthingscloud.eu" target="_blank" rel="noopener">allthingscloud.eu</a>
+      </p>
     </div>
   </footer>
 
