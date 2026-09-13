@@ -58,6 +58,8 @@ const I18N = {
         aboutTitle: 'About the Editor', aboutSubtitle: "Who's behind all this craic, anyway?",
         placeholderDateline: 'No recent edition',
         navToday: 'Today', navAi: 'AI Desk', navCraic: 'Craic', navLang: 'Languages', navListen: 'Listen',
+        navOlder: '◀ Older', navNewer: 'Newer ▶',
+        navOlderAria: 'Go to the previous (older) edition', navNewerAria: 'Go to the next (newer) edition',
         translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
         readOriginal: 'Read the English original ↗',
         qcLabel: 'Quality control', qcNote: 'Flagged by our automated fact-check — read with a pinch of salt:',
@@ -76,6 +78,8 @@ const I18N = {
         aboutTitle: 'Über den Redakteur', aboutSubtitle: 'Wer steckt hinter all dem Craic?',
         placeholderDateline: 'Keine aktuelle Ausgabe',
         navToday: 'Heute', navAi: 'KI-Desk', navCraic: 'Craic', navLang: 'Sprachen', navListen: 'Hören',
+        navOlder: '◀ Älter', navNewer: 'Neuer ▶',
+        navOlderAria: 'Zur vorherigen (älteren) Ausgabe', navNewerAria: 'Zur nächsten (neueren) Ausgabe',
         translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
         readOriginal: 'Zum englischen Original ↗',
         qcLabel: 'Qualitätskontrolle', qcNote: 'Von unserer automatischen Faktenprüfung markiert — mit Vorsicht zu genießen:',
@@ -94,6 +98,8 @@ const I18N = {
         aboutTitle: 'Sobre el editor', aboutSubtitle: '¿Quién está detrás de todo este craic?',
         placeholderDateline: 'Sin edición reciente',
         navToday: 'Hoy', navAi: 'Mesa IA', navCraic: 'Craic', navLang: 'Idiomas', navListen: 'Escuchar',
+        navOlder: '◀ Anterior', navNewer: 'Siguiente ▶',
+        navOlderAria: 'Ir a la edición anterior (más antigua)', navNewerAria: 'Ir a la edición siguiente (más reciente)',
         translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
         readOriginal: 'Leer el original en inglés ↗',
         qcLabel: 'Control de calidad', qcNote: 'Marcado por nuestra verificación automática — tómalo con cautela:',
@@ -112,6 +118,8 @@ const I18N = {
         aboutTitle: 'Informazioni sul redattore', aboutSubtitle: 'Chi c’è dietro tutto questo craic?',
         placeholderDateline: 'Nessuna edizione recente',
         navToday: 'Oggi', navAi: 'Desk IA', navCraic: 'Craic', navLang: 'Lingue', navListen: 'Ascolta',
+        navOlder: '◀ Precedente', navNewer: 'Successiva ▶',
+        navOlderAria: "Vai all'edizione precedente (più vecchia)", navNewerAria: "Vai all'edizione successiva (più recente)",
         translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
         readOriginal: "Leggi l'originale in inglese ↗",
         qcLabel: 'Controllo qualità', qcNote: 'Segnalato dal nostro fact-check automatico — da prendere con le pinze:',
@@ -130,6 +138,8 @@ const I18N = {
         aboutTitle: '編集長について', aboutSubtitle: 'このクレイクの裏にいるのは誰？',
         placeholderDateline: '最近のエディションなし',
         navToday: '本日', navAi: 'AIデスク', navCraic: 'クレイク', navLang: '言語', navListen: '聴く',
+        navOlder: '◀ 前の号', navNewer: '次の号 ▶',
+        navOlderAria: '前の（古い）号へ', navNewerAria: '次の（新しい）号へ',
         translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
         readOriginal: '英語の原文を読む ↗',
         qcLabel: '品質チェック', qcNote: '自動ファクトチェックがフラグを立てました。話半分でどうぞ：',
@@ -148,6 +158,8 @@ const I18N = {
         aboutTitle: 'À propos du rédacteur', aboutSubtitle: 'Qui se cache derrière tout ce craic ?',
         placeholderDateline: 'Aucune édition récente',
         navToday: "Aujourd'hui", navAi: 'Bureau IA', navCraic: 'Craic', navLang: 'Langues', navListen: 'Écouter',
+        navOlder: '◀ Précédente', navNewer: 'Suivante ▶',
+        navOlderAria: "Aller à l'édition précédente (plus ancienne)", navNewerAria: "Aller à l'édition suivante (plus récente)",
         translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
         readOriginal: "Lire l'original en anglais ↗",
         qcLabel: 'Contrôle qualité', qcNote: 'Signalé par notre vérification automatique — à prendre avec des pincettes :',
@@ -165,9 +177,15 @@ const CONTENT_PATH = (y, m, d) => `/${LANG}/${EDITION_PREFIX}/${y}/${m}/${d}/pap
 const VERSIONS_PATH = (y, m, d) => `/${LANG}/${EDITION_PREFIX}/${y}/${m}/${d}/versions.json`;
 const VERSION_PATH = (y, m, d, id) => `/${LANG}/${EDITION_PREFIX}/${y}/${m}/${d}/versions/${id}.json`;
 const MAX_FALLBACK_DAYS = 14;
+// How far prev/next paging will step over "day off" gaps before giving up (#134).
+const MAX_ADJACENT_PROBE_DAYS = 30;
 
 let currentPaperData = null;
 let currentDate = null;        // the edition date currently shown (drives the version picker)
+// The nearest older/newer editions found by the last probe, cached so a click jumps
+// straight there without re-probing; recomputed by refreshEditionNav after every load.
+let navTargets = { older: null, newer: null };
+let navBusy = false;           // guards against overlapping prev/next clicks
 const el = id => document.getElementById(id);
 
 /** A language link that preserves the current edition date + preview flag, so switching
@@ -208,10 +226,12 @@ async function loadMostRecentEdition() {
       renderAbout(data);
       updateDateDisplay(candidate);
       await renderVersions(candidate);
+      await refreshEditionNav();
       return;
     }
   }
   renderPlaceholder();
+  await refreshEditionNav();   // no edition shown → both directions disabled
 }
 
 async function loadEditionForDate(dateStr) {
@@ -225,6 +245,7 @@ async function loadEditionForDate(dateStr) {
     renderAbout(data);
     updateDateDisplay(date);
     await renderVersions(date);
+    await refreshEditionNav();
   } else {
     alert(`${t('noEdition')} ${dateStr}. ${t('dayOff')}`);
   }
@@ -272,6 +293,83 @@ async function loadVersion(date, id) {
     renderPaper(data);
     renderAbout(data);
   } catch { /* keep the current view on error */ }
+}
+
+// ── Prev/next edition paging (#134) ──────────────────────────────────────────
+// There is NO manifest of which days have an edition — days are PROBED. To page
+// back/forward we step one day at a time from the shown date, fetching each candidate,
+// and stop at the FIRST that loads (so a "day off" gap is simply skipped). Forward
+// paging never probes past today (there can be no future edition). Nothing older/newer
+// within the window → that direction's button is disabled, not fruitlessly clickable.
+
+/** Step ±1 day from `fromDate` up to MAX_ADJACENT_PROBE_DAYS times, returning the first
+ *  edition found as {data, date}, or null. dir = -1 (older) / +1 (newer). */
+async function probeAdjacentEdition(fromDate, dir) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const probe = new Date(fromDate); probe.setHours(0, 0, 0, 0);
+  for (let i = 0; i < MAX_ADJACENT_PROBE_DAYS; i++) {
+    probe.setDate(probe.getDate() + dir);
+    if (dir > 0 && probe > today) return null;   // never page into the future
+    const data = await fetchPaperContent(probe);
+    if (data) return { data, date: new Date(probe) };
+  }
+  return null;
+}
+
+/** Load the nearest edition in `dir` (-1 older / +1 newer). Uses the cached target from
+ *  the last refreshEditionNav when present (so the click doesn't re-probe), else probes
+ *  live. On success: swap the shown edition, re-render, update the dateline + version
+ *  picker, then recompute the button states. If none is found, the current edition stays
+ *  put and that direction is disabled. */
+async function loadAdjacentEdition(dir) {
+  if (!currentDate || navBusy) return;
+  navBusy = true;
+  setEditionNavDisabled(true, true);                       // freeze both while we work
+  const found = (dir < 0 ? navTargets.older : navTargets.newer)
+    || await probeAdjacentEdition(currentDate, dir);
+  if (found) {
+    currentPaperData = found.data;
+    currentDate = found.date;
+    renderPaper(found.data);
+    renderAbout(found.data);
+    updateDateDisplay(found.date);
+    await renderVersions(found.date);
+  }
+  navBusy = false;
+  await refreshEditionNav();                               // recompute enabled/disabled
+}
+
+/** Toggle both paging buttons' disabled state (native `disabled` also drops them from the
+ *  tab order + triggers the :disabled styling). */
+function setEditionNavDisabled(olderDisabled, newerDisabled) {
+  const older = el('nav-older'); if (older) older.disabled = olderDisabled;
+  const newer = el('nav-newer'); if (newer) newer.disabled = newerDisabled;
+}
+
+/** Probe both directions from the shown date, cache the results, and enable/disable each
+ *  button accordingly (disabled when there's nothing that way within the window). Runs
+ *  after every edition load; a no-op on a page without the buttons (e.g. About). */
+async function refreshEditionNav() {
+  if (!el('nav-older') && !el('nav-newer')) return;
+  if (!currentDate) { navTargets = { older: null, newer: null }; setEditionNavDisabled(true, true); return; }
+  navTargets.older = await probeAdjacentEdition(currentDate, -1);
+  navTargets.newer = await probeAdjacentEdition(currentDate, +1);
+  setEditionNavDisabled(!navTargets.older, !navTargets.newer);
+}
+
+/** Wire the paging buttons' clicks + their localised aria-labels (the visible text is set
+ *  from data-i18n by applyNavLabels; the aria-label is an attribute, so set here). */
+function initEditionNav() {
+  const older = el('nav-older');
+  const newer = el('nav-newer');
+  if (older) {
+    older.setAttribute('aria-label', t('navOlderAria'));
+    older.addEventListener('click', () => loadAdjacentEdition(-1));
+  }
+  if (newer) {
+    newer.setAttribute('aria-label', t('navNewerAria'));
+    newer.addEventListener('click', () => loadAdjacentEdition(+1));
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -897,6 +995,7 @@ async function init() {
   renderLangSwitcher();
   initDatePicker();
   initVersionSelect();
+  initEditionNav();
   initHoodDrawer();
   initNewsletter();
   // A ?date=YYYY-MM-DD (carried by the language switcher) keeps you on the same edition.

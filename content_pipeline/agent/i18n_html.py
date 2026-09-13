@@ -98,6 +98,7 @@ CHROME: dict[str, dict[str, str]] = {
         "about_title": "Über den Redakteur", "about_subtitle": "Wer steckt hinter all dem Craic?",
         "nav_today": "Heute", "nav_ai": "KI-Desk", "nav_craic": "Craic",
         "nav_lang": "Sprachen", "nav_listen": "Hören",
+        "nav_older": "◀ Älter", "nav_newer": "Neuer ▶",
         "kicker_text": "Irlands Lustigstes, plus was sich in der KI wirklich geändert hat — über "
                        "Nacht von Open-Source-Modellen geschrieben. Keine Menschen im Spiel, kein "
                        "Weltuntergang im Feed.",
@@ -116,6 +117,7 @@ CHROME: dict[str, dict[str, str]] = {
         "about_title": "Sobre el editor", "about_subtitle": "¿Quién está detrás de todo este craic?",
         "nav_today": "Hoy", "nav_ai": "Mesa IA", "nav_craic": "Craic",
         "nav_lang": "Idiomas", "nav_listen": "Escuchar",
+        "nav_older": "◀ Anterior", "nav_newer": "Siguiente ▶",
         "kicker_text": "Lo más divertido de Irlanda, además de lo que realmente cambió en la IA — "
                        "escrito durante la noche por modelos de código abierto. Sin humanos de por "
                        "medio, sin fatalismo en el feed.",
@@ -134,6 +136,7 @@ CHROME: dict[str, dict[str, str]] = {
         "about_title": "Informazioni sul redattore", "about_subtitle": "Chi c’è dietro tutto questo craic?",
         "nav_today": "Oggi", "nav_ai": "Desk IA", "nav_craic": "Craic",
         "nav_lang": "Lingue", "nav_listen": "Ascolta",
+        "nav_older": "◀ Precedente", "nav_newer": "Successiva ▶",
         "kicker_text": "Il meglio dell'umorismo irlandese, più ciò che è davvero cambiato nell'IA — "
                        "scritto nella notte da modelli open-source. Nessun umano in mezzo, nessuna "
                        "catastrofe nel feed.",
@@ -153,6 +156,7 @@ CHROME: dict[str, dict[str, str]] = {
         "about_title": "編集長について", "about_subtitle": "このクレイクの裏にいるのは誰？",
         "nav_today": "本日", "nav_ai": "AIデスク", "nav_craic": "クレイク",
         "nav_lang": "言語", "nav_listen": "聴く",
+        "nav_older": "◀ 前の号", "nav_newer": "次の号 ▶",
         "kicker_text": "アイルランド一おもしろいニュースに、AIで実際に変わったこと——オープンソースの"
                        "モデルが夜通し執筆。人間は関与せず、暗い話題もなし。",
         "newsletter_title": "クレイクを、あなたの受信箱に",
@@ -170,6 +174,7 @@ CHROME: dict[str, dict[str, str]] = {
         "about_title": "À propos du rédacteur", "about_subtitle": "Qui se cache derrière tout ce craic ?",
         "nav_today": "Aujourd'hui", "nav_ai": "Bureau IA", "nav_craic": "Craic",
         "nav_lang": "Langues", "nav_listen": "Écouter",
+        "nav_older": "◀ Précédente", "nav_newer": "Suivante ▶",
         "kicker_text": "Le plus drôle d'Irlande, plus ce qui a vraiment changé dans l'IA — écrit "
                        "pendant la nuit par des modèles open source. Aucun humain dans la boucle, "
                        "aucune sinistrose dans le fil.",
@@ -198,6 +203,10 @@ _CHROME_RULES: list[tuple[str, str]] = [
     (r'(<span[^>]*data-i18n="mastheadSubtitle"[^>]*>).*?(</span>)', "masthead_subtitle"),
     (r'(<span[^>]*data-i18n="editionDraft"[^>]*>).*?(</span>)', "edition_draft"),
     (r'(<label[^>]*data-i18n="changeDate"[^>]*>).*?(</label>)', "change_date"),
+    # Prev/next edition paging buttons (#134). Visible text only — the aria-label is set
+    # at runtime by main.js (the buttons need JS to function). data-i18n-anchored.
+    (r'(<button[^>]*data-i18n="navOlder"[^>]*>).*?(</button>)', "nav_older"),
+    (r'(<button[^>]*data-i18n="navNewer"[^>]*>).*?(</button>)', "nav_newer"),
     (r'(<h1[^>]*data-i18n="aboutTitle"[^>]*>).*?(</h1>)', "about_title"),
     (r'(<p[^>]*data-i18n="aboutSubtitle"[^>]*>).*?(</p>)', "about_subtitle"),
     # The three-layout shell-nav labels (data-i18n-anchored so the About page's
