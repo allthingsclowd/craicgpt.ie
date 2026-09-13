@@ -1,0 +1,7 @@
+# The Craic Gazette — https://craicgpt.ie
+# Ireland's Most Artificially Intelligent Newspaper.
+# A daily fun-news + AI-landscape paper written by open-source LLMs.
+User-agent: *
+Allow: /
+
+Sitemap: https://craicgpt.ie/sitemap.xml
