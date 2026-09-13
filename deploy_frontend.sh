@@ -23,25 +23,36 @@ fi
 info()  { echo -e "${GREEN}[deploy]${RESET} $*"; }
 error() { echo -e "${RED}[deploy]${RESET} $*" >&2; }
 
-# ── Load .env ─────────────────────────────────────────────────────────────────
+# ── AWS credentials — sourced from 1Password (the Agent Credentials vault) ──────
+#
+# All deploy creds live in ONE 1Password item in the AGENT-accessible vault, so an
+# unattended service-account op token resolves them. GOTCHA: a service account MUST
+# use a FULLY-QUALIFIED reference — op://<vault>/<item>/<field>; an unqualified
+# op://<item>/<field> fails with "a vault query must be provided when this command
+# is called by a service account". The one item carries the access key (username),
+# secret (credential), s3 bucket, region and CloudFront distribution id.
+OP_ITEM="${CRAICGPT_OP_ITEM:-op://AgentCredentials/AWS craicgpt-publish IAM}"
 
-# Load .env if present (best-effort). It may reference 1Password op:// items that
-# only resolve with an interactive vault; ignore those failures and fall back to the
-# ambient AWS credentials / shell environment, exactly like the geek + paddy deploys.
-if [ -f "$ENV_FILE" ]; then
-  set -a; source "$ENV_FILE" 2>/dev/null || true; set +a
+if command -v op >/dev/null 2>&1 && op read "$OP_ITEM/region" >/dev/null 2>&1; then
+  info "Sourcing AWS creds from 1Password ($OP_ITEM)"
+  export AWS_ACCESS_KEY_ID="$(op read "$OP_ITEM/username")"
+  export AWS_SECRET_ACCESS_KEY="$(op read "$OP_ITEM/credential")"
+  S3_BUCKET="${S3_BUCKET:-$(op read "$OP_ITEM/s3 bucket")}"
+  CLOUDFRONT_DISTRIBUTION_ID="${CLOUDFRONT_DISTRIBUTION_ID:-$(op read "$OP_ITEM/cloudfront distribution id")}"
+  AWS_REGION="${AWS_REGION:-$(op read "$OP_ITEM/region")}"
+else
+  # Fallback: an optional .env (its op:// refs may be unqualified and fail for a
+  # service account — ignored) then the ambient AWS credentials / shell environment.
+  info "1Password item not reachable — falling back to .env / ambient AWS creds"
+  if [ -f "$ENV_FILE" ]; then set -a; source "$ENV_FILE" 2>/dev/null || true; set +a; fi
+  case "${AWS_ACCESS_KEY_ID:-}" in ""|op://*) unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY 2>/dev/null || true ;; esac
+  S3_BUCKET="${S3_BUCKET:-craicgpt-ie-production}"
+  CLOUDFRONT_DISTRIBUTION_ID="${CLOUDFRONT_DISTRIBUTION_ID:-E1DJEM9WBUG1C1}"
+  AWS_REGION="${AWS_REGION:-eu-west-1}"
 fi
 
-# If the .env left AWS creds empty or as an unresolved op:// ref, drop them so the
-# ambient AWS config/profile is used instead of an empty/invalid override.
-case "${AWS_ACCESS_KEY_ID:-}" in ""|op://*) unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY 2>/dev/null || true ;; esac
-case "${S3_BUCKET:-}"        in ""|op://*) S3_BUCKET="craicgpt-ie-production" ;; esac
-case "${CLOUDFRONT_DISTRIBUTION_ID:-}" in ""|op://*) CLOUDFRONT_DISTRIBUTION_ID="E1DJEM9WBUG1C1" ;; esac
-AWS_REGION="${AWS_REGION:-eu-west-1}"
-
-# Require an authenticated AWS session (ambient creds are fine; no secret lives in-repo).
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
-  error "no authenticated AWS session (set up AWS creds, or fill .env)."
+  error "no authenticated AWS session (1Password item unreachable and no ambient creds)."
   exit 1
 fi
 
