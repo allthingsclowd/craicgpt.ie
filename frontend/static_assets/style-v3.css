@@ -71,7 +71,7 @@
 }
 .about-card .headline { font-size: clamp(1.6rem, 3vw, 2.4rem); }
 .about-card .body { font-size: 1rem; line-height: 1.6; }
-.back-link { color: var(--newsprint); text-decoration: none; }
+.back-link { color: var(--ink-soft); text-decoration: none; }
 .back-link:hover { text-decoration: underline; }
 @media (max-width: 560px) {
   .about-portrait { float: none; display: block; margin: 0 auto 1rem; width: 140px; height: 140px; }
@@ -283,20 +283,6 @@
 .audio-btn:hover { color: var(--accent); }
 .audio-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 
-/* Masthead daily-podcast band (a fourth masthead row, only shown when audio exists). */
-.masthead-podcast-bar {
-  max-width: 1180px; margin: .4rem auto 0; padding: .6rem 1rem;
-  display: flex; flex-wrap: wrap; align-items: center; gap: .6rem 1rem;
-  border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
-  background: var(--paper-2);
-}
-.podcast-label {
-  font: 800 .8rem/1.2 var(--font-ui); text-transform: uppercase;
-  letter-spacing: .03em; color: var(--ink);
-}
-.podcast-audio { height: 34px; flex: 1 1 260px; max-width: 520px; }
-.podcast-transcript { flex-basis: 100%; font: 400 .85rem/1.5 var(--font-body); color: var(--ink-soft); }
-.podcast-transcript summary { cursor: pointer; font-family: var(--font-ui); font-weight: 700; }
 .transcript-text {
   white-space: pre-wrap; margin: .5rem 0 0; max-height: 320px; overflow: auto;
   padding: .6rem .8rem; background: var(--white);
