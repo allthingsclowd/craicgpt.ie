@@ -51,6 +51,7 @@ python3 -m content_pipeline.agent.i18n_html "$SCRIPT_DIR/frontend" || \
 
 info "Syncing frontend/ → s3://$S3_BUCKET/"
 aws s3 sync "$SCRIPT_DIR/frontend/" "s3://$S3_BUCKET/" \
+  --cache-control "no-cache" \
   --delete \
   --exclude "content/*" \
   --exclude "preview/*" \
