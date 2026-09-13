@@ -215,6 +215,9 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   display: flex; align-items: center; text-decoration: none;
   font-weight: 800; min-height: var(--tap);
 }
+/* This display:flex overrides the UA [hidden]{display:none}, so an anchor JS marks
+   hidden (updateNavVisibility, #132) must be re-hidden explicitly across all layouts. */
+.shell-nav a[hidden] { display: none; }
 .shell-nav a:hover { text-decoration: none; }
 .shell-nav a .ic { width: 24px; height: 24px; }
 
@@ -325,7 +328,13 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   margin: 0 auto;
   background: var(--paper);
   color: var(--ink-soft);
-  text-align: center;
+  /* flex-wrap + gap so [date · date-control · version] wraps cleanly at ~360px
+     instead of centre-stacking awkwardly (issue #132). */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.6rem;
   padding: 0.5rem 1.5rem;
   font-family: var(--font-ui);
   font-size: 0.74rem;
@@ -333,7 +342,11 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   border-top: 1px solid var(--hairline);
 }
 .dateline-date { font-weight: 700; color: var(--ink); }
-.dateline-sep { margin: 0 0.7rem; color: var(--hairline); }
+/* Gap now handles the spacing around the separator (was margin: 0 0.7rem). */
+.dateline-sep { color: var(--hairline); }
+/* A visible "change date" affordance beside the native date input (which ignores
+   placeholder text), so the reader knows the bare dd/mm/yyyy is clickable (#132). */
+.dateline-change-label { color: var(--ink-soft); white-space: nowrap; }
 
 .date-input {
   background: var(--card);

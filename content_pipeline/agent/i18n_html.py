@@ -90,6 +90,12 @@ META: dict[str, dict[str, dict[str, str]]] = {
 CHROME: dict[str, dict[str, str]] = {
     "de": {
         "today_label": "HEUTE",
+        "tagline": "Eine irische Tageszeitung, ohne den Weltuntergang",
+        "masthead_price": "GRATIS (wie Freiheit, nicht wie Freibier)",
+        "masthead_subtitle": "Der ganze Craic, der zu halluzinieren lohnt",
+        "edition_draft": "v3 · Entwurf",
+        "change_date": "📅 Datum ändern",
+        "about_title": "Über den Redakteur", "about_subtitle": "Wer steckt hinter all dem Craic?",
         "nav_today": "Heute", "nav_ai": "KI-Desk", "nav_craic": "Craic",
         "nav_lang": "Sprachen", "nav_listen": "Hören",
         "kicker_text": "Irlands Lustigstes, plus was sich in der KI wirklich geändert hat — über "
@@ -102,6 +108,12 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "es": {
         "today_label": "HOY",
+        "tagline": "Un diario irlandés, sin el fatalismo",
+        "masthead_price": "GRATIS (como en libertad, no como en cerveza)",
+        "masthead_subtitle": "Todo el craic digno de alucinar",
+        "edition_draft": "v3 · borrador",
+        "change_date": "📅 cambiar fecha",
+        "about_title": "Sobre el editor", "about_subtitle": "¿Quién está detrás de todo este craic?",
         "nav_today": "Hoy", "nav_ai": "Mesa IA", "nav_craic": "Craic",
         "nav_lang": "Idiomas", "nav_listen": "Escuchar",
         "kicker_text": "Lo más divertido de Irlanda, además de lo que realmente cambió en la IA — "
@@ -114,6 +126,12 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "it": {
         "today_label": "OGGI",
+        "tagline": "Un quotidiano irlandese, senza catastrofismo",
+        "masthead_price": "GRATIS (come libertà, non come birra)",
+        "masthead_subtitle": "Tutto il craic che vale la pena allucinare",
+        "edition_draft": "v3 · bozza",
+        "change_date": "📅 cambia data",
+        "about_title": "Informazioni sul redattore", "about_subtitle": "Chi c’è dietro tutto questo craic?",
         "nav_today": "Oggi", "nav_ai": "Desk IA", "nav_craic": "Craic",
         "nav_lang": "Lingue", "nav_listen": "Ascolta",
         "kicker_text": "Il meglio dell'umorismo irlandese, più ciò che è davvero cambiato nell'IA — "
@@ -127,6 +145,12 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "ja": {
         "today_label": "本日",
+        "tagline": "アイルランドの日刊紙、暗い話題は抜きで",
+        "masthead_price": "無料（自由の意味で、ビールではなく）",
+        "masthead_subtitle": "幻覚するに値するすべてのクレイク",
+        "edition_draft": "v3 · 下書き",
+        "change_date": "📅 日付を変更",
+        "about_title": "編集長について", "about_subtitle": "このクレイクの裏にいるのは誰？",
         "nav_today": "本日", "nav_ai": "AIデスク", "nav_craic": "クレイク",
         "nav_lang": "言語", "nav_listen": "聴く",
         "kicker_text": "アイルランド一おもしろいニュースに、AIで実際に変わったこと——オープンソースの"
@@ -138,6 +162,12 @@ CHROME: dict[str, dict[str, str]] = {
     },
     "fr": {
         "today_label": "AUJOURD'HUI",
+        "tagline": "Un quotidien irlandais, sans la sinistrose",
+        "masthead_price": "GRATUIT (comme la liberté, pas comme la bière)",
+        "masthead_subtitle": "Tout le craic digne d’être halluciné",
+        "edition_draft": "v3 · brouillon",
+        "change_date": "📅 changer de date",
+        "about_title": "À propos du rédacteur", "about_subtitle": "Qui se cache derrière tout ce craic ?",
         "nav_today": "Aujourd'hui", "nav_ai": "Bureau IA", "nav_craic": "Craic",
         "nav_lang": "Langues", "nav_listen": "Écouter",
         "kicker_text": "Le plus drôle d'Irlande, plus ce qui a vraiment changé dans l'IA — écrit "
@@ -159,6 +189,17 @@ _CHROME_RULES: list[tuple[str, str]] = [
     (r'(<h3 class="newsletter-title">).*?(</h3>)', "newsletter_title"),
     (r'(<p class="newsletter-sub">).*?(</p>)', "newsletter_sub"),
     (r'(<span class="hood-toggle-text">).*?(</span>)', "hood_toggle"),
+    # Masthead chrome + About title band. These carry class/id attributes alongside
+    # data-i18n, so anchor loosely on the data-i18n value (main.js also sets them at
+    # runtime via t()). index.html elements simply don't match on the About page and
+    # vice-versa. See issue #131.
+    (r'(<span[^>]*data-i18n="tagline"[^>]*>).*?(</span>)', "tagline"),
+    (r'(<span[^>]*data-i18n="mastheadPrice"[^>]*>).*?(</span>)', "masthead_price"),
+    (r'(<span[^>]*data-i18n="mastheadSubtitle"[^>]*>).*?(</span>)', "masthead_subtitle"),
+    (r'(<span[^>]*data-i18n="editionDraft"[^>]*>).*?(</span>)', "edition_draft"),
+    (r'(<label[^>]*data-i18n="changeDate"[^>]*>).*?(</label>)', "change_date"),
+    (r'(<h1[^>]*data-i18n="aboutTitle"[^>]*>).*?(</h1>)', "about_title"),
+    (r'(<p[^>]*data-i18n="aboutSubtitle"[^>]*>).*?(</p>)', "about_subtitle"),
     # The three-layout shell-nav labels (data-i18n-anchored so the About page's
     # cross-page nav localises too). main.js also applies these at runtime via t().
     (r'(<span data-i18n="navToday">).*?(</span>)', "nav_today"),
