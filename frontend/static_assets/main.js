@@ -53,42 +53,66 @@ const I18N = {
         dayOff: 'The Craic Gazette was probably on holidays.', changeDate: '📅 change date',
         translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
         readOriginal: 'Read the English original ↗',
-        qcLabel: 'Quality control', qcNote: 'Flagged by our automated fact-check — read with a pinch of salt:' },
+        qcLabel: 'Quality control', qcNote: 'Flagged by our automated fact-check — read with a pinch of salt:',
+        newsletterThanks: "Thanks! Sign-ups open in a future edition — you're on the list in spirit.",
+        placeholderKicker: 'ER, ABOUT TODAY…',
+        placeholderHeadline: 'AI EDITOR TAKES THE DAY OFF; EXISTENTIAL CRISIS ENSUES',
+        placeholderBody: "No edition was found for the last fortnight. The deep agent may not have run yet, or it's still waiting on a human to approve today's draft." },
   de: { listen: '🎧 Hören', podcast: 'Täglicher Podcast', tldr: '90-Sek-Schlagzeilen',
         transcript: 'Transkript', download: 'Herunterladen:', latest: 'aktuell',
         fetching: 'Heutige Ausgabe wird geladen…', noEdition: 'Keine Ausgabe gefunden für',
         dayOff: 'Die Craic Gazette macht wohl gerade Urlaub.', changeDate: '📅 Datum ändern',
         translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
         readOriginal: 'Zum englischen Original ↗',
-        qcLabel: 'Qualitätskontrolle', qcNote: 'Von unserer automatischen Faktenprüfung markiert — mit Vorsicht zu genießen:' },
+        qcLabel: 'Qualitätskontrolle', qcNote: 'Von unserer automatischen Faktenprüfung markiert — mit Vorsicht zu genießen:',
+        newsletterThanks: 'Danke! Anmeldungen öffnen in einer künftigen Ausgabe — im Geiste stehst du schon auf der Liste.',
+        placeholderKicker: 'ÄH, WEGEN HEUTE…',
+        placeholderHeadline: 'KI-REDAKTEUR MACHT BLAU; EXISTENZKRISE FOLGT',
+        placeholderBody: 'Für die letzten zwei Wochen wurde keine Ausgabe gefunden. Vielleicht ist der Deep-Agent noch nicht gelaufen, oder er wartet noch darauf, dass ein Mensch den heutigen Entwurf freigibt.' },
   es: { listen: '🎧 Escuchar', podcast: 'Podcast diario', tldr: 'Titulares en 90 s',
         transcript: 'transcripción', download: 'Descargar', latest: 'última',
         fetching: 'Cargando la edición de hoy…', noEdition: 'No se encontró edición para',
         dayOff: 'La Craic Gazette estaría de vacaciones.', changeDate: '📅 cambiar fecha',
         translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
         readOriginal: 'Leer el original en inglés ↗',
-        qcLabel: 'Control de calidad', qcNote: 'Marcado por nuestra verificación automática — tómalo con cautela:' },
+        qcLabel: 'Control de calidad', qcNote: 'Marcado por nuestra verificación automática — tómalo con cautela:',
+        newsletterThanks: '¡Gracias! Las suscripciones se abrirán en una edición futura — ya estás en la lista, en espíritu.',
+        placeholderKicker: 'EH, SOBRE LO DE HOY…',
+        placeholderHeadline: 'EL EDITOR DE IA SE TOMA EL DÍA LIBRE; SOBREVIENE UNA CRISIS EXISTENCIAL',
+        placeholderBody: 'No se encontró ninguna edición en las últimas dos semanas. Puede que el agente profundo aún no se haya ejecutado, o que siga esperando a que un humano apruebe el borrador de hoy.' },
   it: { listen: '🎧 Ascolta', podcast: 'Podcast quotidiano', tldr: 'Titoli in 90 s',
         transcript: 'trascrizione', download: 'Scarica', latest: 'ultima',
         fetching: "Caricamento dell'edizione di oggi…", noEdition: 'Nessuna edizione trovata per',
         dayOff: 'La Craic Gazette sarà in vacanza.', changeDate: '📅 cambia data',
         translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
         readOriginal: "Leggi l'originale in inglese ↗",
-        qcLabel: 'Controllo qualità', qcNote: 'Segnalato dal nostro fact-check automatico — da prendere con le pinze:' },
+        qcLabel: 'Controllo qualità', qcNote: 'Segnalato dal nostro fact-check automatico — da prendere con le pinze:',
+        newsletterThanks: "Grazie! Le iscrizioni apriranno in un'edizione futura — sei già in lista, almeno con lo spirito.",
+        placeholderKicker: 'EHM, RIGUARDO A OGGI…',
+        placeholderHeadline: "L'EDITORE IA SI PRENDE UN GIORNO LIBERO; NE SEGUE UNA CRISI ESISTENZIALE",
+        placeholderBody: "Nessuna edizione trovata nelle ultime due settimane. Forse il deep agent non è ancora stato eseguito, oppure sta ancora aspettando che un umano approvi la bozza di oggi." },
   ja: { listen: '🎧 聴く', podcast: 'デイリーポッドキャスト', tldr: '90秒ヘッドライン',
         transcript: '文字起こし', download: 'ダウンロード', latest: '最新',
         fetching: '本日のエディションを読み込み中…', noEdition: 'エディションが見つかりません：',
         dayOff: 'クレイク・ガゼットはお休みのようです。', changeDate: '📅 日付を変更',
         translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
         readOriginal: '英語の原文を読む ↗',
-        qcLabel: '品質チェック', qcNote: '自動ファクトチェックがフラグを立てました。話半分でどうぞ：' },
+        qcLabel: '品質チェック', qcNote: '自動ファクトチェックがフラグを立てました。話半分でどうぞ：',
+        newsletterThanks: 'ありがとう！登録は今後の号で開始します——気持ちのうえではもうリスト入りです。',
+        placeholderKicker: 'えっと、本日の件ですが…',
+        placeholderHeadline: 'AI編集長、本日休業。実存的危機へ突入',
+        placeholderBody: '過去2週間分のエディションが見つかりませんでした。ディープエージェントがまだ実行されていないか、本日の草稿が人間の承認を待っている可能性があります。' },
   fr: { listen: '🎧 Écouter', podcast: 'Podcast quotidien', tldr: 'Titres en 90 s',
         transcript: 'transcription', download: 'Télécharger', latest: 'récente',
         fetching: "Chargement de l'édition du jour…", noEdition: 'Aucune édition trouvée pour',
         dayOff: 'La Craic Gazette est sans doute en vacances.', changeDate: '📅 changer de date',
         translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
         readOriginal: "Lire l'original en anglais ↗",
-        qcLabel: 'Contrôle qualité', qcNote: 'Signalé par notre vérification automatique — à prendre avec des pincettes :' },
+        qcLabel: 'Contrôle qualité', qcNote: 'Signalé par notre vérification automatique — à prendre avec des pincettes :',
+        newsletterThanks: "Merci ! Les inscriptions ouvriront dans une prochaine édition — vous êtes déjà sur la liste, en esprit.",
+        placeholderKicker: "EUH, À PROPOS D'AUJOURD'HUI…",
+        placeholderHeadline: "LE RÉDACTEUR IA PREND SA JOURNÉE ; CRISE EXISTENTIELLE À LA CLÉ",
+        placeholderBody: "Aucune édition trouvée pour les deux dernières semaines. L'agent profond n'a peut-être pas encore tourné, ou il attend encore qu'un humain approuve le brouillon du jour." },
 };
 const t = (key) => ((I18N[LANG] || I18N.en)[key] ?? I18N.en[key] ?? key);
 
@@ -685,10 +709,9 @@ function renderHood(data) {
 function renderPlaceholder() {
   const grid = el('edition');
   if (grid) grid.innerHTML =
-    `<article class="card card--lead" style="grid-column:1/-1"><div class="kicker kicker--red">ER, ABOUT TODAY…</div>
-     <h2 class="headline headline--lead">AI EDITOR TAKES THE DAY OFF; EXISTENTIAL CRISIS ENSUES</h2>
-     <div class="body"><p>No edition was found for the last fortnight. The deep agent may not
-     have run yet, or it's still waiting on a human to approve today's draft.</p></div></article>`;
+    `<article class="card card--lead" style="grid-column:1/-1"><div class="kicker kicker--red">${escapeHtml(t('placeholderKicker'))}</div>
+     <h2 class="headline headline--lead">${escapeHtml(t('placeholderHeadline'))}</h2>
+     <div class="body"><p>${escapeHtml(t('placeholderBody'))}</p></div></article>`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -734,7 +757,7 @@ function initNewsletter() {
   form.addEventListener('submit', e => {
     e.preventDefault();
     const msg = el('newsletter-msg');
-    if (msg) msg.textContent = "Thanks! Sign-ups open in a future edition — you're on the list in spirit.";
+    if (msg) msg.textContent = t('newsletterThanks');
     form.reset();
   });
 }

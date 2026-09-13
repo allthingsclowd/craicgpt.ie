@@ -10,14 +10,16 @@ a sibling copy with:
 
   * ``<html lang="xx">`` — so crawlers and screen readers get the real language,
   * a translated ``<title>`` + ``<meta name="description">`` — the SEO-critical,
-    server-rendered bits client-side JS can't reliably set for bots, and
-  * language-prefixed nav links (``index.html``/``about.html`` → ``/<lang>/…``).
+    server-rendered bits client-side JS can't reliably set for bots,
+  * language-prefixed nav links (``index.html``/``about.html`` → ``/<lang>/…``), and
+  * the static, visible body chrome ``main.js`` never touches (the kicker strip,
+    the newsletter band, the Under-the-Hood toggle, the footer note) — see ``CHROME``.
 
 The ``hreflang`` alternates block is identical on every language's page, so it
-carries over from the template untouched. The visible body chrome + the article
-CONTENT are localised at runtime by ``main.js`` (the i18n table) and by the
-translated ``paper_content.json`` respectively — this file only owns the static
-``<head>`` + nav, which is exactly what a search crawler reads.
+carries over from the template untouched. The article CONTENT (and a handful of
+runtime-injected strings) are localised by the translated ``paper_content.json``
+and ``main.js``'s i18n table respectively; this file owns the static ``<head>``,
+nav, and the surrounding chrome — everything a search crawler reads without JS.
 
 Pure string templating (stdlib ``re``) — no Jinja, no extra dependency — so it's
 trivially unit-testable and runs as a step of ``frontend.sync_frontend``.
@@ -81,9 +83,80 @@ META: dict[str, dict[str, dict[str, str]]] = {
     },
 }
 
+# Translated VISIBLE body chrome — the static, server-rendered strings around the
+# article content that main.js does NOT touch (the kicker strip, the newsletter band,
+# the Under-the-Hood toggle, the footer note). English is the template's own value.
+# Frozen, review-pending. A language missing here keeps the English chrome (never fatal).
+CHROME: dict[str, dict[str, str]] = {
+    "de": {
+        "today_label": "HEUTE",
+        "kicker_text": "Irlands Lustigstes, plus was sich in der KI wirklich geändert hat — über "
+                       "Nacht von Open-Source-Modellen geschrieben. Keine Menschen im Spiel, kein "
+                       "Weltuntergang im Feed.",
+        "newsletter_title": "Der Craic, direkt in dein Postfach",
+        "newsletter_sub": "Ein ausführlicherer täglicher KI-Newsletter mit Grahams Sicht. Demnächst.",
+        "hood_toggle": "Ein Blick unter die Haube — wie ein LangChain-Deep-Agent das gebaut hat",
+        "footer_note": "Bei der Herstellung dieser Zeitung wurden keine Halluzinationen verletzt.",
+    },
+    "es": {
+        "today_label": "HOY",
+        "kicker_text": "Lo más divertido de Irlanda, además de lo que realmente cambió en la IA — "
+                       "escrito durante la noche por modelos de código abierto. Sin humanos de por "
+                       "medio, sin fatalismo en el feed.",
+        "newsletter_title": "El Craic, en tu bandeja de entrada",
+        "newsletter_sub": "Un boletín diario de IA más extenso con la opinión de Graham. Próximamente.",
+        "hood_toggle": "Bajo el capó — cómo un agente profundo de LangChain creó esto",
+        "footer_note": "Ninguna alucinación resultó herida en la elaboración de este periódico.",
+    },
+    "it": {
+        "today_label": "OGGI",
+        "kicker_text": "Il meglio dell'umorismo irlandese, più ciò che è davvero cambiato nell'IA — "
+                       "scritto nella notte da modelli open-source. Nessun umano in mezzo, nessuna "
+                       "catastrofe nel feed.",
+        "newsletter_title": "Il Craic, nella tua casella di posta",
+        "newsletter_sub": "Un dispaccio quotidiano di IA più esteso con il punto di vista di Graham. "
+                          "Presto disponibile.",
+        "hood_toggle": "Sotto il cofano — come un deep agent LangChain ha costruito tutto questo",
+        "footer_note": "Nessuna allucinazione è stata maltrattata nella realizzazione di questo giornale.",
+    },
+    "ja": {
+        "today_label": "本日",
+        "kicker_text": "アイルランド一おもしろいニュースに、AIで実際に変わったこと——オープンソースの"
+                       "モデルが夜通し執筆。人間は関与せず、暗い話題もなし。",
+        "newsletter_title": "クレイクを、あなたの受信箱に",
+        "newsletter_sub": "グラハムの視点を交えた、より読み応えのある毎日のAIダイジェスト。近日公開。",
+        "hood_toggle": "仕組みを見る——LangChainのディープエージェントがこれをどう作ったか",
+        "footer_note": "この新聞の制作において、幻覚（ハルシネーション）は一切傷つけられていません。",
+    },
+    "fr": {
+        "today_label": "AUJOURD'HUI",
+        "kicker_text": "Le plus drôle d'Irlande, plus ce qui a vraiment changé dans l'IA — écrit "
+                       "pendant la nuit par des modèles open source. Aucun humain dans la boucle, "
+                       "aucune sinistrose dans le fil.",
+        "newsletter_title": "Le Craic, dans votre boîte mail",
+        "newsletter_sub": "Une dépêche IA quotidienne plus complète avec l'avis de Graham. Bientôt "
+                          "disponible.",
+        "hood_toggle": "Sous le capot — comment un agent profond LangChain a créé tout ça",
+        "footer_note": "Aucune hallucination n'a été blessée pendant la fabrication de ce journal.",
+    },
+}
+
+# (element-locating regex, chrome key) — each localises one element's inner text in place.
+# Class-anchored so a minimal template (or the About page) simply matches nothing.
+_CHROME_RULES: list[tuple[str, str]] = [
+    (r'(<span class="kicker-label">).*?(</span>)', "today_label"),
+    (r'(<span class="kicker-text">).*?(</span>)', "kicker_text"),
+    (r'(<h3 class="newsletter-title">).*?(</h3>)', "newsletter_title"),
+    (r'(<p class="newsletter-sub">).*?(</p>)', "newsletter_sub"),
+    (r'(<span class="hood-toggle-text">).*?(</span>)', "hood_toggle"),
+]
+# The footer note is a unique sentence shared by index + about — a plain string swap.
+_FOOTER_NOTE_EN = "No hallucinations were harmed in the making of this newspaper."
+
 
 def build_localized_html(template: str, lang: str, *, title: str, description: str) -> str:
-    """Return ``template`` localised to ``lang``: html-lang + translated head + nav prefix."""
+    """Return ``template`` localised to ``lang``: html-lang + translated head + nav prefix
+    + translated visible body chrome (kicker strip, newsletter band, hood toggle, footer note)."""
     html = re.sub(r'<html lang="[^"]*">', f'<html lang="{lang}">', template, count=1)
     html = re.sub(r"<title>.*?</title>", f"<title>{title}</title>", html, count=1, flags=re.S)
     html = re.sub(r'(<meta name="description" content=")[^"]*(">)',
@@ -91,6 +164,18 @@ def build_localized_html(template: str, lang: str, *, title: str, description: s
     # Language-prefix the internal nav links (leave external/hreflang absolute URLs alone).
     html = html.replace('href="about.html"', f'href="/{lang}/about.html"')
     html = html.replace('href="index.html"', f'href="/{lang}/"')
+    # Localise the visible chrome main.js never touches. A language without a CHROME entry
+    # keeps the English chrome; an element absent from the page is a no-op.
+    chrome = CHROME.get(lang)
+    if chrome:
+        for pattern, key in _CHROME_RULES:
+            text = chrome.get(key)
+            if not text:
+                continue
+            html = re.sub(pattern, lambda m, t=text: m.group(1) + t + m.group(2),
+                          html, count=1, flags=re.S)
+        if chrome.get("footer_note"):
+            html = html.replace(_FOOTER_NOTE_EN, chrome["footer_note"])
     return html
 
 
