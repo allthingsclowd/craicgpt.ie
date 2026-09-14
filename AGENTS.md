@@ -458,6 +458,25 @@ AWS credentials** (as the geek + paddy deploys use). The same principle holds fo
 properties: deploy creds should live in the Agent Credentials vault (`AWS geek-worker IAM`, …),
 always fully-qualified.
 
+### GOTCHA — the publish gate re-syncs `frontend/`, so a stale `.75` checkout REVERTS the live shell
+
+The publish gate (`cli gate` → `cmd_gate`, `content_pipeline/agent/cli.py`; the sync is
+`content_pipeline/agent/frontend.py::sync_frontend`) re-uploads `frontend/` to S3 after every live
+edition, to keep the shell in lockstep with the repo. It syncs from the **`.75` checkout
+`/opt/craicgpt.ie`** — so if that checkout is BEHIND `grazzer`, the nightly gate publishes a **stale
+`frontend/` and REVERTS live frontend changes** (incident **2026-09-14**: `/opt/craicgpt.ie` sat 16
+commits behind and the 06:35 UTC gate wiped the shipped modern shell + edition-nav).
+
+- **Fixed 2026-09-14 (fleet):** every `craicgpt_*` worker task now `git pull --ff-only`s
+  `/opt/craicgpt.ie` before it shells out (`grazlab-llm-fleet`
+  `conductor/workers/craicgpt/worker.py::_git_pull_engine`), so generate + the gate + its frontend
+  re-sync stay current with `grazzer` automatically.
+- **Rule:** a frontend change is not shipped until it is **merged to `grazzer`** — a laptop
+  `./deploy_frontend.sh` alone is live only until the next publish (which re-syncs from the now
+  auto-pulled `/opt/craicgpt.ie`). Merge first. This is **unique to craic**: geek + paddy deploy the
+  frontend straight from the laptop and their Conductor workers only write `content/*`, so nothing
+  reverts them.
+
 ### CRITICAL GOTCHA — two SEPARATE worker services on `.75` (this cost real debugging time)
 
 There are **two** Conductor worker systemd units on `.75`. They are NOT interchangeable:

@@ -295,6 +295,11 @@ flowchart LR
 
 ## The daily workflow
 
+> **The publish gate re-syncs `frontend/` from `/opt/craicgpt.ie` on `.75` after each live
+> edition** — so a frontend change must be **merged to `grazzer`** (not just laptop-deployed), or the
+> next publish reverts it. Each `craicgpt_*` task now `git pull`s the checkout first (fixed 2026-09-14)
+> so it stays in lockstep with the deployed branch. See AGENTS.md → Deployment for the full gotcha.
+
 Graham is asleep or commuting at 06:00, so an **in-pipeline rubric judge is the
 safety gate that replaces the human**. The judge — a LangChain `deepagents`
 `RubricMiddleware` grader on an **independent** local model (`qwen3-coder-next`, distinct
