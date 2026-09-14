@@ -364,29 +364,23 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
    but sized as a proper touch target (min 44px, per the academy glove-target rule) so
    it works on a phone; the flex-wrap on .masthead-dateline lets the pair drop to their
    own row rather than crowding the date. */
+/* Edition pager — chevron ICON buttons flanking the date; page back/forward through the
+   daily archive. Icon-only (the aria-label carries the meaning); matches the shell nav's
+   line-icon look. Dimmed + non-interactive at the ends of the archive. */
+.edition-pager { display: inline-flex; align-items: center; gap: 0.5rem; }
 .edition-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0.35rem 0.7rem;
-  background: var(--card);
-  border: 1px solid var(--hairline);
-  color: var(--ink-soft);
-  font-family: var(--font-ui);
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-  border-radius: var(--radius);
-  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; flex: 0 0 auto; padding: 0;
+  border-radius: 999px; background: transparent;
+  border: 1px solid var(--hairline); color: var(--ink-soft);
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: background .15s, color .15s, border-color .15s, transform .08s;
 }
-.edition-nav-btn:hover:not(:disabled) { border-color: var(--ink-soft); color: var(--ink); }
+.edition-nav-btn .ic { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.edition-nav-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
+.edition-nav-btn:active:not(:disabled) { transform: scale(0.92); }
 .edition-nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* At the extremes of the archive one direction has nowhere to go — dim it and drop it
-   from the pointer/tab affordance rather than letting a click probe fruitlessly. */
-.edition-nav-btn:disabled { opacity: 0.4; cursor: default; }
+.edition-nav-btn:disabled { opacity: 0.25; cursor: default; }
 
 /* About-page: a typographic title band under the masthead (no wordmark image). */
 .page-title-band { background: var(--paper); border-bottom: 1px solid var(--hairline); text-align: center; padding: 1.2rem 1.5rem; }
