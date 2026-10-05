@@ -50,7 +50,8 @@ function handler(event) {
   // even if it's attached to a broad behavior; dedicated asset behaviors are then just a
   // cost optimisation (fewer invocations), not a correctness requirement.
   if (seg === 'static_assets' || seg === 'content' || seg === 'preview' ||
-      uri === '/favicon.ico' || uri === '/robots.txt' || uri === '/sitemap.xml') {
+      uri === '/favicon.ico' || uri === '/robots.txt' || uri === '/sitemap.xml' ||
+      uri === '/llms.txt') {
     return request;
   }
 
