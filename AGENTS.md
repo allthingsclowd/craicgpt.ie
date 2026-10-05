@@ -458,6 +458,14 @@ AWS credentials** (as the geek + paddy deploys use). The same principle holds fo
 properties: deploy creds should live in the Agent Credentials vault (`AWS geek-worker IAM`, …),
 always fully-qualified.
 
+### Agents read JSON, not pages (2026-10-05)
+
+`/content/latest.json` (and `/<lang>/content/latest.json`) is the agent entry point: written by
+`publish._write_latest_pointer` on every live publish, monotonic on date (a backfill never drags
+it back), `Cache-Control: no-cache`. `frontend/llms.txt` and each page's
+`<link rel="alternate" type="application/json">` advertise it (`i18n_html` rewrites the href per
+language). Keep the pointer's fields stable — add, don't rename.
+
 ### GOTCHA — the publish gate re-syncs `frontend/`, so a stale `.75` checkout REVERTS the live shell
 
 The publish gate (`cli gate` → `cmd_gate`, `content_pipeline/agent/cli.py`; the sync is

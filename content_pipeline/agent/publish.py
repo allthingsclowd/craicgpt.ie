@@ -229,11 +229,58 @@ def publish_paper(
         except Exception as exc:  # noqa: BLE001 — versioning must never sink a publish
             logger.warning("[publish] versioning failed: %s", exc)
 
+    # 2c) The agent-facing "latest" pointer (live only). Editions are date-keyed and the
+    #     site walks back up to 14 days to find one — a browser can; an agent asking "today's
+    #     paper" should not have to probe dates (and eat 403s on days off). One small JSON per
+    #     language, monotonic on date, pointing at the real edition. Never sinks a publish.
+    pointer_key: Optional[str] = None
+    if live:
+        try:
+            pointer_key = _write_latest_pointer(s3, bucket, date_iso, paper, key, language=language)
+        except Exception as exc:  # noqa: BLE001 — a pointer must never sink a publish
+            logger.warning("[publish] latest pointer failed: %s", exc)
+
     # 3) Invalidate CloudFront for the live paths so readers see it immediately.
     cf_id = cloudfront_id or content_cfg.cloudfront_distribution_id
     if live and cf_id:
-        _invalidate_cloudfront(cf_id, [key] + ([manifest_key] if manifest_key else []))
+        _invalidate_cloudfront(cf_id, [k for k in (key, manifest_key, pointer_key) if k])
 
+    return key
+
+
+def latest_pointer(paper: dict[str, Any], date_iso: str, edition_key: str,
+                   language: Optional[str] = None) -> dict[str, Any]:
+    """The ``latest.json`` document: where today's edition is, and enough to decide whether
+    to fetch it. Paths are site-absolute (``/<lang>/content/...``; English at the root)."""
+    prefix = _content_prefix(language)
+    ai = paper.get("ai") or {}
+    return {
+        "date": date_iso,
+        "generated_at": str(paper.get("generated_at") or ""),
+        "language": language or content_cfg.source_language,
+        "headliner": ((ai.get("headliner") or {}).get("title") or ""),
+        "edition": f"/{edition_key}",
+        "versions": f"/{s3_key(date_iso, prefix, 'versions.json')}",
+    }
+
+
+def _write_latest_pointer(s3: Any, bucket: str, date_iso: str, paper: dict, edition_key: str,
+                          language: Optional[str] = None) -> Optional[str]:
+    """Write ``<prefix>/latest.json`` unless it already points at a NEWER date (a backfill or a
+    late re-publish of an older day must never drag the pointer backwards). Returns the key
+    written, or None when skipped."""
+    key = f"{_content_prefix(language)}/latest.json"
+    try:
+        current = json.loads(s3.get_object(Bucket=bucket, Key=key)["Body"].read())
+        if str(current.get("date") or "") > date_iso:
+            return None
+    except Exception:  # noqa: BLE001 — no pointer yet / unreadable → this edition is it
+        pass
+    doc = latest_pointer(paper, date_iso, edition_key, language)
+    s3.put_object(Bucket=bucket, Key=key,
+                  Body=json.dumps(doc, ensure_ascii=False, indent=2).encode("utf-8"),
+                  ContentType="application/json", CacheControl="no-cache")
+    logger.info("[publish] latest → %s (%s)", key, date_iso)
     return key
 
 

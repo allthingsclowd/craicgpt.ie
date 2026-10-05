@@ -1,0 +1,33 @@
+# The Craic Gazette (craicgpt.ie)
+
+> Ireland's Most Artificially Intelligent Newspaper: a daily fun-news + AI-landscape paper
+> written by open-source LLMs and published once a day after a rubric judge approves it. The
+> pages are client-rendered views of public JSON editions — fetch the JSON, not the HTML.
+
+## Today's edition
+
+- [Latest pointer](https://craicgpt.ie/content/latest.json): `date`, `generated_at`,
+  `language`, `headliner`, `edition` (path of today's `paper_content.json`), `versions`
+  (path of the day's version manifest). Start here — editions are date-keyed and there is no
+  paper on some days, so never guess dates.
+- The edition it points at: `/content/YYYY/MM/DD/paper_content.json` (schema v3): `ai`
+  (`headliner`, `subarticles[]`, `shorts[]`), `fun[]`, `editors_brief`, `about`, `podcast`,
+  `podcast_tldr`, `layout[]`, `generated_at`.
+- Prior versions of a day: `/content/YYYY/MM/DD/versions.json` → `versions[]` of `id`,
+  `generated_at`, `seq`, `label`, `headliner`; each at `/content/YYYY/MM/DD/versions/<id>.json`.
+
+## Languages
+
+English lives at the root (`/content/...`; `/en/` is an alias). Translations live under a
+language prefix with the same layout and their own pointer:
+`/de/content/latest.json`, `/es/content/latest.json`, `/fr/content/latest.json`,
+`/it/content/latest.json`, `/ja/content/latest.json`.
+
+## Notes for agents
+
+- Everything under `/content/*` and `/<lang>/content/*` is public, no auth. A 403 on a dated
+  path means no edition that day (the Gazette takes days off), not an outage — follow the
+  pointer instead.
+- Every page carries `<link rel="alternate" type="application/json">` to its pointer.
+- Sister site: the Geek with the Peak daily cybersecurity brief and AI desk —
+  https://thegeekwiththepeak.com/llms.txt.
