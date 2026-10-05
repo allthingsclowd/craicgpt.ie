@@ -54,3 +54,13 @@ def test_generate_skips_language_without_metadata(tmp_path):
     (tmp_path / "about.html").write_text(_TEMPLATE, encoding="utf-8")
     written = generate_localized_pages(str(tmp_path), languages=["en", "xx"], source_language="en")
     assert written == []                                        # no META for 'xx' → skipped, not fatal
+
+
+def test_localized_page_points_at_its_own_json_edition():
+    tpl = ('<html lang="en"><head><title>T</title><meta name="description" content="d">'
+           '<link rel="alternate" type="application/json" href="/content/latest.json" title="x">'
+           '</head><body></body></html>')
+    out = build_localized_html(tpl, "fr", title="T", description="d")
+    assert 'href="/fr/content/latest.json"' in out
+    assert 'href="/content/latest.json"' not in out
+

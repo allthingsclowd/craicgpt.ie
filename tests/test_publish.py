@@ -302,3 +302,53 @@ def test_publish_two_languages_keep_separate_manifests():
     de = json.loads(s3.store["de/content/2026/06/08/versions.json"])
     assert en["versions"][0]["headliner"] == "EN head"
     assert de["versions"][0]["headliner"] == "DE head"
+
+
+class _FakeS3WithGet(_FakeS3):
+    """A fake that can also serve back what it stored (the latest pointer reads before it writes)."""
+
+    def __init__(self, seed=None):
+        super().__init__()
+        self.store = dict(seed or {})
+
+    def put_object(self, **kwargs):
+        super().put_object(**kwargs)
+        self.store[kwargs["Key"]] = kwargs["Body"]
+
+    def get_object(self, Bucket, Key):
+        if Key not in self.store:
+            raise KeyError(Key)
+        import io
+
+        return {"Body": io.BytesIO(self.store[Key])}
+
+
+def _latest(s3, key="content/latest.json"):
+    return json.loads(s3.store[key])
+
+
+def test_live_publish_writes_a_latest_pointer_and_preview_does_not(tmp_path):
+    s3 = _FakeS3WithGet()
+    paper = _paper_with_local_image(tmp_path)
+    paper["generated_at"] = "2026-06-02T06:10:00"
+    publish_paper(paper, "2026-06-02", live=False, s3=s3, bucket="b")
+    assert "content/latest.json" not in s3.store and "preview/latest.json" not in s3.store
+    publish_paper(paper, "2026-06-02", live=True, s3=s3, bucket="b")
+    doc = _latest(s3)
+    assert doc["date"] == "2026-06-02" and doc["headliner"] == "H"
+    assert doc["edition"] == "/content/2026/06/02/paper_content.json"
+    assert doc["versions"] == "/content/2026/06/02/versions.json"
+    put = next(p for p in s3.puts if p["Key"] == "content/latest.json")
+    assert put["CacheControl"] == "no-cache"  # a pointer is never cached a year
+
+
+def test_latest_pointer_is_per_language_and_never_moves_backwards(tmp_path):
+    s3 = _FakeS3WithGet()
+    newer = _paper_with_local_image(tmp_path)
+    publish_paper(newer, "2026-06-03", live=True, s3=s3, bucket="b", language="de")
+    assert _latest(s3, "de/content/latest.json")["edition"].startswith("/de/content/2026/06/03/")
+    older = _paper_with_local_image(tmp_path)
+    publish_paper(older, "2026-06-01", live=True, s3=s3, bucket="b", language="de")
+    assert _latest(s3, "de/content/latest.json")["date"] == "2026-06-03"  # backfill ignored
+    assert "content/latest.json" not in s3.store  # English pointer untouched by a German publish
+

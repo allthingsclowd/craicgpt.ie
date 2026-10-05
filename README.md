@@ -406,6 +406,22 @@ and judgement stay in this engine, not in Conductor.
 
 ---
 
+## For agents — the JSON editions
+
+The paper is public JSON; the page is a view of it. Start at the pointer, never guess a date:
+
+| Want | GET |
+|---|---|
+| Today's edition (where it is) | `https://craicgpt.ie/content/latest.json` → `date`, `generated_at`, `headliner`, `edition`, `versions` |
+| The edition itself | the `edition` path, e.g. `/content/2026/10/03/paper_content.json` (schema v3) |
+| Prior versions of a day | the `versions` path → `versions[]`; each at `/content/<date>/versions/<id>.json` |
+| A translation | `/<lang>/content/latest.json` — `de es fr it ja` |
+
+A 403 on a dated path = no paper that day (not an outage). The same map is at
+[`/llms.txt`](https://craicgpt.ie/llms.txt); every page carries
+`<link rel="alternate" type="application/json">` to its pointer. The pointer is written by
+`publish._write_latest_pointer` on every live publish (per language, monotonic on date).
+
 ## Repo layout
 
 ```

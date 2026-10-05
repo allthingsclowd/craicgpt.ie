@@ -231,6 +231,8 @@ def build_localized_html(template: str, lang: str, *, title: str, description: s
     # Language-prefix the internal nav links (leave external/hreflang absolute URLs alone).
     html = html.replace('href="about.html"', f'href="/{lang}/about.html"')
     html = html.replace('href="index.html"', f'href="/{lang}/"')
+    # The JSON this language's page renders — its own latest pointer, not the English one.
+    html = html.replace('href="/content/latest.json"', f'href="/{lang}/content/latest.json"')
     # Localise the visible chrome main.js never touches. A language without a CHROME entry
     # keeps the English chrome; an element absent from the page is a no-op.
     chrome = CHROME.get(lang)
