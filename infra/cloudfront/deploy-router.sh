@@ -39,7 +39,9 @@ log() { echo "[router] $*"; }
 die() { echo "[router] ERROR: $*" >&2; exit 1; }
 
 # ── Auth (inline, never printed) ─────────────────────────────────────────────
-if [ -z "${AWS_ACCESS_KEY_ID:-}" ]; then
+# An already-working AWS identity (exported keys OR a configured admin profile) is used
+# as-is; 1Password is only consulted when the shell has no usable credentials at all.
+if [ -z "${AWS_ACCESS_KEY_ID:-}" ] && ! aws sts get-caller-identity >/dev/null 2>&1; then
   command -v op >/dev/null || die "1Password CLI 'op' not found and AWS_ACCESS_KEY_ID unset"
   log "fetching admin AWS creds from 1Password ($AWS_ITEM)…"
   AWS_ACCESS_KEY_ID="$(op read "op://AgentCredentials/${AWS_ITEM}/${AKID_FIELD}")" || die "op read access key failed"
