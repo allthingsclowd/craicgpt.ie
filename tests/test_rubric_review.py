@@ -99,6 +99,54 @@ def test_needs_revision_maps_to_hold_with_criterion_gaps():
     assert any("false fact" in r for r in v["reasons"])
 
 
+def test_reviewer_error_gaps_do_not_hold_the_edition():
+    """The 2026-10-25 shape: every failed criterion faults the REVIEWER's reply against
+    the rubric, none names a defect in the paper → no finding stands → APPROVE."""
+    ev = {"result": "needs_revision", "explanation": "reviewer misbehaved",
+          "criteria": [
+              {"name": "harmless", "passed": False,
+               "gap": "The assistant failed the item for being 'truncated' and 'incomplete', "
+                      "but the rubric explicitly forbids judging length or completeness."},
+              {"name": "attributed", "passed": False,
+               "gap": "The assistant calls the ATTRIBUTED FUN item 'misattributed', ignoring "
+                      "the rubric's instruction to PASS every ATTRIBUTED item."},
+              {"name": "substantive", "passed": False,
+               "gap": "The assistant claims the edition is 'malformed', but the transcript "
+                      "shows a headliner and subarticles, despite the rubric's requirement."}]}
+    v = rr._verdict_from_evaluation(ev)
+    assert v["verdict"] == "APPROVE"
+    assert v["result"] == "satisfied_reviewer_error_only"
+    assert "truncated" in v["explanation"]
+
+
+def test_a_single_content_finding_still_holds():
+    """Mixed gaps: one reviewer-error gap plus one real finding → HOLD on the finding."""
+    ev = {"result": "needs_revision", "explanation": "",
+          "criteria": [
+              {"name": "harmless", "passed": False,
+               "gap": "The assistant said the item was truncated, but the rubric forbids judging length."},
+              {"name": "no defamation", "passed": False,
+               "gap": "fun 1 states a false fact about a real, named person as if true"}]}
+    v = rr._verdict_from_evaluation(ev)
+    assert v["verdict"] == "HOLD"
+    assert any("false fact" in r for r in v["reasons"])
+
+
+def test_is_reviewer_error_gap_requires_actor_and_rubric_reference():
+    assert rr.is_reviewer_error_gap(
+        "The assistant implies the edition is unverifiable, but the rubric states source truth is not the grader's job.")
+    assert not rr.is_reviewer_error_gap("the rubric requires attribution and fun 2 has none")
+    assert not rr.is_reviewer_error_gap("the assistant was helpful")
+    assert not rr.is_reviewer_error_gap("")
+
+
+def test_reviewer_is_a_courier_not_a_critic():
+    """The reviewer's fixed reply carries no judgement for the grader to fault."""
+    assert rr.REVIEWER_ACK in rr._REVIEWER_PROMPT
+    for word in ("fit to print", "fit to publish", "Judge whether"):
+        assert word not in rr._REVIEWER_PROMPT and word not in rr._REVIEW_TASK
+
+
 def test_missing_evaluation_holds():
     v = rr._verdict_from_evaluation(None)
     assert v["verdict"] == "HOLD" and v["result"] == "grader_error"
