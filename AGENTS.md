@@ -504,6 +504,44 @@ There are **two** Conductor worker systemd units on `.75`. They are NOT intercha
   `CONDUCTOR_URL=http://192.168.50.75:8080/api python3 conductor/register-workflow.py`
   (in `grazlab-llm-fleet`). Conductor **API :8080**, **UI :5000**.
 
+### GOTCHA — an expired `*.grazlab` wildcard cert blanks the WHOLE paper (incident 2026-10-24/25)
+
+Every LLM call in this engine goes through the LiteLLM proxy at
+`https://llm.grazlab.thescriptingpaddy.com` — nginx on `.75` terminating TLS with the
+`*.grazlab.thescriptingpaddy.com` Let's Encrypt wildcard (`/etc/nginx/tls/conductor.{crt,key}`,
+shared with the Conductor vhost). When that cert **expired at 02:03 UTC on 2026-10-24**, the 05:00
+run still "completed": the deep agent produced nothing (candidates = raw RSS harvest), the writer's
+per-item calls all failed fast and fail-soft (`1 headliner + 0 subs + 0 shorts`, headliner `{}`),
+no images were generated, the rubric judge returned `grader_error`, translations degraded to
+English — yet **narration worked**, because the TTS client talks to the M3 over plain HTTP and
+never touches the proxy. The gate correctly hard-held both drafts (structurally invalid, passive
+approval fenced). The site sat on the 23rd for two days.
+
+- **Signature:** `curl -sI "$LITELLM_BASE_URL/models"` → curl exit **60** (`certificate has expired`)
+  while every engine answers directly (`http://192.168.50.13:8003/v1/models`, `…206:8085-8087`).
+  In the draft trace: no `write_todos`/subagent events, `write_ai_section` in < 90 s, no
+  `generate_image` events, `judge_model` = the fallback route with "grader returned no evaluation".
+- **Why it wasn't renewed:** it WAS — `cert-renew-daily` issued a new cert into Vault on 2026-09-24,
+  then its 1Password mirror step failed and blocked the deploy fan-out, so nginx never got it
+  (claude_proxmox_setup#34). `grazlab_fleet_status` even reported the expired cert as `ok`.
+- **Fix (one-off, done 2026-10-25):** pull `kv/certs/wildcard-grazlab` from Vault with the worker's
+  AppRole, install to `/etc/nginx/tls/`, `nginx -t && systemctl reload nginx`; same for Vault's own
+  listener (`/opt/vault/tls`, HUP reload) and Proxmox (`tls-deploy-proxmox` workflow).
+- **Structural fix** is the self-healing control-plane map, grazlab-llm-fleet#185 (sentinel checks
+  live-vs-Vault cert expiry, auto-deploys from Vault as a SAFE action).
+- **Rule of thumb:** when every LiteLLM-routed stage dies at once and direct-HTTP stages live,
+  suspect the proxy's TLS before any model.
+
+### Reaching the lab from off-site (WireGuard, 2026-10-25)
+
+The lab (`192.168.50.x`) egresses via **Starlink** (CGNAT, address changes daily — no inbound).
+The WireGuard server (`10.6.0.1`) sits on the house's **BT line** (`192.168.1.151`, public
+endpoint on BT). The tunnel must be **split**: `AllowedIPs = 10.6.0.0/24, 192.168.50.0/24`,
+`MTU = 1280`, **no** `DNS` line (grazlab names resolve publicly to their private addresses).
+Never add `192.168.1.0/24` (it collides with most remote LANs and steals the local default route)
+and never `0.0.0.0/0` (pushes the whole internet through the BT line; large TLS flows stall).
+Then `make agent-up` in scripting-paddy-skills loads the fleet key for `.75/.74/.206/.13`.
+
 ### The CloudFront language router (deploy via AWS CLI, not Terraform)
 
 The `/en/`, `/de/`, … edge router (`infra/cloudfront/router.js`) is deployed **imperatively**:

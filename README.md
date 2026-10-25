@@ -404,6 +404,25 @@ Workflow + schedule JSON live in the `grazlab-llm-fleet` repo
 out to `python -m content_pipeline.agent.cli` on `.75`, so all the orchestration
 and judgement stay in this engine, not in Conductor.
 
+
+### When the paper doesn't refresh — read the draft, not the logs (2026-10-24 lesson)
+
+The pipeline is honest about its own failures: every draft carries its agent trace and its
+rubric verdict in S3 `preview/<date>/`. On 24–25 October 2026 the site stayed on the 23rd for
+two days. The drafts showed the shape in seconds — a writer that produced one untitled headliner
+and nothing else, no images, a judge that "returned no evaluation", translations fallen back to
+English, yet narration intact. Everything behind the LiteLLM proxy had died at once while the one
+direct-HTTP stage (TTS) lived. The cause was not a model, a power cut or a code change: the
+proxy's TLS certificate had expired at 02:03 that morning. It had been renewed a month earlier
+into Vault, but a failed 1Password mirror step blocked the deploy, and the only status surface
+that knew the expiry date scored an unreadable cert as "ok". The publish gate did its job and
+refused both blank editions.
+
+The structural answer is one watchdog that compares the live certificate with Vault and deploys
+it as a whitelisted repair — the self-healing control-plane map in `grazlab-llm-fleet#185`.
+Diagnostic rule: `curl -sI "$LITELLM_BASE_URL/models"` exiting 60 explains a blank paper
+before any model does.
+
 ---
 
 ## For agents — the JSON editions
