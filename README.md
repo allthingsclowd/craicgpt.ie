@@ -137,7 +137,7 @@ flowchart TD
     LIVE(["🌐 EN at root content/&lt;date&gt;/ · translations at &lt;lang&gt;/content/&lt;date&gt;/<br/>versioned per-language · audio + podcast"]):::live
     ROUTER{{"🧭 CloudFront Function · router.js<br/>detect lang → 302 /&lt;lang&gt;/ · alias /en/*→/* · rewrite /&lt;lang&gt;/→index.html"}}:::sched
     WEB["🖥️ Browser · /&lt;lang&gt;/ masonry paper · language switcher ·<br/>audio players · 'Under the Hood' agent-trace replay"]:::live
-    GRAHAM["📲 Graham · Telegram<br/>generated · published · HELD"]:::human
+    GRAHAM["📲 Graham · ops bot<br/>HELD pages · 08:00 digest"]:::human
 
     %% data flow
     CRON --> R
@@ -357,7 +357,7 @@ sequenceDiagram
 | Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent** local model (`qwen3-coder-next` — distinct from the writer) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
 | Narrate | **after the judge, on `.75` / M3** | per-article readings (Graham⇄Tom; parody items in their own voice clones) + the rubric-gated dad↔son podcast + a <180s TL;DR, all bookended by the **80s call-sign jingle** — additive audio written onto the draft (`generate/narration.py`). **Loops every language** (clones reused cross-lingually; a translated edition opens with a spoken "machine-translated by `<model>`" note) |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
-| Notify | engine notifier on `.75` → **both agents' Telegram bots** | 📰 on draft generated (with the rubric verdict), ✅ on published, ✋ on HELD (with reasons) — once per edition |
+| Notify | engine notifier on `.75` → the fleet's **`ops_event`** lane (fleet #206; one ops bot, 08:00 digest) | ✅ published → digest (`info`), ⚠️ degraded/flagged desks → digest (`warn`), ✋ HELD → **page** (`decision_needed`, 60-min passive window) — once per edition version; `generated` is no longer sent |
 | Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + browser-UA link-check + **the rubric `APPROVE`** (or a human directive) → publish English live, then **promote every other language on the same verdict** (`_publish_translations_live`, isolated) + CloudFront invalidation + frontend redeploy; any HOLD/invalid → Telegram; else retry |
 | Override | `directive.json` in `preview/<date>/` | human-in-the-loop: force-publish over a HOLD, or remediate (drop the flagged article) — see below |
 | Live | EN at `s3://…/content/…` (+ `/en/` alias) · translations at `s3://…/<lang>/content/…` + CloudFront **language router** | live at craicgpt.ie/`<lang>`/ |
@@ -513,8 +513,9 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
   and a per-persona parody clone) on the M3, bookended by our **own 80s call-sign jingle**
   (Apple sampled instruments, bounced offline — owned, zero-copyright). Additive: an edition
   still validates and renders without audio.
-- **Telegram notifications** — the engine fans draft-generated / published / HELD
-  alerts to both agents' bots, so an editorial HOLD is never silent.
+- **Ops events, not Telegram** — the engine posts published / degraded / HELD as
+  `grazlab.ops.event/1` events to the fleet's `ops_event` lane; only a HOLD pages
+  (one ops bot), the rest reads in the 08:00 digest. An editorial HOLD is never silent.
 - **Multi-lingual — write-once, translate-many** — English is researched, written, judged
   and link-checked **once**; every other language in **`CRAICGPT_LANGUAGES`**
   (`en,de,es,it,ja,fr`) is a deterministic **translation of the compiled English edition**

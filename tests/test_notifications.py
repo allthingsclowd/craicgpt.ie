@@ -102,50 +102,48 @@ def test_notify_once_version_keyed_no_cross_version_dedup(monkeypatch):
     assert again["sent"] is False and len(sends) == 2       # same version → deduped
 
 
-# --- lifecycle helpers build the right copy ---------------------------------
-def test_lifecycle_helpers_send_expected_text(monkeypatch):
+# --- lifecycle helpers build the right event (fleet #206 item 5) -----------
+def _capture_emit(monkeypatch):
     captured = {}
 
-    def cap(event, date_iso, text, **kw):
-        captured[event] = text
-        return {"sent": True}
+    def cap(event, date_iso, ops_event, **kw):
+        captured[event] = ops_event
+        return {"sent": False, "event": {"posted": True}}
 
-    monkeypatch.setattr(notifications, "notify_once", cap)
-    notifications.notify_generated("2026-06-03", "https://craicgpt.ie/preview/x.json")
+    monkeypatch.setattr(notifications, "emit_once", cap)
+    return captured
+
+
+def test_lifecycle_helpers_build_the_bucketed_events(monkeypatch):
+    captured = _capture_emit(monkeypatch)
+    # `generated` is DROPPED — there is no helper for it any more (#187 bucket DROP).
+    assert not hasattr(notifications, "notify_generated")
     notifications.notify_published("2026-06-03", "https://craicgpt.ie/content/x.json")
     notifications.notify_held("2026-06-03", ["off-brand short", "grim item"])
 
-    assert "draft generated" in captured["generated"].lower()
-    assert "preview" in captured["generated"]
-    # the two-agent (openclaw + hermes) review is RETIRED — the generated alert must not
-    # claim it's awaiting them; the rubric judges in-pipeline and the gate auto-publishes.
-    g = captured["generated"].lower()
-    assert "openclaw" not in g and "hermes" not in g
-    assert "rubric" in g and "publish gate" in g
-    assert "published live" in captured["published"].lower()
-    assert "HELD" in captured["held"] and "off-brand short" in captured["held"]
+    pub = captured["published"]
+    assert (pub["severity"], pub["kind"]) == ("info", "published")  # digest, not a push
+    assert "published live" in pub["title"].lower()
+    held = captured["held"]
+    assert (held["severity"], held["kind"]) == ("page", "decision_needed")  # the one page
+    assert "HELD" in held["title"] and "off-brand short" in held["detail"]
 
 
 def test_notify_published_carries_validation_receipts(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(notifications, "notify_once",
-                        lambda event, date_iso, text, **kw: captured.update(text=text) or {"sent": True})
+    captured = _capture_emit(monkeypatch)
     notifications.notify_published("2026-06-04", "https://craicgpt.ie/content/x.json",
                                    approvers=["rubric"], link_count=18,
                                    version="v2 · 17:30")
-    t = captured["text"]
+    t = captured["published"]["detail"]
     assert "approved by rubric ✓" in t                # who validated it (the in-pipeline judge)
     assert "18 source links verified" in t            # the link-check receipt
     assert "v2 · 17:30" in t                           # which version
-    assert "published live" in t.lower()
 
 
 def test_notify_published_without_receipts_stays_bare(monkeypatch):
-    captured = {}
-    monkeypatch.setattr(notifications, "notify_once",
-                        lambda event, date_iso, text, **kw: captured.update(text=text) or {"sent": True})
+    captured = _capture_emit(monkeypatch)
     notifications.notify_published("2026-06-04", "https://x")  # no receipts supplied
-    assert "🔎" not in captured["text"]                 # no receipt line when nothing to show
+    assert "approved by" not in captured["published"]["detail"]  # no receipt when nothing to show
 
 
 # --- which-channel selector -------------------------------------------------
@@ -158,9 +156,11 @@ def _cfg(monkeypatch):
     monkeypatch.setattr(content_config.content_cfg, "telegram_hermes_chat_id", "")
 
 
-def test_channel_targets_which_selects_one_or_both(monkeypatch):
+def test_channel_targets_which_selects_exactly_one(monkeypatch):
     _cfg(monkeypatch)
-    assert [t[0] for t in notifications._channel_targets("both")] == ["openclaw", "hermes"]
+    # "both" is retired (#187: both bots DM the same chat → every message twice); it
+    # collapses to ONE bot. Explicit single selectors still work.
+    assert len(notifications._channel_targets("both")) == 1
     assert [t[0] for t in notifications._channel_targets("openclaw")] == ["openclaw"]
     assert [t[0] for t in notifications._channel_targets("hermes")] == ["hermes"]
 
@@ -228,17 +228,17 @@ def test_translation_degraded_alert_names_each_language(monkeypatch):
     """`translation_holds` was written since the sections were introduced and read by
     NOTHING — no frontend, no gate, no Telegram. Combined with validate_paper passing
     an English-shipped paper and an English-only freshness canary, a bad translation
-    day left no trace anywhere. This is the alert that closes that loop."""
+    day left no trace anywhere. This is the (digest) event that closes that loop."""
     from content_pipeline import notifications
     from content_pipeline.agent import cli
 
     sent: dict = {}
 
-    def fake_once(event, date_iso, text, **kw):
-        sent.update({"event": event, "date": date_iso, "text": text, "vid": kw.get("vid")})
+    def fake_emit(event, date_iso, ops_event, **kw):
+        sent.update({"event": event, "date": date_iso, "ops": ops_event, "vid": kw.get("vid")})
         return {}
 
-    monkeypatch.setattr(notifications, "notify_once", fake_once)
+    monkeypatch.setattr(notifications, "emit_once", fake_emit)
     cli._notify_safe(
         "translation_degraded",
         "2026-07-25",
@@ -248,10 +248,12 @@ def test_translation_degraded_alert_names_each_language(monkeypatch):
 
     assert sent["event"] == "translation_degraded"
     assert sent["date"] == "2026-07-25" and sent["vid"] == "v1"
+    assert (sent["ops"]["severity"], sent["ops"]["kind"]) == ("warn", "degraded")
     # every affected language named, with WHY — a bare "translation failed" would
     # not tell you whether one section fell back or the whole paper shipped English
-    assert "ja" in sent["text"] and "sections kept English: ai" in sent["text"]
-    assert "fr" in sent["text"] and "only 12% translated" in sent["text"]
+    detail = sent["ops"]["detail"]
+    assert "ja" in detail and "sections kept English: ai" in detail
+    assert "fr" in detail and "only 12% translated" in detail
 
 
 def test_translation_degraded_alert_never_breaks_the_pipeline(monkeypatch):
@@ -262,5 +264,5 @@ def test_translation_degraded_alert_never_breaks_the_pipeline(monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("telegram down")
 
-    monkeypatch.setattr(notifications, "notify_once", boom)
+    monkeypatch.setattr(notifications, "emit_once", boom)
     cli._notify_safe("translation_degraded", "2026-07-25", degraded={"de": "x"}, vid=None)

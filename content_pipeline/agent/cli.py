@@ -142,11 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_df.add_argument("--dir", dest="frontend_dir", help="frontend dir (default: repo frontend/)")
 
     p_msg = sub.add_parser("message",
-                           help="Send a Telegram message to Graham via the agent bot(s)")
+                           help="Send a Telegram message to Graham via ONE bot")
     p_msg.add_argument("--text", required=True, help="message body (HTML allowed)")
-    p_msg.add_argument("--to", dest="which", default="both",
-                       choices=["openclaw", "hermes", "both"],
-                       help="which bot(s) to send via (default: both)")
+    p_msg.add_argument("--to", dest="which", default="one",
+                       choices=["one", "watch", "openclaw", "hermes", "both"],
+                       help="which bot to send via (default: one = the ops bot if "
+                            "configured, else the first agent bot; 'both' collapses to one)")
 
     p_nar = sub.add_parser(
         "narrate",
@@ -255,10 +256,9 @@ def cmd_run(args) -> int:
         # Write the in-pipeline rubric verdict so the idempotent gate can publish on
         # it (replacing the two VMs' verdicts) — same S3 plumbing, a single "rubric".
         _write_rubric_verdict_safe(date_iso, paper, vid=vid)
-        # Tell Graham (via both agents' channels) a draft is up for review.
-        ymd = "/".join(date_iso.split("-"))
-        _notify_safe("generated", date_iso, vid=vid,
-                     draft_url=f"https://craicgpt.ie/preview/{ymd}/paper_content.json")
+        # No "draft generated" ping any more (fleet #206 item 5 — #187 bucket DROP): its
+        # own text said "I'll only ping you if it's held"; status.json + latest.json
+        # carry the fact, and the gate's `published` event is the receipt.
         # Alert if the comedian desk came up empty (motorcycle/press only) — the desk
         # has no floor, so this would otherwise ship silently (2026-06-16).
         from content_pipeline.research.fun_sources import fun_desk_alert
@@ -333,23 +333,30 @@ def cmd_run(args) -> int:
 
 
 def _notify_safe(event: str, date_iso: str, **kw) -> None:
-    """Fire an edition-lifecycle Telegram alert to both agents' channels. Like
-    ``_announce_safe``, a notification must never break the pipeline."""
+    """Record an edition-lifecycle event on the fleet's ops-event lane (fleet #206
+    item 5). The bucket per event lives in ``notifications`` — only ``held`` can page,
+    and only ``held`` may fall back to ONE Telegram bot from here. ``generated`` is
+    dropped on purpose (no event, no send). Like ``_announce_safe``, a notification
+    must never break the pipeline."""
     try:
         from content_pipeline import notifications
 
         if event == "generated":
-            notifications.notify_generated(date_iso, kw["draft_url"], vid=kw.get("vid"))
-        elif event == "published":
+            return  # DROPPED — see cmd_run; kept as a no-op so old callers stay harmless
+        if event == "published":
             notifications.notify_published(
                 date_iso, kw["live_url"], note=kw.get("note"),
                 approvers=kw.get("approvers"), link_count=kw.get("link_count"),
                 version=kw.get("version"), vid=kw.get("vid"))
         elif event == "held":
-            notifications.notify_held(date_iso, kw.get("reasons") or [], vid=kw.get("vid"))
+            notifications.notify_held(date_iso, kw.get("reasons") or [], vid=kw.get("vid"),
+                                      passive_minutes=kw.get("passive_minutes"))
         elif event == "fun_no_comedy":
-            # Once-per-edition alert that the comedian desk came up empty.
-            notifications.notify_once("fun_no_comedy", date_iso, kw["text"], vid=kw.get("vid"))
+            # Once-per-edition digest line that the comedian desk came up empty.
+            notifications.notify_degraded(
+                "fun_no_comedy", date_iso, "fun_no_comedy",
+                f"CraicGPT {date_iso}: fun desk shipped without a comedian",
+                kw["text"], vid=kw.get("vid"))
         elif event == "translation_degraded":
             # A language published as (partly) English, or was skipped. Silent until
             # now: translation_holds was written and read by nothing, validate_paper
@@ -357,9 +364,10 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
             # the English URL — so a bad translation day left no trace anywhere.
             degraded = kw.get("degraded") or {}
             lines = "\n".join(f"• {lang}: {why}" for lang, why in sorted(degraded.items()))
-            notifications.notify_once(
-                "translation_degraded", date_iso,
-                f"🌍 Translation degraded for {date_iso}:\n{lines}", vid=kw.get("vid"))
+            notifications.notify_degraded(
+                "translation_degraded", date_iso, "translations",
+                f"CraicGPT {date_iso}: {len(degraded)} translation(s) degraded",
+                f"Translation degraded for {date_iso}:\n{lines}", vid=kw.get("vid"))
         elif event == "qc_flagged":
             # Advisory per-article gate flagged stories that published WITH a QC stamp.
             notifications.notify_flagged(date_iso, kw.get("flagged") or {},
@@ -945,7 +953,8 @@ def _run_gate(date_iso: str, required: tuple, *, publish: bool) -> dict:
         if first_valid_hold:
             reasons.append(f"auto-publishes in {int(passive_after)} min unless you respond "
                            "— `cli override` to publish now, or `cli hold` to keep it held")
-        _notify_safe("held", date_iso, reasons=reasons, vid=vid)
+        _notify_safe("held", date_iso, reasons=reasons, vid=vid,
+                     passive_minutes=int(passive_after) if first_valid_hold else None)
         if first_valid_hold:
             _stamp_held_since(date_iso, status)
     return g
@@ -1127,11 +1136,14 @@ def cmd_directive(args) -> int:
 
 
 def cmd_message(args) -> int:
-    """Send an ad-hoc Telegram message to Graham via the agent bot(s). This is the
-    host-side sender the `messaging-graham` skill routes through (the .75 host holds
-    both bot tokens; agent VMs hold only their own)."""
+    """Send an ad-hoc Telegram message to Graham via ONE bot. This is the host-side
+    sender the fleet's `message_graham` shim routes through (the .75 host holds the
+    tokens; agent VMs hold only their own). `--to both` is accepted from old callers
+    and collapsed — map #185 decision 4: one ops bot, never a fan-out."""
     from content_pipeline import notifications
 
+    if args.which == "both":
+        logging.warning("[cli] message --to both is retired; sending on ONE bot")
     results = notifications.send_message(args.text, which=args.which)
     delivered = sum(1 for r in results if r["ok"])
     print(json.dumps({"to": args.which, "delivered": delivered,

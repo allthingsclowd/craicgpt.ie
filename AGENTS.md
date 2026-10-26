@@ -148,7 +148,7 @@ Publish gate — Conductor cron craicgpt_publish_gate_poll @06–08 UTC → cli 
    English verdict (_publish_translations_live — additive + isolated; one language failing
    never sinks English) + CloudFront invalidation + frontend sync. The verdict/status
    control-plane is language-neutral. A JUDGEMENT hold (rubric HOLD, structurally valid)
-   escalates to Graham on Telegram and, if no human directive lands within
+   escalates to Graham as a `decision_needed` ops event (paged on the ONE ops bot) and, if no human directive lands within
    CRAICGPT_HITL_PASSIVE_MINUTES (default 60), is PASSIVELY approved (published) — fenced so
    a structurally-broken edition is never auto-published. Editions are VERSIONED per language:
    <lang>/content/<date>/paper_content.json (latest) + versions/<vid>.json + versions.json.
@@ -239,7 +239,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/compile.py` | `build_paper` (schema v3) + `build_layout` (interleaves fun among AI shorts) |
 | `content_pipeline/providers/litellm.py` | `get_litellm_llm` (ChatOpenAI → LiteLLM proxy) + `run_with_fallback` (local-first → cross-box local; there is no frontier route) |
 | `content_pipeline/content_config.py` | All config from env vars; singleton `content_cfg` |
-| `content_pipeline/notifications.py` | Telegram lifecycle alerts (generated / published / HELD) to both agents' channels |
+| `content_pipeline/notifications.py` | Edition-lifecycle **ops events** (fleet #206 item 5): `published` → info, `fun_no_comedy`/`translation_degraded` → warn `degraded`, `qc_flagged` → warn `flagged`, `held` → **page** `decision_needed` (+ a `decision` block with the passive window); `generated` is DROPPED. Posted to the fleet's `ops_event` Conductor workflow (`CONDUCTOR_URL`), once per `(date, event, vid)` via S3 markers. Telegram from here ONLY as the `held` fallback when the lane did not page, on ONE bot (`_channel_targets`: the ops bot if `TELEGRAM_SENTINEL_BOT_TOKEN` is set, else the first agent bot — never both) |
 | `frontend/index.html` + `static_assets/{style.css,main.js}` | Tabloid layout, version picker, "Under the Hood" drawer. `main.js` is **i18n**: reads the language from the path (`/<lang>/`), fetches `/<lang>/content/…`, renders the masthead **language switcher** (sets the `cg_lang` cookie) + the translated-page footer note |
 | `infra/cloudfront/router.js` + `deploy-router.sh` + `README.md` | **NEW edge language router.** CloudFront **Function** (viewer-request): auto-detect lang on a prefix-less request (cookie→Accept-Language→en, **302**) + alias `/en/*`→`/*` + rewrite `/<lang>/`→`…/index.html`. Carries the **503-cookie gotcha** fix (use the `cookies` structure, not a `set-cookie` header). `deploy-router.sh` ships it via **AWS CLI** (admin creds — the put-only IAM can't `CreateFunction`), **not** `terraform apply` |
 | `terraform/frontend/` | IaC for S3, CloudFront, ACM, Route53. The language router is **NOT applied from here** (no backend → local state not in this checkout); `modules/cloudfront/main.tf` carries it as a labelled NOT-APPLIED note — the live router is the AWS-CLI deploy above |
@@ -412,7 +412,9 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `S3_BUCKET` | Yes (publish) | `craicgpt-ie-production` |
 | `CLOUDFRONT_DISTRIBUTION_ID` | Yes (live publish) | — |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | Yes (publish) | sourced from 1Password `op://AgentCredentials/AWS craicgpt-publish IAM` by `deploy_frontend.sh` (fully-qualified; ambient fallback) |
-| `TELEGRAM_OPENCLAW_BOT_TOKEN` / `TELEGRAM_HERMES_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | No | — |
+| `CONDUCTOR_URL` (the fleet's `ops_event` lane) | No | `http://192.168.50.75:8080/api` |
+| `CRAICGPT_OPS_PAGE_WAIT` (seconds `notify_held` waits for the lane's verdict before its one-bot fallback) | No | `20` |
+| `TELEGRAM_SENTINEL_BOT_TOKEN` (the ops bot — the fallback target) / `TELEGRAM_OPENCLAW_BOT_TOKEN` / `TELEGRAM_HERMES_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | No | — |
 
 ---
 
