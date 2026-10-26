@@ -17,6 +17,7 @@ in-memory FakeS3 from test_notifications.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -34,6 +35,10 @@ class FakeConductor:
     def __init__(self, *, status="COMPLETED", paged=True, stored=True, fail_post=False):
         self.posted: list[dict] = []
         self.status, self.paged, self.stored, self.fail_post = status, paged, stored, fail_post
+        self.suppressed = False
+        self.error: str | None = None
+        self.task_status = "COMPLETED"  # the ops_event task inside the workflow
+        self.get_failures = 0  # transient GET errors before the real answer
 
     def post(self, url, body, timeout):
         if self.fail_post:
@@ -42,7 +47,37 @@ class FakeConductor:
         return "wf-123"
 
     def get(self, url, timeout):
-        return {"status": self.status, "output": {"paged": self.paged, "stored": self.stored}}
+        if self.get_failures:
+            self.get_failures -= 1
+            raise OSError("transient")
+        out = {"paged": self.paged, "stored": self.stored, "suppressed": self.suppressed}
+        if self.error:
+            out["error"] = self.error
+        return {"status": self.status, "output": out,
+                "tasks": [{"taskType": "ops_event", "status": self.task_status}]}
+
+
+# The fleet's schema.validate rules (grazlab-llm-fleet conductor/ops_events/schema.py), in
+# miniature — enough that a malformed craicgpt event fails HERE, not silently on .75.
+_TOKEN = re.compile(r"^[a-z0-9_.-]{1,40}$")
+_KINDS = PAGE_KINDS | {"workflow_failed", "degraded", "flagged", "published", "cost_threshold",
+                       "signup", "review_summary", "heartbeat", "note", "open_incident",
+                       "host_metrics"}
+
+
+def _contract(ev: dict) -> dict:
+    assert ev["schema"] == SCHEMA and ev["source"] == "craicgpt"
+    assert _TOKEN.match(ev["component"]), ev["component"]
+    assert ev["severity"] in {"page", "warn", "info", "debug"} and ev["kind"] in _KINDS
+    assert len(ev["title"]) <= 120 and len(ev["detail"]) <= 2000
+    assert re.match(r"^\S+$", ev["dedup_key"]) and ev["dedup_key"].startswith("craicgpt:")
+    assert ev["ts"].endswith("Z") and isinstance(ev["links"], list)
+    assert 1 <= ev["ttl_hours"] <= 720 and ev["unowned"] is False
+    if ev["kind"] == "decision_needed":
+        d = ev["decision"]
+        assert d["nonce"] and d["tier"] in {"SAFE", "EXPLICIT"} and d["options"]
+        assert d["expires_at"].endswith("Z")
+    return ev
 
 
 @pytest.fixture
@@ -105,7 +140,7 @@ def test_digest_events_post_an_ops_event_and_send_no_telegram(lane, telegram, mo
                                                               event, kw, severity, kind) -> None:
     monkeypatch.setattr(notifications, "_default_s3", lambda: FakeS3())
     cli._notify_safe(event, "2026-10-26", vid="V1", **kw)
-    ev = _event_of(lane)
+    ev = _contract(_event_of(lane))
     assert ev["schema"] == SCHEMA and ev["source"] == "craicgpt"
     assert ev["severity"] == severity and ev["kind"] == kind
     assert ev["dedup_key"].startswith(f"craicgpt:{kind}:") and "2026-10-26" in ev["dedup_key"]
@@ -139,7 +174,7 @@ def test_published_event_carries_the_receipts(lane, telegram, monkeypatch) -> No
 def test_held_is_a_decision_needed_page_with_the_passive_window(lane, telegram, monkeypatch) -> None:
     monkeypatch.setattr(notifications, "_default_s3", lambda: FakeS3())
     cli._notify_safe("held", "2026-10-26", vid="V1", reasons=["off-brand short"], passive_minutes=60)
-    ev = _event_of(lane)
+    ev = _contract(_event_of(lane))
     assert ev["severity"] == "page" and ev["kind"] in PAGE_KINDS and ev["kind"] == "decision_needed"
     assert ev["dedup_key"] == "craicgpt:decision_needed:held:2026-10-26:V1"
     d = ev["decision"]
@@ -177,6 +212,67 @@ def test_held_falls_back_when_the_lane_did_not_page(lane, telegram, monkeypatch)
     lane.status, lane.paged = "FAILED", False  # stored, but DeliveryError on the fleet side
     notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=FakeS3())
     assert len(telegram) == 1
+
+
+def test_held_sends_no_telegram_while_the_lane_is_still_paging(lane, telegram, monkeypatch) -> None:
+    """The wait ran out but the worker HAS the task: it will page — a fallback now is the
+    double-send #187 measured."""
+    _cfg(monkeypatch, watch="tok-watch")
+    lane.status, lane.paged, lane.stored, lane.task_status = "RUNNING", False, False, "IN_PROGRESS"
+    s3 = FakeS3()
+    notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=s3, bucket="b")
+    assert telegram == []
+    assert s3.store, "the lane owns it — mark it so the next gate poll does not re-post"
+
+
+def test_held_falls_back_when_no_worker_picked_the_event_up(lane, telegram, monkeypatch) -> None:
+    """Still SCHEDULED at the deadline: the .75 fleet worker is down, nobody will page."""
+    _cfg(monkeypatch, watch="tok-watch")
+    lane.status, lane.paged, lane.stored, lane.task_status = "RUNNING", False, False, "SCHEDULED"
+    notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=FakeS3())
+    assert len(telegram) == 1
+
+
+def test_held_sends_no_telegram_when_the_page_was_suppressed(lane, telegram, monkeypatch) -> None:
+    """A hot dedup_key: the fleet already paged this hold within ttl_hours."""
+    _cfg(monkeypatch, watch="tok-watch")
+    lane.paged, lane.suppressed = False, True
+    notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=FakeS3())
+    assert telegram == []
+
+
+def test_held_falls_back_when_the_lane_rejected_the_event(lane, telegram, monkeypatch) -> None:
+    _cfg(monkeypatch, watch="tok-watch")
+    lane.paged, lane.stored, lane.error = False, False, "EventError: bad component"
+    notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=FakeS3())
+    assert len(telegram) == 1
+
+
+def test_a_transient_poll_error_does_not_outlive_a_good_answer(lane, telegram, monkeypatch) -> None:
+    lane.get_failures = 1
+    s3 = FakeS3()
+    res = notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=s3, bucket="b")
+    assert res["event"]["paged"] is True and not res["event"].get("error")
+    assert s3.store, "a paged hold is marked — the next poll must not page again"
+    assert telegram == []
+
+
+def test_integrity_hold_offers_no_override(lane, telegram, monkeypatch) -> None:
+    """EditionHeld in `cli run`: there is no draft, so `cli override` has nothing to publish."""
+    monkeypatch.setattr(notifications, "_default_s3", lambda: FakeS3())
+    cli._notify_safe("held", "2026-10-26", vid="V1", reasons=["AI desk below floor"], no_draft=True)
+    ev = _contract(_event_of(lane))
+    assert ev["kind"] == "decision_needed" and "override" not in ev["decision"]["options"]
+    assert "override" not in ev["detail"] and "AI desk below floor" in ev["detail"]
+    assert ev["dedup_key"] == "craicgpt:decision_needed:held:2026-10-26:V1"
+
+
+def test_held_link_follows_the_configured_site(lane, telegram, monkeypatch) -> None:
+    from content_pipeline import content_config
+    monkeypatch.setattr(content_config.content_cfg, "site_base_url", "https://staging.example")
+    monkeypatch.setattr(notifications, "_default_s3", lambda: FakeS3())
+    cli._notify_safe("held", "2026-10-26", vid="V1", reasons=["x"])
+    assert _event_of(lane)["links"] == ["https://staging.example/preview/2026/10/26/paper_content.json"]
 
 
 def test_digest_event_never_falls_back_to_telegram(lane, telegram, monkeypatch) -> None:
