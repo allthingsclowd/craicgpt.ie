@@ -219,6 +219,7 @@ def test_held_sends_no_telegram_while_the_lane_is_still_paging(lane, telegram, m
     double-send #187 measured."""
     _cfg(monkeypatch, watch="tok-watch")
     lane.status, lane.paged, lane.stored, lane.task_status = "RUNNING", False, False, "IN_PROGRESS"
+    monkeypatch.setattr(notifications.content_cfg, "ops_page_wait_seconds", 0)  # deadline now
     s3 = FakeS3()
     notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=s3, bucket="b")
     assert telegram == []
@@ -229,6 +230,7 @@ def test_held_falls_back_when_no_worker_picked_the_event_up(lane, telegram, monk
     """Still SCHEDULED at the deadline: the .75 fleet worker is down, nobody will page."""
     _cfg(monkeypatch, watch="tok-watch")
     lane.status, lane.paged, lane.stored, lane.task_status = "RUNNING", False, False, "SCHEDULED"
+    monkeypatch.setattr(notifications.content_cfg, "ops_page_wait_seconds", 0)  # deadline now
     notifications.notify_held("2026-10-26", ["x"], vid="V1", s3=FakeS3())
     assert len(telegram) == 1
 
