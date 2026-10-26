@@ -76,7 +76,7 @@ site is both a working newspaper and a live deep-agents tutorial.
   + host structural validation + browser-UA link-check → promote EN to content/ (live), then
   promote ALL OTHER LANGUAGES on the SAME English verdict (isolated), version per language,
   invalidate CloudFront, sync the frontend. A judgement HOLD (rubric, but structurally valid)
-  escalates to Graham on Telegram + PASSIVELY auto-publishes after CRAICGPT_HITL_PASSIVE_MINUTES
+  pages Graham (a `decision_needed` ops event, ONE bot) + PASSIVELY auto-publishes after CRAICGPT_HITL_PASSIVE_MINUTES
   (default 60) if he doesn't respond — never a broken page.
         │
         ▼

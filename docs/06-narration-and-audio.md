@@ -217,7 +217,7 @@ else `edition.language`) and threads it through everything:
 Once narrated, the edition flows to the **idempotent publish gate** (`review.gate`, polled by
 the `craicgpt_publish_gate` workflow). On the rubric's APPROVE + host structural validation +
 a browser-UA link-check it **auto-publishes live** — no human in the loop. A *judgement* HOLD
-(the rubric held, but the page is structurally valid) is **escalated to Graham on Telegram**;
+(the rubric held, but the page is structurally valid) is **escalated to Graham** as a `decision_needed` ops event (one page, one bot);
 if no human directive lands within `CRAICGPT_HITL_PASSIVE_MINUTES` (default 60) the gate
 **passively approves** it (`passive-publish`). `cli override` publishes now; `cli hold` pins
 it and suppresses the timer. The fail-open is **fenced by structural validity** — a broken

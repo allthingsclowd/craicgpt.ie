@@ -329,8 +329,8 @@ Any article may also carry an additive, optional **`_qc`** marker
 (`{"flag": "fabrication"|"dead_link", "reason": "...", "by": "per-article gate"}`). The per-article
 gate (`agent/article_review.py::auto_remediate`) is **advisory** (2026-06-19): it never drops an
 article or hard-holds the edition — it stamps a flagged story with `_qc`, the edition publishes, the
-frontend renders a **quality-control warning banner** (`main.js::qcStamp` + `.qc-stamp`), and Graham
-is alerted (`notifications.notify_flagged`) to spot-check. This replaced the old promote-then-floor
+frontend renders a **quality-control warning banner** (`main.js::qcStamp` + `.qc-stamp`), and a
+`warn`/`flagged` ops event (`notifications.notify_flagged`) puts it in Graham's 08:00 digest to spot-check. This replaced the old promote-then-floor
 hard-hold that blacked out the whole multilingual edition over one fabricated headliner.
 
 Counts (resolved): **1 headliner + 2 subarticles + 10 shorts** (AI) + **up to 5 fun**
