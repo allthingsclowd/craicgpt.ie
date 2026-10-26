@@ -65,7 +65,7 @@ somebody notices:
   byte-identical to a valid English paper — `validate_paper` passes it and it ships under
   a `<lang>/` prefix as English. It is a ratio, not exact-zero, because brand names and
   short titles legitimately survive translation (a healthy `de` scores ~2/51 identical).
-- **It gets surfaced.** A `translation_degraded` Telegram alert names each affected
+- **It gets surfaced.** A `translation_degraded` ops event (warn, 08:00 digest) names each affected
   language *and why* ("sections kept English: ai" reads very differently from "only 12%
   translated"). `translation_holds` was previously written and read by nothing.
 

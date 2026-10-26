@@ -137,7 +137,7 @@ flowchart TD
     LIVE(["🌐 EN at root content/&lt;date&gt;/ · translations at &lt;lang&gt;/content/&lt;date&gt;/<br/>versioned per-language · audio + podcast"]):::live
     ROUTER{{"🧭 CloudFront Function · router.js<br/>detect lang → 302 /&lt;lang&gt;/ · alias /en/*→/* · rewrite /&lt;lang&gt;/→index.html"}}:::sched
     WEB["🖥️ Browser · /&lt;lang&gt;/ masonry paper · language switcher ·<br/>audio players · 'Under the Hood' agent-trace replay"]:::live
-    GRAHAM["📲 Graham · Telegram<br/>generated · published · HELD"]:::human
+    GRAHAM["📲 Graham · ops bot<br/>HELD pages · 08:00 digest"]:::human
 
     %% data flow
     CRON --> R
@@ -319,7 +319,7 @@ sequenceDiagram
     participant S as 🗄️ S3 preview state
     participant T2 as 🚦 Conductor gate<br/>06–08 · every 10m
     participant L as 🌐 Live + CloudFront
-    participant TG as 📲 Telegram
+    participant TG as 📲 ops_event lane<br/>(page = ONE ops bot · rest = 08:00 digest)
 
     rect rgb(237, 233, 254)
     Note over T1,G: ① BUILD + JUDGE + NARRATE — one pass, no human in the loop
@@ -330,7 +330,6 @@ sequenceDiagram
     E->>E: narrate — per-article reads (Graham⇄Tom) + parody clones
     E->>E: voice podcast + TL;DR (+ 80s call-sign jingle)
     E->>S: draft + images + audio + verdict-rubric.json (status=complete)
-    E->>TG: 📰 draft generated (+ verdict)
     end
 
     rect rgb(219, 234, 254)
@@ -339,9 +338,9 @@ sequenceDiagram
         T2->>S: read status + verdict-rubric + directive
         alt complete + valid + links OK + rubric APPROVE
             T2->>L: publish live + invalidate CDN + sync frontend
-            T2->>TG: ✅ published live
+            T2->>TG: ✅ published (info → digest)
         else rubric HOLD / invalid draft
-            T2->>TG: ✋ HELD + reasons
+            T2->>TG: ✋ HELD (page · decision_needed)
             Note over T2,S: Graham can override / remediate (CLI on .75)
         else still waiting
             T2->>T2: retry next tick
@@ -357,8 +356,8 @@ sequenceDiagram
 | Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent** local model (`qwen3-coder-next` — distinct from the writer) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
 | Narrate | **after the judge, on `.75` / M3** | per-article readings (Graham⇄Tom; parody items in their own voice clones) + the rubric-gated dad↔son podcast + a <180s TL;DR, all bookended by the **80s call-sign jingle** — additive audio written onto the draft (`generate/narration.py`). **Loops every language** (clones reused cross-lingually; a translated edition opens with a spoken "machine-translated by `<model>`" note) |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
-| Notify | engine notifier on `.75` → **both agents' Telegram bots** | 📰 on draft generated (with the rubric verdict), ✅ on published, ✋ on HELD (with reasons) — once per edition |
-| Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + browser-UA link-check + **the rubric `APPROVE`** (or a human directive) → publish English live, then **promote every other language on the same verdict** (`_publish_translations_live`, isolated) + CloudFront invalidation + frontend redeploy; any HOLD/invalid → Telegram; else retry |
+| Notify | engine notifier on `.75` → the fleet's **`ops_event`** lane (fleet #206; one ops bot, 08:00 digest) | ✅ published → digest (`info`), ⚠️ degraded/flagged desks → digest (`warn`), ✋ HELD → **page** (`decision_needed`, 60-min passive window) — once per edition version; `generated` is no longer sent |
+| Publish gate | Conductor `craicgpt_publish_gate_poll` every 10 min 06–08 UTC → `craicgpt_publish_gate` worker on `.75` | idempotent: host-side `validate` + browser-UA link-check + **the rubric `APPROVE`** (or a human directive) → publish English live, then **promote every other language on the same verdict** (`_publish_translations_live`, isolated) + CloudFront invalidation + frontend redeploy; any HOLD/invalid → a `decision_needed` ops event (pages the ONE ops bot); else retry |
 | Override | `directive.json` in `preview/<date>/` | human-in-the-loop: force-publish over a HOLD, or remediate (drop the flagged article) — see below |
 | Live | EN at `s3://…/content/…` (+ `/en/` alias) · translations at `s3://…/<lang>/content/…` + CloudFront **language router** | live at craicgpt.ie/`<lang>`/ |
 
@@ -389,8 +388,8 @@ modes:
 
 Graham drives it **directly on `.75`** — `cli override` / `cli remediate` writes the
 directive and, with `--publish`, enacts it immediately (firing the idempotent gate).
-A force-publish records *who* overrode and surfaces it in the ✅ published Telegram
-alert (`override by …` / `remediated: dropped N`), so an override is never silent.
+A force-publish records *who* overrode and surfaces it in the ✅ `published` ops
+event (`override by …` / `remediated: dropped N`), so an override is never silent.
 
 ### The Conductor workflows
 
@@ -513,8 +512,9 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
   and a per-persona parody clone) on the M3, bookended by our **own 80s call-sign jingle**
   (Apple sampled instruments, bounced offline — owned, zero-copyright). Additive: an edition
   still validates and renders without audio.
-- **Telegram notifications** — the engine fans draft-generated / published / HELD
-  alerts to both agents' bots, so an editorial HOLD is never silent.
+- **Ops events, not Telegram** — the engine posts published / degraded / HELD as
+  `grazlab.ops.event/1` events to the fleet's `ops_event` lane; only a HOLD pages
+  (one ops bot), the rest reads in the 08:00 digest. An editorial HOLD is never silent.
 - **Multi-lingual — write-once, translate-many** — English is researched, written, judged
   and link-checked **once**; every other language in **`CRAICGPT_LANGUAGES`**
   (`en,de,es,it,ja,fr`) is a deterministic **translation of the compiled English edition**

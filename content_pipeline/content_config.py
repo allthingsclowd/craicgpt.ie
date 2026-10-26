@@ -383,19 +383,35 @@ class ContentConfig:
         default_factory=lambda: os.getenv("ENABLE_NARRATION", "true").lower() == "true"
     )
 
-    # ── Operator notifications (Telegram) ─────────────────────────────────────
-    # The .75 engine fans edition-lifecycle alerts (generated / published / held)
-    # out to BOTH agents' channels so a silent HOLD can never go unseen again.
-    # Each agent has its OWN bot (own token); both DM the same operator chat
-    # (Graham). A per-agent chat id can override the shared default. Any channel
-    # whose token+chat are unset is silently skipped (fail-soft).
+    # ── Operator notifications (ops events + Telegram) ────────────────────────
+    # Since fleet #206 item 5 the .75 engine does NOT message Graham directly for
+    # the edition lifecycle: it posts a grazlab.ops.event/1 to the fleet's
+    # `ops_event` Conductor workflow (map #185 decision 4 — one ops bot, pages only
+    # for not_published / service_down / decision_needed, the rest in the 08:00
+    # digest). The fleet worker on .75 does the paging. Telegram from HERE is a
+    # fallback for a `held` page when that lane fails, on ONE bot: the ops bot
+    # (@GrazLabWatch_bot) when its token is set, else the first configured agent
+    # bot. Never both — both agent bots DM the same chat, so "both" was "twice".
+    conductor_url: str = field(
+        default_factory=lambda: os.getenv("CONDUCTOR_URL", "http://192.168.50.75:8080/api")
+    )
+    # How long notify_held waits for the ops_event workflow to report whether it
+    # paged, before falling back to its own single-bot Telegram (0 → never wait,
+    # always fall back — the pre-digest behaviour).
+    ops_page_wait_seconds: float = field(
+        default_factory=lambda: float(os.getenv("CRAICGPT_OPS_PAGE_WAIT", "20"))
+    )
+    # The ops bot's token — the same env NAME the fleet/sentinel use for it.
+    telegram_watch_bot_token: str = field(
+        default_factory=lambda: os.getenv("TELEGRAM_SENTINEL_BOT_TOKEN", "")
+    )
     telegram_openclaw_bot_token: str = field(
         default_factory=lambda: os.getenv("TELEGRAM_OPENCLAW_BOT_TOKEN", "")
     )
     telegram_hermes_bot_token: str = field(
         default_factory=lambda: os.getenv("TELEGRAM_HERMES_BOT_TOKEN", "")
     )
-    # Operator's Telegram chat id (the bots' allowlisted recipient).
+    # Operator's Telegram chat id (every bot's allowlisted recipient).
     telegram_chat_id: str = field(
         default_factory=lambda: os.getenv("TELEGRAM_CHAT_ID", "")
     )

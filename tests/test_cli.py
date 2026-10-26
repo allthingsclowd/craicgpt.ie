@@ -95,9 +95,10 @@ def test_cmd_regrade_runs_the_real_judge_and_writes_verdict(monkeypatch, tmp_pat
 
 
 # --- message subcommand -----------------------------------------------------
-def test_message_parses_default_both():
+def test_message_parses_default_one_bot():
+    # "both" is retired (fleet #206 item 5): the default is ONE bot.
     a = build_parser().parse_args(["message", "--text", "hello"])
-    assert a.command == "message" and a.text == "hello" and a.which == "both"
+    assert a.command == "message" and a.text == "hello" and a.which == "one"
 
 
 def test_message_to_selects_bot():

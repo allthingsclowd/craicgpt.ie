@@ -76,7 +76,7 @@ site is both a working newspaper and a live deep-agents tutorial.
   + host structural validation + browser-UA link-check → promote EN to content/ (live), then
   promote ALL OTHER LANGUAGES on the SAME English verdict (isolated), version per language,
   invalidate CloudFront, sync the frontend. A judgement HOLD (rubric, but structurally valid)
-  escalates to Graham on Telegram + PASSIVELY auto-publishes after CRAICGPT_HITL_PASSIVE_MINUTES
+  pages Graham (a `decision_needed` ops event, ONE bot) + PASSIVELY auto-publishes after CRAICGPT_HITL_PASSIVE_MINUTES
   (default 60) if he doesn't respond — never a broken page.
         │
         ▼
@@ -151,7 +151,7 @@ craicgpt.ie/
 │   ├── providers/litellm.py       ← get_litellm_llm + run_with_fallback (local→cross-box)
 │   ├── compile.py                 ← build_paper (schema v3) + build_layout
 │   ├── content_config.py          ← all config from env (singleton content_cfg)
-│   └── notifications.py           ← Telegram lifecycle alerts (resilient send: 4096 clip + plain-text retry on 400 — arbitrary relayed text, e.g. tracebacks, must never die on parse_mode)
+│   └── notifications.py           ← lifecycle OPS EVENTS → the fleet's ops_event lane (held pages; the rest digests); Telegram only as the one-bot held fallback (4096 clip + plain-text retry on 400)
 │
 ├── frontend/                      ← static HTML/CSS/JS (S3 hosted): /<lang>/ paper + language switcher
 ├── infra/cloudfront/              ← edge language router: router.js + deploy-router.sh (AWS-CLI deploy)
