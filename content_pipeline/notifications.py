@@ -30,9 +30,11 @@ held                    page      decision_needed  craicgpt:decision_needed:held
 
 ``held`` is the one thing that asks Graham for something within a deadline, so it is
 the one event that may still reach Telegram from here — and only as a **fallback**:
-when the ``ops_event`` workflow reports it paged, nothing more is sent (a second
-message would be the double-send #187 measured); when the lane is down, or it stored
-the event but could not deliver the page, ONE message goes out on ONE bot.
+when the ``ops_event`` lane owns the page — it paged, it suppressed a repeat of a key
+that already paged, or a worker is mid-send when the wait runs out — nothing more is
+sent (a second message would be the double-send #187 measured); when the lane is down,
+rejected the event, stored it but could not deliver, or no worker picked it up, ONE
+message goes out on ONE bot.
 
 Three design rules:
 
@@ -75,9 +77,13 @@ OPS_SOURCE = "craicgpt"
 OPS_HOST = ".75"
 OPS_TITLE_MAX = 120
 OPS_DETAIL_MAX = 2000
-# The three kinds a `page` is honoured for. Anything else is downgraded to `warn` by
-# the fleet's policy — so a sender that wants a page MUST pick one of these.
-PAGE_KINDS = frozenset({"not_published", "service_down", "decision_needed"})
+# A `page` is honoured only for not_published / service_down / decision_needed — the
+# fleet's apply_page_policy downgrades anything else to `warn`. The one page this module
+# sends is `held` → decision_needed.
+#
+# An EXPLICIT hold (structural/link failure — no passive publish) has no natural deadline;
+# its decision block still needs an `expires_at`, so it is the next morning's run: 24 h.
+EXPLICIT_HOLD_MINUTES = 24 * 60
 
 
 def _utc_now() -> dt.datetime:
@@ -160,7 +166,10 @@ def post_ops_event(event: dict, *, wait: bool = False, timeout: float = 10.0) ->
     deadline = time.monotonic() + max(0.0, float(content_cfg.ops_page_wait_seconds))
     while True:
         try:
-            wf = _http_get_json(f"{base}/workflow/{wf_id}?includeTasks=false", timeout)
+            # includeTasks: on a timeout we need to know whether a worker HAS the task
+            # (IN_PROGRESS → it will page) or nobody polled it (SCHEDULED → nobody will).
+            wf = _http_get_json(f"{base}/workflow/{wf_id}?includeTasks=true", timeout)
+            out.pop("error", None)  # a transient poll error must not outlive a good answer
         except Exception as exc:  # noqa: BLE001
             out["error"] = str(exc)
             wf = {}
@@ -168,12 +177,33 @@ def post_ops_event(event: dict, *, wait: bool = False, timeout: float = 10.0) ->
         if status in _TERMINAL:
             o = wf.get("output") or {}
             out.update(status=status, paged=bool(o.get("paged")), stored=bool(o.get("stored")),
-                       error=o.get("error") or out.get("error"))
+                       suppressed=bool(o.get("suppressed")))
+            if o.get("error"):
+                out["error"] = o["error"]
             return out
         if time.monotonic() >= deadline:
             out["status"] = status or "UNKNOWN"
+            out["task_status"] = next((str(t.get("status")) for t in wf.get("tasks") or []
+                                       if t.get("taskType") == "ops_event"), None)
             return out
         _sleep(1.0)
+
+
+def lane_owns_page(res: dict) -> bool:
+    """Has the ``ops_event`` lane taken responsibility for ringing the ONE ops bot?
+
+    Yes when it paged, when it suppressed the page because the same key paged within
+    ``ttl_hours`` (that IS the dedup working), or when the wait ran out with a worker
+    already holding the task (it is mid-send — a fallback now would be the double-send
+    #187 measured). No when the POST failed, the event was rejected, the task FAILED
+    (stored but undelivered), or the task was never picked up (the .75 worker is down)."""
+    if not res.get("posted"):
+        return False
+    if res.get("paged") or res.get("suppressed"):
+        return True
+    if res.get("status") in _TERMINAL:
+        return False
+    return res.get("task_status") == "IN_PROGRESS"
 
 
 # ── channel targets (ONE bot) ────────────────────────────────────────────────
@@ -331,10 +361,10 @@ def emit_once(event: str, date_iso: str, ops_event: dict, *,
               s3: Any | None = None, bucket: Optional[str] = None) -> dict:
     """Post ``ops_event`` to the fleet at most once per ``(date_iso, event, vid)``.
 
-    A ``page`` waits for the ``ops_event`` task's verdict; if the lane did not confirm
-    it paged (unreachable, rejected, or stored-but-undelivered), ``page_fallback_text``
-    goes out as ONE Telegram on ONE bot — the pre-digest behaviour, kept until the
-    lane is proven. A digest-class event never touches Telegram. The marker is written
+    A ``page`` waits for the ``ops_event`` task's verdict; unless the lane owns the page
+    (``lane_owns_page``: paged, suppressed as already-paged, or mid-send at the deadline),
+    ``page_fallback_text`` goes out as ONE Telegram on ONE bot — the pre-digest
+    behaviour, kept for a dead lane (unreachable, rejected, FAILED, or never picked up). A digest-class event never touches Telegram. The marker is written
     only when the event was accepted (or the fallback landed), so an outage never
     permanently suppresses it."""
     client, bucket, key = _marker(event, date_iso, vid, s3, bucket)
@@ -343,9 +373,12 @@ def emit_once(event: str, date_iso: str, ops_event: dict, *,
 
     is_page = ops_event.get("severity") == "page"
     res = post_ops_event(ops_event, wait=is_page)
-    accepted = bool(res.get("posted")) and res.get("stored") is not False and not res.get("error")
+    if is_page:
+        accepted = lane_owns_page(res)
+    else:
+        accepted = bool(res.get("posted")) and res.get("stored") is not False and not res.get("error")
     telegram: list[dict] = []
-    if is_page and not res.get("paged"):
+    if is_page and not accepted:
         if page_fallback_text:
             logger.warning("[notify] ops_event lane did not page %s (%s); falling back to one bot",
                            event, res.get("status") or res.get("error"))
@@ -390,36 +423,47 @@ def notify_published(date_iso: str, live_url: str, *, note: Optional[str] = None
 
 
 def notify_held(date_iso: str, reasons: Iterable[str], *, vid: Optional[str] = None,
-                passive_minutes: Optional[int] = None, s3: Any | None = None,
-                bucket: Optional[str] = None) -> dict:
+                passive_minutes: Optional[int] = None, no_draft: bool = False,
+                s3: Any | None = None, bucket: Optional[str] = None) -> dict:
     """The ONE page: an edition is held and Graham has a decision to make.
 
     With ``passive_minutes`` (a judgement HOLD on a structurally valid edition) the
     decision is SAFE and passively publishes when the window lapses; without it (a
-    hard structural/link hold) it is EXPLICIT and simply waits for him. If the
-    fleet's ``ops_event`` task did not confirm the page, the same message goes out
-    on ONE bot from here."""
+    hard structural/link hold) it is EXPLICIT and simply waits for him. ``no_draft``
+    is the integrity hold from ``cli run`` (EditionHeld): nothing was written, so
+    there is nothing to override — the options are a re-run or leaving the day dark.
+    If the fleet's ``ops_event`` lane does not own the page (``lane_owns_page``), the
+    same message goes out on ONE bot from here."""
     reasons = list(reasons) or ["(no reason given)"]
     body = "\n".join(f"• {r}" for r in reasons)
     now = _utc_now()
+    if no_draft:
+        options = ["rerun", "skip"]
+        what = "Not generated — the edition was HELD before a draft existed"
+        how = (f"`cli run --no-recency --publish-draft --date {date_iso}` re-runs it; "
+               "doing nothing leaves the day without an edition.")
+    else:
+        options = ["override", "hold"]
+        what = "Not published — the approval gate held it"
+        how = f"`cli override --date {date_iso}` publishes now; `cli hold` keeps it held."
     decision: dict[str, Any] = {
         "nonce": uuid.uuid4().hex[:12],
         "tier": "SAFE" if passive_minutes else "EXPLICIT",
-        "options": ["override", "hold"],
-        "expires_at": _ts(now + dt.timedelta(minutes=passive_minutes or 24 * 60)),
+        "options": options,
+        "expires_at": _ts(now + dt.timedelta(minutes=passive_minutes or EXPLICIT_HOLD_MINUTES)),
     }
     if passive_minutes:
         decision["passive_action"] = "publish"
+    ymd = "/".join(date_iso.split("-"))
     ev = build_event(
         severity="page", kind="decision_needed", component="publish_gate",
         title=f"CraicGPT {date_iso} edition HELD — decision needed",
-        detail=f"Not published — the approval gate held it. Reasons:\n{body}\n"
-               f"`cli override --date {date_iso}` publishes now; `cli hold` keeps it held.",
+        detail=f"{what}. Reasons:\n{body}\n{how}",
         dedup_key=f"craicgpt:decision_needed:held:{date_iso}{_vid_tail(vid)}",
-        links=[f"https://craicgpt.ie/preview/{'/'.join(date_iso.split('-'))}/paper_content.json"],
+        links=[f"{content_cfg.site_base_url.rstrip('/')}/preview/{ymd}/paper_content.json"],
         decision=decision, now=now)
     text = (f"✋ <b>CraicGPT edition HELD</b> — {date_iso}\n"
-            f"Not published — the approval gate held it. Reasons:\n{body}")
+            f"{what}. Reasons:\n{body}")
     return emit_once("held", date_iso, ev, vid=vid, page_fallback_text=text, s3=s3,
                      bucket=bucket)
 

@@ -230,7 +230,8 @@ def cmd_run(args) -> int:
                       date_iso, "; ".join(reasons))
         if getattr(args, "publish_draft", False):
             _announce_safe(date_iso, "failed")
-            _notify_safe("held", date_iso, reasons=reasons, vid=vid)
+            # An integrity hold: no draft exists, so the page offers a re-run, not an override.
+            _notify_safe("held", date_iso, reasons=reasons, vid=vid, no_draft=True)
         print("edition HELD — not published:\n  " + "\n  ".join(reasons))
         return 2
 
@@ -350,7 +351,8 @@ def _notify_safe(event: str, date_iso: str, **kw) -> None:
                 version=kw.get("version"), vid=kw.get("vid"))
         elif event == "held":
             notifications.notify_held(date_iso, kw.get("reasons") or [], vid=kw.get("vid"),
-                                      passive_minutes=kw.get("passive_minutes"))
+                                      passive_minutes=kw.get("passive_minutes"),
+                                      no_draft=bool(kw.get("no_draft")))
         elif event == "fun_no_comedy":
             # Once-per-edition digest line that the comedian desk came up empty.
             notifications.notify_degraded(
