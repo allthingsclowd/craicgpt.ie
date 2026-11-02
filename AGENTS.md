@@ -102,14 +102,20 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │      car-noun check with ONE re-write (writer.car_words_in).
    │      _snap_ai_sources forces every written source_url onto a validated candidate.
    │
-   ├─ 4. IMAGES (deterministic) — generate/images.py (LiteLLM image route, FLUX.2 [dev])
+   ├─ 4. IMAGES (deterministic) — generate/images.py (LiteLLM image routes, Qwen-Image 2.1
+   │      + 2.1-Turbo, ComfyUI on the M3; FLUX.2 [dev] left the path 2026-11-02, #154).
+   │      A read-only MEMORY PRE-FLIGHT (generate/image_preflight.py) reads the shim's
+   │      /health first: sick → wait ≤180s → page decision_needed ONCE → proceed anyway.
    │      a cartoon for EVERY article (18: headliner + 2 subs + 10 shorts + 5 fun).
    │      Each depicts a one-line VISUAL GAG invented per story (generate/image_gag.py)
    │      rather than a literal headline. ONE house cartoon style per edition, rotating
    │      DAILY across four looks (Beano / Simpsons / Saturday-morning / plasticine) —
-   │      a true day-ordinal cycle, so consecutive editions never repeat. Cost is
-   │      TIERED — hero 1024²@28, fun 1024²@20, shorts 768²@20 ≈ 75 min. NO tier
-   │      below 20: FLUX.2 targets 20-50 and under-sampling costs LIMBS, not detail.
+   │      a true day-ordinal cycle, so consecutive editions never repeat. ROUTES are
+   │      PER TIER: leads + fun on Qwen-Image 2.1 (1024²@40, ~175s) with Turbo as
+   │      fallback; the 10 shorts on 2.1-TURBO (768², fixed 8 steps, ~30s) with 2.1 as
+   │      fallback (Graham, 2026-11-02) ≈ 28 min of images. The fallback is PER IMAGE,
+   │      each attempt under its own DEADLINE (2.5× est, floor 240s — minutes, not the
+   │      1800s ceiling); `_image_model` names the route that drew it.
    │      EVERY tier carries a caption, supplied verbatim from the gag step (never
    │      requested); budgets 12/8/5 words. Translations share these images, so a
    │      caption stays English on every language.
@@ -226,7 +232,8 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/generate/writer.py` | Deterministic article writers (AI section, fun story, editor's brief, About page). `_default_generate` now wraps generation in `run_with_fallback(local=write_model DGX, fallback=FALLBACK_TEXT_MODEL M3)` — a transient DGX connection drop crosses to the M3 instead of crashing a multi-minute run; translate/brief/about/banter inherit it |
 | `content_pipeline/generate/translate.py` | **Multi-lingual:** `translate_paper(paper, language)` translates a COMPILED English edition's prose into another language (reuses the writer's robust chat→JSON path), preserving URLs/images/credits/persona; stamps `edition.translated_by`; per-section English fallback on failure. Write-once, translate-many |
 | `content_pipeline/agent/i18n_html.py` | **Multi-lingual:** generates `frontend/<lang>/{index,about}.html` from the English templates (translated `<title>`/`<meta>`/`<html lang>` + hreflang + lang-prefixed nav) at deploy time |
-| `content_pipeline/generate/images.py` + `image_styles.py` | Image generation + the **daily cartoon rotation** (`style_for_edition`, a day-ordinal cycle so consecutive editions never repeat) + the **render tiers** (`HERO`/`STANDARD`/`THUMBNAIL`, `render_spec_for`) + the **text policy** (`RenderSpec.allows_text` vs `TEXT_STEP_FLOOR=20`) and `negative_prompt_for`. `generate_image`/`save_image` carry `size`/`steps`/`seed`/`negative_prompt` via `extra_body` — the ONLY four parameters the ComfyUI shim honours; anything else is silently ignored and returns a full-cost image with HTTP 200, so verify by wall-clock, never by a 200. The saved filename hashes the prompt **and** the render spec, or a 512px thumbnail collides with a 1024px hero |
+| `content_pipeline/generate/images.py` + `image_styles.py` | Image generation + the **daily cartoon rotation** (`style_for_edition`, a day-ordinal cycle so consecutive editions never repeat) + the **render tiers** (`HERO`/`STANDARD`/`THUMBNAIL`, `render_spec_for`; each names its primary + fallback route via `RenderSpec.model`/`.fallback_model`) + **steps per model** (`RouteProfile`/`profile_for`: 2.1 takes the tier's 40, Turbo's 8 are fixed by its sigma schedule so no `steps` is sent, a FLUX rollback keeps 28/20/20) + the **per-image deadline** (`images.image_deadline`) + the **text policy** (`RenderSpec.allows_text` vs `TEXT_STEP_FLOOR=20`) and `negative_prompt_for`. `generate_image`/`save_image` carry `size`/`steps`/`seed`/`negative_prompt` via `extra_body` — the ONLY four parameters the ComfyUI shim honours; anything else is silently ignored and returns a full-cost image with HTTP 200, so verify by wall-clock, never by a 200. The saved filename hashes the prompt **and** the render spec, or a 512px thumbnail collides with a 1024px hero |
+| `content_pipeline/generate/image_preflight.py` | The **memory pre-flight** (fleet #219/#222): reads the shim's `/health` (pressure normal, ≥ `IMAGE_PREFLIGHT_MIN_FREE_GB` available, not stuck on a job older than `IMAGE_PREFLIGHT_MAX_JOB_AGE_S`), tolerating absent fields (fleet #230 adds them); waits briefly, then pages `decision_needed` once via `notifications.notify_image_preflight` (SAFE, passive action "proceed") and proceeds. Never raises, never blocks |
 | `content_pipeline/generate/image_gag.py` | **The wit.** One small chat→JSON call per article turning the story into a one-line VISUAL GAG for its cartoon. Fail-soft: a failed or blank gag returns `None` and the caller falls back to the literal prompt (an image is required by `validate_paper`; a gag is not). Told the moto vertical, never left to infer it |
 | `content_pipeline/generate/audio.py` | Deterministic narration: M3 mlx-audio voice clones (Graham/Tom + parody-persona registry via `has_clone`/`resolve_voice`), chunk→synth→stitch, **per-language** `_phonetic` (the English craic→"crack" / spoken-URL rules must not touch other prose; falls back to the English map) + `chunk_text` splits on CJK sentence punctuation (`。！？`), **mastering chain** (`_rms_normalize` per-chunk leveling → `_crossfade_concat` equal-power seams → `master_wav`: de-box EQ + two-pass EBU-R128 loudness + true-peak limiter; reserved `mode='apple'` Match-EQ seam), multi-voice podcast + 80s call-sign bookend (`render_podcast`) |
 | `content_pipeline/generate/jingle.py` | The show's **80s call-sign** sting — our own Am–F–C–G hook voiced through Apple's sampled GM instruments, bounced offline to `assets/jingle_80s_{intro,outro}.wav` (renderer in `jingle_src/`); owned, zero-copyright. The stdlib *Whiskey in the Jar* Karplus-Strong synth remains as a graceful fallback |
@@ -239,7 +246,7 @@ generation — one extra LLM pass over the prose, preserving URLs/images/credits
 | `content_pipeline/compile.py` | `build_paper` (schema v3) + `build_layout` (interleaves fun among AI shorts) |
 | `content_pipeline/providers/litellm.py` | `get_litellm_llm` (ChatOpenAI → LiteLLM proxy) + `run_with_fallback` (local-first → cross-box local; there is no frontier route) |
 | `content_pipeline/content_config.py` | All config from env vars; singleton `content_cfg` |
-| `content_pipeline/notifications.py` | Edition-lifecycle **ops events** (fleet #206 item 5): `published` → info, `fun_no_comedy`/`translation_degraded` → warn `degraded`, `qc_flagged` → warn `flagged`, `held` → **page** `decision_needed` (+ a `decision` block with the passive window); `generated` is DROPPED. Posted to the fleet's `ops_event` Conductor workflow (`CONDUCTOR_URL`), once per `(date, event, vid)` via S3 markers. Telegram from here ONLY as the `held` fallback when the lane does not own the page (`lane_owns_page`: not paged, not suppressed as a repeat, not mid-send — i.e. the lane is down/rejected/FAILED/never picked up), on ONE bot (`_channel_targets`: the ops bot if `TELEGRAM_SENTINEL_BOT_TOKEN` is set, else the first agent bot — never both) |
+| `content_pipeline/notifications.py` | Edition-lifecycle **ops events** (fleet #206 item 5): `published` → info, `fun_no_comedy`/`translation_degraded` → warn `degraded`, `qc_flagged` → warn `flagged`, `held` → **page** `decision_needed` (+ a `decision` block with the passive window); `image_preflight` → **page** `decision_needed` (SAFE, passive action "proceed" — the M3 render slot looked sick before the images; the run proceeds regardless); `generated` is DROPPED. Posted to the fleet's `ops_event` Conductor workflow (`CONDUCTOR_URL`), once per `(date, event, vid)` via S3 markers. Telegram from here ONLY as the `held` / `image_preflight` page fallback when the lane does not own the page (`lane_owns_page`: not paged, not suppressed as a repeat, not mid-send — i.e. the lane is down/rejected/FAILED/never picked up), on ONE bot (`_channel_targets`: the ops bot if `TELEGRAM_SENTINEL_BOT_TOKEN` is set, else the first agent bot — never both) |
 | `frontend/index.html` + `static_assets/{style.css,main.js}` | Tabloid layout, version picker, "Under the Hood" drawer. `main.js` is **i18n**: reads the language from the path (`/<lang>/`), fetches `/<lang>/content/…`, renders the masthead **language switcher** (sets the `cg_lang` cookie) + the translated-page footer note |
 | `infra/cloudfront/router.js` + `deploy-router.sh` + `README.md` | **NEW edge language router.** CloudFront **Function** (viewer-request): auto-detect lang on a prefix-less request (cookie→Accept-Language→en, **302**) + alias `/en/*`→`/*` + rewrite `/<lang>/`→`…/index.html`. Carries the **503-cookie gotcha** fix (use the `cookies` structure, not a `set-cookie` header). `deploy-router.sh` ships it via **AWS CLI** (admin creds — the put-only IAM can't `CreateFunction`), **not** `terraform apply` |
 | `terraform/frontend/` | IaC for S3, CloudFront, ACM, Route53. The language router is **NOT applied from here** (no backend → local state not in this checkout); `modules/cloudfront/main.tf` carries it as a labelled NOT-APPLIED note — the live router is the AWS-CLI deploy above |
@@ -285,13 +292,28 @@ actually in the frame), `_image_caption` (the words lettered INTO the picture) a
 > falls back to a wordless picture rather than shipping nonsense.
 >
 > **Word budgets scale with the canvas** — hero 12, fun 8, shorts 5. Not five everywhere: a
-> 13-word headline rendered cleanly at 1024²/28 on 2026-08-26.
+> 13-word headline rendered cleanly at 1024²/28 on 2026-08-26. The policy is model-neutral and
+> carried over to Qwen-Image 2.1, which copied supplied captions exactly 4/4 in the fleet #221
+> bake-off (Turbo 7/8 — one typo — which is why Turbo is the fallback for the captioned leads).
 >
 > **No leprechauns.** The gag prompt used to open "an Irish satirical daily" and 4 of 18 gags
 > stapled a leprechaun onto stories about chip foundries and funding rounds. The desk's
 > Irishness lives in the WRITER's voice, not in every picture.
 
-> **FLUX.2 is guidance-distilled — never raise `cfg`, and never negate.** Two rules that cost
+> **HISTORY — FLUX.2 [dev] was the image route 2026-08-24 → 2026-11-02.** It left the path
+> because its 93 GB model set hung while LOADING under M3 memory starvation (10-28, 11-02 —
+> fleet #219), not for quality. The two FLUX sections below are kept for their lessons, which
+> still apply: keep `cfg` at 1.0 on a guidance-free graph (Qwen-Image 2.1 runs cfg 1.0 too), keep
+> every prompt fragment positive, and give every client call an explicit deadline.
+>
+> **Qwen-Image 2.1 move (#154; fleet #221/#222).** Leads + fun render on `m3/comfy/qwen-image-2.1`
+> (40 steps, 148–175s at 1024²); shorts on `m3/comfy/qwen-image-2.1-turbo` (8 fixed steps,
+> 34–41s at 1024²). Each is the other's PER-IMAGE fallback, and they share one ~46 GB encoder +
+> VAE set, so crossing costs no reload. Each attempt carries its own deadline
+> (`images.image_deadline`), so a stuck render costs minutes; `max_retries=0` stays. Diagnose
+> by the ComfyUI log on the M3 (`~/Library/Logs/grazlab-comfy/comfyui.err.log`).
+
+> **(History, FLUX) FLUX.2 is guidance-distilled — never raise `cfg`, and never negate.** Two rules that cost
 > a full edition on 2026-08-26. (1) The ComfyUI graph must run KSampler `cfg 1.0` with a
 > `FluxGuidance` node (3.5) on the positive conditioning. It ran `cfg 4.0` with no FluxGuidance
 > at all, which engaged real two-pass CFG on a model built not to need it — **2x the compute**
@@ -302,7 +324,7 @@ actually in the frame), `_image_caption` (the words lettered INTO the picture) a
 > a clause or style descriptor. **A negative prompt is inert here** (no unconditional pass to
 > attach one to) — `negative_prompt_for` returns "".
 
-> **A silent fallback is a different result, not a degraded one.** `generate_image` falls back
+> **(History, FLUX) A silent fallback is a different result, not a degraded one.** `generate_image` falls back
 > from `IMAGE_MODEL` to `IMAGE_FALLBACK_MODEL` on ANY exception — including a client timeout. On
 > 2026-08-26 the image client had no explicit timeout, so the SDK's 600s default applied against
 > a ~720s 28-step flux render: every hero hung up mid-render, fell back to qwen-image, and left
@@ -312,7 +334,8 @@ actually in the frame), `_image_caption` (the words lettered INTO the picture) a
 > request and the hero text policy was inert. `IMAGE_REQUEST_TIMEOUT` now covers it, with a test
 > asserting it exceeds the slowest tier's `est_seconds`. **Diagnose by the ComfyUI log on the
 > M3** (`~/Library/Logs/grazlab-comfy/comfyui.err.log`): ~25 s/it is flux, ~6.3 s/it at 28 steps
-> is the fallback.
+> is the fallback. Since #154 the fallback is deliberate and per image, and honest about it:
+> `_image_model` is the route that drew it and `_image_fallback_from` names the one that failed.
 
 > **The "literal list of slots" gotcha — it has bitten THREE times.** `publish.py`'s image-upload
 > walk, `_trace_images`, and the frontend each hard-code which slots carry an image. Shorts were
@@ -396,9 +419,14 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `BRAIN_MODEL` (research) | No | `dgx/vllm/qwen3.8-27b-nvfp4` |
 | `WRITE_MODEL` (prose) | No | `dgx/vllm/qwen3.8-27b-nvfp4` |
 | `JUDGE_MODEL` (rubric judge) | No | `m3/mlx/qwen3-coder-next-4bit` (independent of the writer) |
-| `IMAGE_MODEL` | No | `m3/comfy/flux-2-dev` (high-def text; 727s @28 steps, 201s @8) |
-| `IMAGE_FALLBACK_MODEL` | No | `m3/comfy/qwen-image` (same ComfyUI process — crossing over pays a model-set reload) |
-| `IMAGE_REQUEST_TIMEOUT` | No | `1800` — **must exceed the slowest render.** The openai SDK defaults to 600s and to `max_retries=2`; both are overridden in `images.py`. A 28-step flux render was ~720s before the graph fix, ~353-411s after |
+| `IMAGE_MODEL` (hero + fun) | No | `m3/comfy/qwen-image-2.1` (40 steps; 148–175s at 1024²) |
+| `IMAGE_FALLBACK_MODEL` (hero + fun, per image) | No | `m3/comfy/qwen-image-2.1-turbo` (fixed 8 steps; shares 2.1's encoder + VAE, so no reload) |
+| `IMAGE_THUMBNAIL_MODEL` (the 10 shorts) | No | `m3/comfy/qwen-image-2.1-turbo` (Graham, 2026-11-02; ~30s at 768²) |
+| `IMAGE_THUMBNAIL_FALLBACK_MODEL` | No | `m3/comfy/qwen-image-2.1` |
+| `IMAGE_DEADLINE_FACTOR` / `IMAGE_DEADLINE_FLOOR_S` | No | `2.5` / `240` — per-image deadline = max(factor × the route's `est_seconds`, floor), then the other model gets that image |
+| `IMAGE_REQUEST_TIMEOUT` | No | `1800` — the client CEILING (each request carries the shorter per-image deadline). **Must exceed the slowest render.** The openai SDK defaults to 600s and to `max_retries=2`; both are overridden in `images.py` |
+| `IMAGE_SHIM_HEALTH_URL` | No | `http://192.168.50.206:8084/health` (memory pre-flight) |
+| `IMAGE_PREFLIGHT_MIN_FREE_GB` / `IMAGE_PREFLIGHT_MAX_JOB_AGE_S` / `IMAGE_PREFLIGHT_WAIT_S` | No | `86` (the ~46 GB 2.1 set + 40) / `600` / `180` |
 | `AUDIO_TTS_BASE_URL` (narration; M3 mlx-audio direct) | No | `http://192.168.50.206:8081/v1` |
 | `AUDIO_TTS_MODEL` (voice clone) | No | `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` |
 | `GRAHAM_REF_AUDIO` / `TOM_REF_AUDIO` (M3-side ref WAVs) | No | `/Users/graz/ai-models/voice-ref/{graham,tom}/ref.wav` |

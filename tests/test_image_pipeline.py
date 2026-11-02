@@ -25,9 +25,13 @@ _STYLE = {"name": "test", "descriptor": "A bold cartoon"}
 
 # ── Render tiers (#101) ───────────────────────────────────────────────────────
 def test_the_three_tiers_are_distinct_and_ordered_by_cost():
-    assert HERO.steps > STANDARD.steps == THUMBNAIL.steps
+    """Since #154 every tier asks 2.1 for 40 steps (its default, and the only count the
+    fleet #221 bake-off measured captions at); the tiers differ by canvas, caption budget
+    and — for the shorts — route (Turbo first)."""
+    assert HERO.steps == STANDARD.steps == THUMBNAIL.steps == 40
     assert HERO.size == STANDARD.size != THUMBNAIL.size
-    assert HERO.est_seconds > STANDARD.est_seconds > THUMBNAIL.est_seconds
+    assert HERO.caption_words > STANDARD.caption_words > THUMBNAIL.caption_words
+    assert HERO.est_seconds >= STANDARD.est_seconds > THUMBNAIL.est_seconds
 
 
 @pytest.mark.parametrize("tier,spec", [("hero", HERO), ("standard", STANDARD),
@@ -41,17 +45,18 @@ def test_an_unknown_tier_costs_a_middling_image_rather_than_crashing():
     assert render_spec_for("something-new") is STANDARD
 
 
-def test_every_size_is_a_multiple_of_16():
-    """The ComfyUI shim 400s otherwise — it is the one hard constraint on size (#105)."""
+def test_every_size_is_a_multiple_of_32():
+    """The ComfyUI shim 400s otherwise (#105) — 16 on the older routes, 32 on Qwen-Image 2.1."""
     for spec in (HERO, STANDARD, THUMBNAIL):
         w, _, h = spec.size.partition("x")
-        assert int(w) % 16 == 0 and int(h) % 16 == 0, spec.size
+        assert int(w) % 32 == 0 and int(h) % 32 == 0, spec.size
 
 
 def test_a_full_edition_fits_the_generate_task_cap():
     """THE budget assertion. 3 hero + 5 standard + 10 thumbnails, plus the measured
     ~45 min non-image half, must fit `craicgpt_generate_daily`'s 11,400 s cap with
-    room for a bad day. At an all-hero 28 steps this would be 3h38m and blow it."""
+    room for a bad day. (On FLUX at an all-hero 28 steps this was 3h38m and blew it; on
+    Qwen-Image 2.1 + Turbo shorts it is ~28 min.)"""
     images = 3 * HERO.est_seconds + 5 * STANDARD.est_seconds + 10 * THUMBNAIL.est_seconds
     non_image_worst = 70 * 60          # slowest generate observed in 12 days of history
     assert images + non_image_worst < 11_400, f"{(images + non_image_worst) / 60:.0f} min"
@@ -385,7 +390,9 @@ def test_the_chat_timeout_is_not_reused_for_images():
     assert content_cfg.image_request_timeout != content_cfg.request_timeout
 
 
-# ── FLUX.2 hates negation — every prompt fragment must be positive ────────────
+# ── Every prompt fragment must be positive ──────────────────────────────────────
+# A LESSON FROM FLUX, kept on Qwen-Image 2.1 because it costs nothing and text encoders
+# generally read negation as content.
 # Black Forest Labs: "FLUX.2 does not support negative prompts. Always describe what you
 # want, not what you want to avoid." The Mistral encoder treats negation as semantically
 # LOADED — their worked example is that "without glasses" renders glasses. On 2026-08-26 our
@@ -455,11 +462,13 @@ def test_any_tier_allowing_text_has_enough_steps_to_letter_it():
             assert spec.steps >= TEXT_STEP_FLOOR, f"{spec} lets text through at {spec.steps} steps"
 
 
-def test_no_tier_under_samples_flux():
-    """FLUX.2 [dev] targets 20-50 steps. The 8-step tiers shipped missing limbs and
-    garbled lettering on 2026-08-26; 20 is the floor now, for every tier."""
-    for spec in (HERO, STANDARD, THUMBNAIL):
-        assert spec.steps >= 20, f"{spec} under-samples FLUX.2 at {spec.steps} steps"
+def test_no_tier_under_samples_a_step_taking_route():
+    """LESSON FROM FLUX: the 8-step tiers shipped missing limbs and garbled lettering on
+    2026-08-26. A route that takes steps (2.1, or a FLUX rollback) never gets fewer than 20;
+    only a fixed-schedule route (Turbo, distilled for 8) runs below that."""
+    for route in ("m3/comfy/qwen-image-2.1", "m3/comfy/flux-2-dev"):
+        for spec in (HERO, STANDARD, THUMBNAIL):
+            assert spec.steps_for(route) >= 20, f"{spec} under-samples {route}"
 
 
 # ── Captions: supply the words, never ask for them (2026-08-26) ───────────────

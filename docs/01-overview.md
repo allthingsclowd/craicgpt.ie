@@ -203,8 +203,9 @@ python -m content_pipeline.agent.cli validate --date 2026-06-05 --check-links
 | `LITELLM_BASE_URL` | The one proxy that fronts the fleet | grazlab proxy |
 | `BRAIN_MODEL` | Research-agent route (needs tool-calling) | `dgx/vllm/qwen3.8-27b-nvfp4` |
 | `WRITE_MODEL` | Prose-writing route | `dgx/vllm/qwen3.8-27b-nvfp4` |
-| `IMAGE_MODEL` | Image route | `m3/comfy/flux-2-dev` |
-| `IMAGE_FALLBACK_MODEL` | Image fallback (same ComfyUI process; crossing pays a reload) | `m3/comfy/qwen-image` |
+| `IMAGE_MODEL` | Image route for the leads + fun desk | `m3/comfy/qwen-image-2.1` |
+| `IMAGE_FALLBACK_MODEL` | Per-image fallback (shares 2.1's encoder + VAE; no reload) | `m3/comfy/qwen-image-2.1-turbo` |
+| `IMAGE_THUMBNAIL_MODEL` / `IMAGE_THUMBNAIL_FALLBACK_MODEL` | The 10 AI shorts: Turbo first, 2.1 behind | `m3/comfy/qwen-image-2.1-turbo` / `m3/comfy/qwen-image-2.1` |
 | `JUDGE_MODEL` | Rubric-judge route (independent of the writer) | `m3/mlx/qwen3-coder-next-4bit` |
 | `FALLBACK_TEXT_MODEL` | Local cross-box fallback (only on primary failure; the proxy has no frontier route) | `m3/mlx/qwen3.8-27b-8bit` |
 

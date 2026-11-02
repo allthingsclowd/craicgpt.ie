@@ -10,7 +10,7 @@ TUTORIAL: One integration point, many models
 Everything routes through the grazlab **LiteLLM proxy**, which speaks the
 OpenAI wire format for both chat *and* image generation. So the whole fleet —
 Qwen3.8 on the DGX Spark, Qwen3-Coder-Next as the independent judge, a cross-box
-M3 fallback, FLUX.2 [dev] for images — is reachable by changing a single ``model``
+M3 fallback, Qwen-Image 2.1 (+ its Turbo) for images — is reachable by changing a single ``model``
 string. We never hard-code an engine URL; we name a route and let LiteLLM place it
 on the right box.
 
@@ -72,40 +72,81 @@ class ContentConfig:
             "BRAIN_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
         )
     )
-    # The image model. FLUX.2 [dev] (32B DiT + a Mistral-Small-24B text encoder,
-    # BF16, served through ComfyUI on the M3) — chosen 2026-08-24 for its high-
-    # definition TEXT rendering, which is what makes captioned/speech-bubbled art
-    # possible at all. The fleet also serves m3/comfy/qwen-image, which is 4.4x
-    # faster; we take the slower route deliberately and buy the time back with a
-    # reduced step count (see below).
+    # The image routes — Qwen-Image 2.1 and its 8-step Turbo sibling, both ComfyUI on the
+    # M3 behind the shim, chosen 2026-11-02 by the bake-off in grazlab-llm-fleet #221:
     #
-    # DO NOT re-derive this default from the old "FLUX scrawls garbled faux-text"
-    # note that used to sit here: that was FLUX.2 **Klein** (the 9B), a different
-    # checkpoint, and it does not transfer to FLUX.2 **[dev]**.
+    #                        stalls   captions exact   four styles   1024² render
+    #   FLUX.2 [dev]          2/5      4/4              yes           ~420 s + 93 GB set
+    #   Qwen-Image 2.1 (40)   0/4      4/4              yes           148-175 s
+    #   2.1 Turbo (8)         0/8      7/8              yes            34-41 s
     #
-    # Cost is per-request, not fixed. Measured 2026-08-24 through the proxy:
-    #     1024x1024 @ 28 steps  727 s   (the baked default — hero images)
-    #     1024x1024 @  8 steps  201 s   (3.62x faster)
-    #        512x512 @  8 steps  ~70 s   (thumbnails)
-    # The ComfyUI shim honours `steps`, `seed`, `size` and `negative_prompt` and
-    # NOTHING else — an unsupported or misspelled parameter is silently ignored and
-    # you get a full-cost image back with HTTP 200. Verify any speed-up by
-    # wall-clock, never by a successful response.
+    # The two share one text encoder and VAE (~46 GB together), so crossing from one to the
+    # other costs NO model-set reload — the 93 GB FLUX<->qwen swap that starved the M3 on
+    # 10-28 and 11-02 (fleet #219) is gone from craicgpt's path.
+    #
+    # Two route pairs, chosen per RENDER TIER (image_styles.RenderSpec.model):
+    #   hero + standard (the leads, the fun desk): IMAGE_MODEL, then IMAGE_FALLBACK_MODEL
+    #   thumbnail (the 10 AI shorts, 768², 5 words): IMAGE_THUMBNAIL_MODEL (Turbo) first,
+    #     then IMAGE_THUMBNAIL_FALLBACK_MODEL (2.1) — Graham's call, 2026-11-02.
+    #
+    # The fallback is PER IMAGE (Graham, fleet #222): a failed or timed-out render is
+    # re-done on the other model for that one image, and `_image_model` records the route
+    # that actually drew it. review.validate_paper still REQUIRES an image on the headliner
+    # and every fun story, so a picture lost on both routes still holds the edition.
+    #
+    # The shim honours `steps`, `seed`, `size` and `negative_prompt` and NOTHING else — an
+    # unsupported or misspelled parameter is silently ignored and you get a full-cost image
+    # back with HTTP 200. Verify any speed-up by wall-clock, never by a successful response.
+    # Sizes must be multiples of 32 on the 2.1 routes (16 elsewhere).
     image_model: str = field(
-        default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/comfy/flux-2-dev")
+        default_factory=lambda: os.getenv("IMAGE_MODEL", "m3/comfy/qwen-image-2.1")
     )
-    # Image FALLBACK — used when the primary image route fails. A working fallback is
-    # load-bearing here: review.validate_paper REQUIRES an image on the headliner and on
-    # every fun story, so an image outage HOLDs the whole edition (as happened 2026-06-06
-    # when the then-primary's backend 500'd).
-    #
-    # CAVEAT, worth knowing before relying on it: both live image routes are served by the
-    # SAME ComfyUI process on the M3 (:8084), so this no longer buys process isolation the
-    # way the old mlx/ollama split did — it covers a bad model set or a per-model failure,
-    # not the shim being down. It is also NOT free to cross over: ComfyUI is not resident
-    # and SWAPS model sets on demand, so falling back mid-edition pays a reload.
     image_fallback_model: str = field(
-        default_factory=lambda: os.getenv("IMAGE_FALLBACK_MODEL", "m3/comfy/qwen-image")
+        default_factory=lambda: os.getenv(
+            "IMAGE_FALLBACK_MODEL", "m3/comfy/qwen-image-2.1-turbo"
+        )
+    )
+    image_thumbnail_model: str = field(
+        default_factory=lambda: os.getenv(
+            "IMAGE_THUMBNAIL_MODEL", "m3/comfy/qwen-image-2.1-turbo"
+        )
+    )
+    image_thumbnail_fallback_model: str = field(
+        default_factory=lambda: os.getenv(
+            "IMAGE_THUMBNAIL_FALLBACK_MODEL", "m3/comfy/qwen-image-2.1"
+        )
+    )
+    # The PER-IMAGE deadline: each attempt waits max(factor x the route's est_seconds,
+    # floor), not the 1800 s client ceiling. Before #154 a stuck render cost 30 min on the
+    # primary and 30 more on the fallback, one image at a time (fleet #217). The floor
+    # covers a cold model load; the factor covers a contended GPU (#218 saw 2.1 take up to
+    # 485 s at 40 steps while other jobs shared it — that one would now cross to Turbo).
+    image_deadline_factor: float = field(
+        default_factory=lambda: float(os.getenv("IMAGE_DEADLINE_FACTOR", "2.5"))
+    )
+    image_deadline_floor_s: float = field(
+        default_factory=lambda: float(os.getenv("IMAGE_DEADLINE_FLOOR_S", "240"))
+    )
+    # ── Memory pre-flight before the image stage (fleet #219 / #222) ──────────
+    # The 11-02 and 10-28 "stalls" were model loads hanging under unified-memory
+    # starvation. Before the first render we read the shim's /health; while it looks sick
+    # we wait briefly, then page `decision_needed` once and proceed anyway (a SAFE
+    # decision — the run never blocks on it). See generate/image_preflight.py.
+    image_shim_health_url: str = field(
+        default_factory=lambda: os.getenv(
+            "IMAGE_SHIM_HEALTH_URL", "http://192.168.50.206:8084/health"
+        )
+    )
+    # ~46 GB Qwen 2.1 set + the 40 GB margin from #219.
+    image_preflight_min_free_gb: float = field(
+        default_factory=lambda: float(os.getenv("IMAGE_PREFLIGHT_MIN_FREE_GB", "86"))
+    )
+    # A job older than this is "an old job" — longer than any healthy 2.1 render (#218: 485 s).
+    image_preflight_max_job_age_s: float = field(
+        default_factory=lambda: float(os.getenv("IMAGE_PREFLIGHT_MAX_JOB_AGE_S", "600"))
+    )
+    image_preflight_wait_s: float = field(
+        default_factory=lambda: float(os.getenv("IMAGE_PREFLIGHT_WAIT_S", "180"))
     )
     # ── Web search: Serper.dev (Google SERP) API. Replaced Brave (2026-06): Brave
     # killed its free API tier in Feb 2026 (→ metered + a small monthly credit), so the
@@ -219,6 +260,8 @@ class ContentConfig:
     #   nginx                  proxy_read_timeout / proxy_send_timeout 1800s
     #   ComfyUI shim           QUEUE_WAIT_SEC 1500
     # Keep this >= the slowest tier's RenderSpec.est_seconds — there is a test for it.
+    # Since #154 it is the CEILING, not the working limit: every request also carries its
+    # own per-image deadline (image_deadline_factor/floor below), far shorter.
     image_request_timeout: float = field(
         default_factory=lambda: float(os.getenv("IMAGE_REQUEST_TIMEOUT", "1800"))
     )
