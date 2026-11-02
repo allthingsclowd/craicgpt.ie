@@ -33,3 +33,14 @@ def _no_conductor_network(monkeypatch):
     for name in ("telegram_watch_bot_token", "telegram_openclaw_bot_token",
                  "telegram_hermes_bot_token"):
         monkeypatch.setattr(cc, name, "")
+
+
+@pytest.fixture(autouse=True)
+def _no_m3_health(monkeypatch):
+    """The image pre-flight reads the M3 shim's /health. No test may reach it: the fetch
+    refuses (a refused read is just an unhealthy reading — the pre-flight is fail-soft) and
+    the brief wait is a no-op. Tests of the pre-flight inject ``fetch``/``sleep``."""
+    from content_pipeline.generate import image_preflight
+
+    monkeypatch.setattr(image_preflight, "_fetch_health", lambda: None)
+    monkeypatch.setattr(image_preflight, "_sleep", lambda s: None)
