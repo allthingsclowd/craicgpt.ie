@@ -38,9 +38,6 @@ class GeneratedImage:
     prompt: str
     b64_png: Optional[str] = None
     url: Optional[str] = None
-    # The route that failed first when this image came off the FALLBACK — None when the
-    # primary drew it. Lets the harness say so honestly rather than infer it.
-    fallback_from: Optional[str] = None
 
     def to_bytes(self) -> bytes:
         """Return the raw PNG bytes (decoding b64, or fetching the URL)."""
@@ -131,7 +128,7 @@ def generate_image(
         A :class:`GeneratedImage` carrying the base64 PNG and the model used.
     """
     if spec is not None:
-        size = spec.size
+        size = spec.size  # the tier owns the canvas
     model = model or (spec.model if spec is not None else content_cfg.image_model)
     if fallback_model is not None:
         fb = fallback_model
@@ -159,15 +156,12 @@ def generate_image(
     # Verify any change here by WALL-CLOCK, never by a 200. The reachable parameters are
     # exactly steps / seed / size / negative_prompt — cfg, sampler and scheduler are
     # baked into the ComfyUI workflow and cannot be reached from a request (issue #105).
-    from content_pipeline.generate.image_styles import profile_for
+    from content_pipeline.generate.image_styles import wire_steps_for
 
     last_exc: Optional[Exception] = None
     for route in routes:
         # Steps are per ROUTE: a fixed-schedule route (Turbo) gets none on the wire.
-        if spec is not None:
-            route_steps = spec.wire_steps(route)
-        else:
-            route_steps = None if profile_for(route).fixed_steps else steps
+        route_steps = spec.wire_steps(route) if spec is not None else wire_steps_for(route, steps)
         extra: dict[str, Any] = {}
         if route_steps is not None:
             extra["steps"] = route_steps
@@ -193,7 +187,6 @@ def generate_image(
                 prompt=prompt,
                 b64_png=getattr(datum, "b64_json", None),
                 url=getattr(datum, "url", None),
-                fallback_from=routes[0] if route != routes[0] else None,
             )
         except Exception as exc:  # noqa: BLE001 — try the fallback route before giving up
             logger.warning("[images] model=%s failed (%s)%s", route, exc,

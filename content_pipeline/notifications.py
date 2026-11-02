@@ -528,9 +528,9 @@ def notify_image_preflight(date_iso: str, reasons: Iterable[str], *,
     }
     m3 = urllib.parse.urlparse(content_cfg.image_shim_health_url).hostname or "the M3"
     how = ("The image stage is PROCEEDING now (each image falls back to the other Qwen 2.1 "
-           f"model on its own). To help it: `curl -X POST http://{m3}:8188/free` frees "
-           "ComfyUI's models; look for stray renders and unbudgeted MLX servers. Doing "
-           "nothing is fine if it clears.")
+           f"model on its own). To help it on {m3}: POST /free to ComfyUI to unload its "
+           "models; look for stray renders and unbudgeted MLX servers. Doing nothing is "
+           "fine if it clears.")
     ev = build_event(
         severity="page", kind="decision_needed", component="image_stage",
         title=f"CraicGPT {date_iso}: M3 render slot looks sick before the images",

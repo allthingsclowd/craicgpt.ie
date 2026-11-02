@@ -50,6 +50,7 @@ from content_pipeline.content_config import content_cfg
 logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 15.0
+HEALTH_TIMEOUT_S = 10.0
 
 # macOS kern.memorystatus_vm_pressure_level: 1 normal, 2 warn, 4 critical.
 _NORMAL_WORDS = {"normal", "ok", "green", "1"}
@@ -68,7 +69,7 @@ def _fetch_health() -> Optional[dict]:
     """GET the shim's /health; ``None`` when it cannot be reached or parsed."""
     try:
         with urllib.request.urlopen(content_cfg.image_shim_health_url,  # noqa: S310 — LAN shim
-                                    timeout=10) as resp:
+                                    timeout=HEALTH_TIMEOUT_S) as resp:
             return json.loads(resp.read() or b"{}")
     except Exception as exc:  # noqa: BLE001 — unreachable is a READING, not an error
         logger.warning("[image_preflight] /health unreachable: %s", exc)
@@ -132,15 +133,16 @@ def assess(health: Optional[dict], *, min_free_gb: Optional[float] = None,
                            "the model set + 40 GB)")
     except (TypeError, ValueError):
         pass
-    if busy:
+    # Busy is only a problem when the job is OLD. A busy shim with no job age (today's shim,
+    # before fleet #230) passes: a Hermes or academy render mid-flight is normal — the slot
+    # queues callers — and paging on it would page most mornings for nothing.
+    if busy and age is not None:
         try:
-            if age is None:
-                reasons.append("shim busy (job age unknown)")
-            elif float(age) > max_age:
+            if float(age) > max_age:
                 reasons.append(f"shim busy with a job {float(age):.0f} s old "
                                f"(older than {max_age:.0f} s)")
         except (TypeError, ValueError):
-            reasons.append("shim busy (job age unreadable)")
+            pass
     return SlotReading(not reasons, reasons, snapshot)
 
 
@@ -150,14 +152,16 @@ def preflight(date_iso: str, *, fetch: Optional[Callable[[], Optional[dict]]] = 
               attempts: Optional[int] = None) -> SlotReading:
     """Check the slot; wait briefly while it is sick; page once and proceed. Never raises.
 
-    ``attempts`` polls are made ``POLL_SECONDS`` apart (default: enough to cover
-    ``content_cfg.image_preflight_wait_s``). Counting polls rather than wall time keeps the
-    loop honest under an injected no-op ``sleep``.
+    ``attempts`` polls are made ``POLL_SECONDS`` apart. The default fits
+    ``content_cfg.image_preflight_wait_s`` INCLUDING each fetch's own timeout, so an
+    unreachable shim still costs about the configured wait, not double it. Counting polls
+    rather than wall time keeps the loop honest under an injected no-op ``sleep``.
     """
     fetch = fetch or _fetch_health
     sleep = sleep or _sleep
     if attempts is None:
-        attempts = int(max(0.0, content_cfg.image_preflight_wait_s) // POLL_SECONDS) + 1
+        per_poll = POLL_SECONDS + HEALTH_TIMEOUT_S
+        attempts = int(max(0.0, content_cfg.image_preflight_wait_s) // per_poll) + 1
     attempts = max(1, attempts)
 
     reading = SlotReading(False, ["not checked"], {})

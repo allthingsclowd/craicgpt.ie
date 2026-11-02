@@ -172,6 +172,12 @@ def profile_for(route: str) -> RouteProfile:
     return _ROUTE_PROFILES.get((route or "").rsplit("/", 1)[-1], QWEN21)
 
 
+def wire_steps_for(route: str, steps: Optional[int]) -> Optional[int]:
+    """The ``steps`` to SEND to ``route``: ``None`` on a fixed-schedule route (Turbo), whose
+    graph would otherwise be asked to re-space a sigma schedule it was distilled on."""
+    return None if profile_for(route).fixed_steps else steps
+
+
 @dataclass(frozen=True)
 class RenderSpec:
     """How much render one image slot is worth: size, steps, caption budget — and the
@@ -221,9 +227,8 @@ class RenderSpec:
         return self.steps
 
     def wire_steps(self, route: str) -> Optional[int]:
-        """The ``steps`` to SEND: ``None`` for a fixed-schedule route, whose graph would
-        otherwise be asked to re-space a sigma schedule it was distilled on."""
-        return None if profile_for(route).fixed_steps else self.steps_for(route)
+        """The ``steps`` to SEND for this tier on ``route`` — see :func:`wire_steps_for`."""
+        return wire_steps_for(route, self.steps_for(route))
 
     def est_seconds_for(self, route: str) -> float:
         """Rough wall-clock for one render of this tier on ``route``, slot idle.

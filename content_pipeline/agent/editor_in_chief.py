@@ -661,10 +661,14 @@ def _trace_images(trace: TraceRecorder, ai: dict, fun: list, image_model: Option
     from this list is generated and published but invisible in the trace, which is the one
     surface a tutorial reader uses to see what the pipeline actually did.
     """
-    if image_model:
-        trace.model_route("image", image_model)
     items = ([ai.get("headliner")] + list(ai.get("subarticles", []))
              + list(ai.get("shorts", [])) + list(fun))
+    # Since #154 one edition draws on more than one route (shorts on Turbo, leads on 2.1,
+    # plus any per-image fallback), so name every route that actually drew a picture.
+    drawn = sorted({i["_image_model"] for i in items
+                    if isinstance(i, dict) and i.get("image_url") and i.get("_image_model")})
+    if drawn or image_model:
+        trace.model_route("image", ", ".join(drawn) or image_model)
     for item in items:
         if isinstance(item, dict) and item.get("image_url") and item.get("_image_style"):
             info = (f"style={item['_image_style']} tier={item.get('_image_tier', '?')} "

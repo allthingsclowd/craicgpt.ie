@@ -281,7 +281,9 @@ Every article now carries `image_url` — **including the 10 AI shorts**, which 
 floated 512px spot thumbnail (`.card--ai.card--short .card-img`). Illustrated items also carry
 the additive `_image_gag` (the visual joke, reused as `image_alt` because it describes what is
 actually in the frame), `_image_caption` (the words lettered INTO the picture) and
-`_image_tier` (`hero`/`standard`/`thumbnail`).
+`_image_tier` (`hero`/`standard`/`thumbnail`). `_image_model` is the route that actually drew
+the picture; `_image_fallback_from` (additive, #154) appears only when the tier's primary failed
+or hit its deadline and the per-image fallback drew it instead.
 
 > **Supply the caption, never ask for one.** `build_image_prompt` injects the literal string —
 > `The words "TASTE THE FUTURE" appear…`. The old clause told the model to letter "the exact
@@ -463,6 +465,15 @@ The autonomous schedule (`craicgpt_daily_0500` @05:00 generate-and-judge,
 `craicgpt_publish_gate_poll` @06–08, UTC) does the rest — the rubric judge now runs
 **in-pipeline** at generation time, so the old agent-VM `craicgpt-review.timer` is retired.
 The daily workflow `craicgpt_daily_content` (v3) chains **generate → narrate → gate**.
+
+### Image routes in prod (#154) — the env must move WITH the merge
+
+`/etc/craicgpt.env` on `.75` pinned `IMAGE_MODEL=m3/comfy/flux-2-dev` until the Qwen-Image 2.1 move.
+Env beats the code default, so leaving that line puts FLUX back in front of the leads and fun
+desk (with Turbo now as its fallback — a 93 GB model-set swap mid-edition, the #219 failure).
+Delete the line (or set `IMAGE_MODEL=m3/comfy/qwen-image-2.1`) in the same window the PR merges,
+and only once the fleet serves `m3/comfy/qwen-image-2.1-turbo` (grazlab-llm-fleet #230). Check
+the routes with `curl -s $LITELLM_BASE_URL/models -H "Authorization: Bearer $LITELLM_API_KEY"`.
 
 ### The reader-facing frontend deploy (`deploy_frontend.sh`)
 

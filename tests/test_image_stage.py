@@ -157,7 +157,6 @@ def test_a_timed_out_hero_is_rerendered_on_turbo_for_that_image_only():
     img = I.generate_image("p", spec=HERO, model=QWEN21, fallback_model=TURBO, client=client)
     assert [c["model"] for c in client.calls] == [QWEN21, TURBO]
     assert img.model == TURBO                       # honest: the route that rendered it
-    assert img.fallback_from == QWEN21
     # 2.1 got its 40 steps; Turbo got none on the wire (its schedule is fixed).
     assert client.calls[0]["extra_body"]["steps"] == 40
     assert "steps" not in client.calls[1].get("extra_body", {})
@@ -174,9 +173,10 @@ def test_a_failed_turbo_thumbnail_falls_back_to_qwen21():
     assert client.calls[1]["extra_body"]["steps"] == 40
 
 
-def test_a_healthy_render_records_no_fallback():
-    img = I.generate_image("p", spec=HERO, model=QWEN21, fallback_model=TURBO, client=_Client())
-    assert img.model == QWEN21 and img.fallback_from is None
+def test_a_healthy_render_stays_on_the_primary():
+    client = _Client()
+    img = I.generate_image("p", spec=HERO, model=QWEN21, fallback_model=TURBO, client=client)
+    assert img.model == QWEN21 and len(client.calls) == 1
 
 
 def test_the_spec_supplies_the_routes_when_none_are_passed(monkeypatch):
@@ -234,6 +234,14 @@ def test_the_harness_stamps_a_per_image_fallback(monkeypatch):
     assert ai["headliner"]["_image_model"] == TURBO
     assert ai["headliner"]["_image_fallback_from"] == QWEN21
 
+    # The trace names the route that really drew it, and the fallback.
+    from content_pipeline.agent.trace import TraceRecorder
+
+    rec = TraceRecorder()
+    eic._trace_images(rec, ai, [], None)
+    infos = [e["detail"]["info"] for e in rec.as_list() if e["name"] == "generate_image"]
+    assert infos and f"model={TURBO}" in infos[0] and f"fallback from {QWEN21}" in infos[0]
+
 
 # ── Memory pre-flight ─────────────────────────────────────────────────────────
 _HEALTHY = {"ok": True, "busy": False, "memory_pressure": "normal",
@@ -257,6 +265,21 @@ def test_each_unhealthy_signal_is_named(health, needle):
     r = pf.assess(health)
     assert not r.ok
     assert any(needle in reason for reason in r.reasons), r.reasons
+
+
+def test_a_busy_shim_with_no_job_age_passes():
+    """Today's shim reports no job age (fleet #230 adds it). Busy alone is normal — paging
+    on it would page most mornings while Hermes renders."""
+    assert pf.assess({**_HEALTHY, "busy": True}).ok
+
+
+def test_an_unreachable_shim_waits_about_the_configured_window():
+    """Each poll can burn the fetch timeout too; the default poll count accounts for it."""
+    polls = []
+    pf.preflight("2026-11-03", fetch=lambda: polls.append(1), sleep=lambda s: None,
+                 notify=lambda *a, **k: None)
+    worst = len(polls) * pf.HEALTH_TIMEOUT_S + (len(polls) - 1) * pf.POLL_SECONDS
+    assert worst <= content_cfg.image_preflight_wait_s + pf.POLL_SECONDS
 
 
 def test_a_young_job_is_not_a_problem():
