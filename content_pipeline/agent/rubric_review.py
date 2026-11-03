@@ -80,7 +80,7 @@ from typing import Any, Optional
 
 from content_pipeline.content_config import content_cfg
 from content_pipeline.okf import bundle_from_json, flatten_for_judge
-from content_pipeline.providers.litellm import get_litellm_llm
+from content_pipeline.providers.litellm import agentic_thinking_kwargs, get_litellm_llm
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +325,9 @@ def _grade_once(model_name: str, view: str, *, rubric: str = EDITION_RUBRIC,
     from deepagents import RubricMiddleware, create_deep_agent
 
     captured: list[dict] = []
-    llm = get_litellm_llm(model_name, temperature=0)
+    # A non-thinking route gets no extra kwargs (its template default, as before); a
+    # route that must think (Flash-Next) is pinned to LOW effort with room for it.
+    llm = get_litellm_llm(model_name, temperature=0, **agentic_thinking_kwargs(model_name))
     middleware = RubricMiddleware(
         model=llm,
         max_iterations=1,  # one-shot judge: the harness already wrote the content

@@ -57,11 +57,12 @@ class ContentConfig:
     # live call to a route that no longer exists. Check them against
     # `GET /v1/models` when the fleet changes; a dead route here does not fail fast.
     #
-    # The *writing* model — generates the article prose. Qwen3.8 27B dense on the
-    # DGX (vLLM/NVFP4), matching what /etc/craicgpt.env sets in production.
+    # The *writing* model — generates the article prose. Qwen3.8-Flash-Next on the
+    # DGX (vLLM; MoE, 125B total / 6B active, NVFP4 QAD checkpoint, native 262144
+    # context), matching what /etc/craicgpt.env sets in production.
     write_model: str = field(
         default_factory=lambda: os.getenv(
-            "WRITE_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
+            "WRITE_MODEL", "dgx/vllm/qwen3.8-flash-next-fp4"
         )
     )
     # The *research brain* — drives the agentic websearch/curation tool loop.
@@ -69,7 +70,7 @@ class ContentConfig:
     # capable. The fallback wrapper covers it being down.
     brain_model: str = field(
         default_factory=lambda: os.getenv(
-            "BRAIN_MODEL", "dgx/vllm/qwen3.8-27b-nvfp4"
+            "BRAIN_MODEL", "dgx/vllm/qwen3.8-flash-next-fp4"
         )
     )
     # The image routes — Qwen-Image 2.1 and its 8-step Turbo sibling, both ComfyUI on the

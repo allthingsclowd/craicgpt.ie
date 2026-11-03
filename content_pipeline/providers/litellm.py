@@ -25,6 +25,7 @@ local one failed (so ``running-eval-loop`` can turn it into a regression case).
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -33,6 +34,84 @@ from langchain_core.language_models import BaseChatModel
 from content_pipeline.content_config import content_cfg
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Per-route thinking policy
+# ─────────────────────────────────────────────────────────────────────────────
+# TUTORIAL: "thinking" is a per-ROUTE property, not a global switch
+# ------------------------------------------------------------------
+# Qwen3-family chat templates take ``chat_template_kwargs.enable_thinking``; vLLM's
+# ``--reasoning-parser qwen3`` then returns the reasoning in a SEPARATE
+# ``reasoning_content`` field, so ``.content`` (what we parse) stays clean and tool
+# calls are still parsed by ``--tool-call-parser``. For most routes we turn thinking
+# OFF — the Qwen3.6 lesson: the reasoning stream ate the token budget before any JSON
+# appeared. One route is the exception, and it was MEASURED, not guessed:
+#
+#   2026-11-03, dgx/vllm/qwen3.8-flash-next-fp4 (nvidia/Qwen3.8-Flash-Next-FP4-Local),
+#   structured JSON task:
+#     thinking OFF               → mangled "CVE-2026-20002" into "CVE-20002" in 3/3 runs
+#                                  (and earlier put a headline in the wrong JSON field)
+#     thinking ON, effort "low"  → correct 3/3, at ~30 s a call instead of ~7 s and
+#                                  ~900-1100 reasoning tokens
+#
+# Graham's call: keep Flash-Next, think at LOW effort on that route only. The extra
+# reasoning needs its own room, so the output cap grows by THINKING_REASONING_TOKENS —
+# otherwise the reasoning eats the answer's budget (the same failure, by another door).
+# Override the route set with LLM_THINKING_MODELS (comma-separated; "" = none). Same
+# design as thegeekwiththepeak.com's providers/litellm.py.
+THINKING_REASONING_TOKENS = 2048
+_DEFAULT_THINKING_MODELS = "dgx/vllm/qwen3.8-flash-next-fp4,dgx/vllm/qwen3.8-flash-next-fp4-long"
+
+# A thinking call is ~4x slower (30 s vs 7 s measured), and its worst case is the full
+# max_tokens + THINKING_REASONING_TOKENS at Flash-Next decode speed (~45 tok/s): the
+# biggest caller (a 12000-token translation batch) is then ~14k tokens ≈ 310 s. The
+# 180 s CONTENT_REQUEST_TIMEOUT default would cut that off and burn 3 retries on a call
+# that was working, so a thinking route gets at least this per-call read timeout.
+THINKING_MIN_TIMEOUT_S = 360.0
+
+
+def thinking_models() -> frozenset[str]:
+    """The routes that must think (``LLM_THINKING_MODELS``, read at call time)."""
+    raw = os.environ.get("LLM_THINKING_MODELS", _DEFAULT_THINKING_MODELS)
+    return frozenset(m.strip() for m in raw.split(",") if m.strip())
+
+
+def thinking_policy(model: str, max_tokens: int) -> tuple[dict[str, Any], int]:
+    """``(extra_body, max_tokens)`` for ``model``.
+
+    On a route in :func:`thinking_models`: thinking ON at ``reasoning_effort: "low"``,
+    with ``max_tokens`` widened by :data:`THINKING_REASONING_TOKENS` for the reasoning.
+    Everywhere else: thinking OFF and ``max_tokens`` unchanged (the pre-2026-11-03
+    behaviour of every caller that set it).
+    """
+    if model in thinking_models():
+        return (
+            {"chat_template_kwargs": {"enable_thinking": True}, "reasoning_effort": "low"},
+            max_tokens + THINKING_REASONING_TOKENS,
+        )
+    return {"chat_template_kwargs": {"enable_thinking": False}}, max_tokens
+
+
+def agentic_thinking_kwargs(model: str) -> dict[str, Any]:
+    """``get_litellm_llm`` kwargs for an AGENT loop (research brain, rubric judge).
+
+    Those callers never sent a thinking flag — they ran on each route's template
+    default — so a non-thinking route gets ``{}`` and keeps exactly that behaviour.
+    Only a thinking route is pinned to low effort (its template default would think
+    at full effort, unbounded).
+    """
+    if model not in thinking_models():
+        return {}
+    extra_body, max_tokens = thinking_policy(model, content_cfg.max_tokens)
+    return {"extra_body": extra_body, "max_tokens": max_tokens}
+
+
+def request_timeout_for(model: str) -> float:
+    """Per-call client timeout: the configured one, floored for a thinking route."""
+    if model in thinking_models():
+        return max(content_cfg.request_timeout, THINKING_MIN_TIMEOUT_S)
+    return content_cfg.request_timeout
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +220,8 @@ def get_litellm_llm(
         extra_body: Extra request body fields forwarded to the proxy — e.g.
             ``{"chat_template_kwargs": {"enable_thinking": False}}`` to turn off
             the model's thinking preamble (which otherwise eats the token budget
-            before any JSON is produced).
+            before any JSON is produced). Build it with :func:`thinking_policy`
+            so a route that MUST think (Flash-Next) gets low-effort thinking.
 
     Returns:
         A ``ChatOpenAI`` instance. Construction does no network I/O — the
@@ -165,7 +245,8 @@ def get_litellm_llm(
         api_key=content_cfg.litellm_api_key,
         temperature=content_cfg.temperature if temperature is None else temperature,
         max_tokens=content_cfg.max_tokens if max_tokens is None else max_tokens,
-        timeout=content_cfg.request_timeout,
+        # Floored for a thinking route — see THINKING_MIN_TIMEOUT_S.
+        timeout=request_timeout_for(model),
         max_retries=2,
         **kwargs,
     )

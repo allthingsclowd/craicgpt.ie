@@ -65,7 +65,7 @@ from content_pipeline.research.curation import (
     story_key_set,
     validate_source_link,
 )
-from content_pipeline.providers.litellm import get_litellm_llm
+from content_pipeline.providers.litellm import agentic_thinking_kwargs, get_litellm_llm
 
 logger = logging.getLogger(__name__)
 
@@ -106,8 +106,16 @@ def build_brain(model_name: Optional[str] = None) -> BaseChatModel:
 
     Defaults to the configured brain route (DGX vLLM Qwen3.8 — confirmed
     tool-calling-capable). Construction does no network I/O.
+
+    TUTORIAL: reasoning vs tool calls. On a thinking route (Flash-Next) the brain
+    thinks at LOW effort (``agentic_thinking_kwargs``). vLLM's ``--reasoning-parser
+    qwen3`` returns that reasoning in ``reasoning_content``, apart from both
+    ``.content`` and the ``tool_calls`` parsed by ``--tool-call-parser qwen3_xml`` —
+    so the deep agent's tool loop never sees it. Other routes get no thinking flag
+    at all, i.e. exactly the template default they always ran on.
     """
-    return get_litellm_llm(model_name or content_cfg.brain_model)
+    model = model_name or content_cfg.brain_model
+    return get_litellm_llm(model, **agentic_thinking_kwargs(model))
 
 
 def build_editor_in_chief(

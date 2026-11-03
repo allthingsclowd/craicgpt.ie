@@ -31,7 +31,11 @@ from typing import Optional
 
 from content_pipeline.agent.rubric_review import _clip, _host
 from content_pipeline.content_config import content_cfg
-from content_pipeline.providers.litellm import get_litellm_llm, run_with_fallback
+from content_pipeline.providers.litellm import (
+    get_litellm_llm,
+    run_with_fallback,
+    thinking_policy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -145,11 +149,14 @@ def _extract_json_obj(text: str) -> Optional[dict]:
 def _grade_articles_once(model_name: str, view: str) -> Optional[dict]:
     """ONE batched grading pass on ``model_name`` → parsed JSON dict (or None).
 
-    Monkeypatched in tests. Thinking is suppressed so the reply is clean JSON."""
+    Monkeypatched in tests. Thinking follows ``thinking_policy`` (off, so the reply is
+    clean JSON — except low-effort on Flash-Next, whose reasoning vLLM returns apart)."""
+    extra_body, max_tokens = thinking_policy(model_name, content_cfg.max_tokens)
     llm = get_litellm_llm(
         model_name,
         temperature=0,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        max_tokens=max_tokens,
+        extra_body=extra_body,
     )
     resp = llm.invoke(_FABRICATION_PROMPT + view)
     text = getattr(resp, "content", None) or str(resp)

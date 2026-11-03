@@ -64,7 +64,7 @@ diffusion model to invent text of its own gets you mush; giving it a string to c
 lettering. Budgets scale with the canvas: twelve words on a hero, eight on the fun desk, five
 on a thumbnail.
 
-**Open-source only:** generation runs on **Qwen3.8-27B** (text, NVFP4 on the DGX Spark) and
+**Open-source only:** generation runs on **Qwen3.8-Flash-Next** (text, NVFP4 MoE on the DGX Spark) and
 **Qwen-Image 2.1 + 2.1-Turbo** (images, BF16 via ComfyUI on the M3 Ultra), and the daily **voice clones** on **Qwen3-TTS** (M3 mlx-audio), all via a
 homelab **LiteLLM** proxy (TTS is a direct call — see *Audio & podcast* below);
 orchestration *and the edition judge* are **LangChain `deepagents` + LangGraph** — the
@@ -129,7 +129,7 @@ flowchart TD
 
     subgraph FLEET["🤖 grazlab local fleet · one LiteLLM proxy, routed by name (TTS is a direct call)"]
         direction TB
-        QWEN["Qwen3.8-27B · DGX Spark<br/>research + writing + banter"]:::model
+        QWEN["Qwen3.8-Flash-Next · DGX Spark<br/>research + writing + banter"]:::model
         IMGM["Qwen-Image 2.1 + Turbo · M3 Ultra<br/>images"]:::model
         JUDGEM["qwen3-coder-next · M3 :8087<br/>rubric judge — independent of the writer"]:::model
         TTSM["Qwen3-TTS · M3 mlx-audio<br/>Graham/Tom + parody voice clones"]:::model
@@ -362,7 +362,7 @@ sequenceDiagram
 | Stage | Where | What |
 |------|-------|------|
 | Generate | Conductor `craicgpt_daily_0500` @ 05:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + images → compile v3 — **English once**; then `translate_paper` → de/es/it/ja/fr (prose only, images shared, not re-judged) |
-| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.8-27B NVFP4 (research + writing + banter), Qwen-Image 2.1 + Turbo (images), `qwen3-coder-next` (independent rubric judge), Qwen3-TTS (voice clones, direct call) |
+| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.8-Flash-Next NVFP4 (research + writing + banter), Qwen-Image 2.1 + Turbo (images), `qwen3-coder-next` (independent rubric judge), Qwen3-TTS (voice clones, direct call) |
 | Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent** local model (`qwen3-coder-next` — distinct from the writer) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
 | Narrate | **after the judge, on `.75` / M3** | per-article readings (Graham⇄Tom; parody items in their own voice clones) + the rubric-gated dad↔son podcast + a <180s TL;DR, all bookended by the **80s call-sign jingle** — additive audio written onto the draft (`generate/narration.py`). **Loops every language** (clones reused cross-lingually; a translated edition opens with a spoken "machine-translated by `<model>`" note) |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
@@ -500,7 +500,7 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
 
 - **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS,
   and the **`RubricMiddleware`** edition judge.
-- **Qwen3.8-27B** (research + writing + banter) + **Qwen-Image 2.1 + Turbo** (images) + **`qwen3-coder-next`**
+- **Qwen3.8-Flash-Next** (research + writing + banter) + **Qwen-Image 2.1 + Turbo** (images) + **`qwen3-coder-next`**
   (the *independent* rubric judge) via **LiteLLM** on a DGX Spark + M3 Ultra homelab fleet;
   the daily **voice clones** run on **Qwen3-TTS** (M3 mlx-audio, a direct call).
 - **Web search** — **Serper.dev** (Google SERP) powers the agent's `web_search` tool

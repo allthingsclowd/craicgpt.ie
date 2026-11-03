@@ -152,7 +152,7 @@ rec = TraceRecorder()
 rec.plan(["research fun news", "research AI landscape"])
 rec.delegate("ai-landscape-researcher", "rank the day's top 13 AI stories")
 rec.tool_call("web_search", "q=OpenAI", result="OpenAI ships … https://…")
-rec.model_route("write", "dgx/vllm/qwen3.8-27b-nvfp4")
+rec.model_route("write", "dgx/vllm/qwen3.8-flash-next-fp4")
 # ...plus extract_trace(messages) turns a real run's tool calls into the same shape.
 agent_trace = extract_trace(result["messages"]) + rec.as_list()
 ```
