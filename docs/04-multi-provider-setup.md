@@ -36,7 +36,7 @@ different model? Change the string. That's the whole multi-provider story.
 | Box | Role | Example routes |
 |-----|------|----------------|
 | **DGX Spark** | Research brain + prose (reliable tool-calling) | `dgx/vllm/qwen3.8-27b-nvfp4` |
-| **M3 Ultra (Mac Studio)** | Images + **independent rubric judge** + **TTS voice clones** (+ the cross-box text fallback) | `m3/comfy/flux-2-dev`, `m3/mlx/qwen3-coder-next-4bit`, `Qwen3-TTS` (mlx-audio), `m3/mlx/qwen3.8-27b-8bit` |
+| **M3 Ultra (Mac Studio)** | Images + **independent rubric judge** + **TTS voice clones** (+ the cross-box text fallback) | `m3/comfy/qwen-image-2.1` (+ `-turbo`), `m3/mlx/qwen3-coder-next-4bit`, `Qwen3-TTS` (mlx-audio), `m3/mlx/qwen3.8-27b-8bit` |
 | **Fallback** | Local cross-box (the proxy has **no** frontier route) | `m3/mlx/qwen3.8-27b-8bit` |
 
 Route names come from the fleet catalog (`grazlab-llm-fleet` repo, `catalog/models.yaml`).
@@ -54,7 +54,8 @@ The config picks a route per *role* (override any with an env var):
 # content_pipeline/content_config.py
 brain_model         = os.getenv("BRAIN_MODEL",        "dgx/vllm/qwen3.8-27b-nvfp4")            # research agent loop
 write_model         = os.getenv("WRITE_MODEL",        "dgx/vllm/qwen3.8-27b-nvfp4")            # article prose
-image_model         = os.getenv("IMAGE_MODEL",        "m3/comfy/flux-2-dev")                   # illustrations
+image_model         = os.getenv("IMAGE_MODEL",        "m3/comfy/qwen-image-2.1")               # illustrations (leads + fun)
+image_thumbnail_model = os.getenv("IMAGE_THUMBNAIL_MODEL", "m3/comfy/qwen-image-2.1-turbo")  # the 10 shorts
 fallback_text_model = os.getenv("FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.8-27b-8bit")   # local cross-box fallback
 ```
 
@@ -63,10 +64,15 @@ fallback_text_model = os.getenv("FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.8-27b-8bit"
 - **write** produces the prose; the M3's Qwen3.8 sibling handles the small structured calls
   well — and, crucially, accepts `response_format: json_schema` (the older 3.6 route
   *stalls* on a schema rather than erroring, which is worse than failing).
-- **image** is FLUX.2 [dev] (32B DiT + Mistral-Small-24B encoder, BF16, via ComfyUI on the
-  M3), chosen for high-definition **text** rendering. Fallback: `m3/comfy/qwen-image`, which
-  is 4.4x faster but shares the same ComfyUI process, so crossing over pays a model-set
-  reload. (We still prompt text-free — see `generate/image_styles.py`.)
+- **image** is Qwen-Image 2.1 (7B DiT + Qwen3-VL-8B encoder, BF16, via ComfyUI on the M3) at
+  40 steps for the leads and the fun desk, and its 8-step sibling **2.1-Turbo** for the ten
+  AI shorts. Each is the other's **per-image** fallback: a render that fails or overruns its
+  own deadline is re-drawn on the other model, and `_image_model` records which one drew it.
+  They share one encoder + VAE (~46 GB), so crossing over costs no reload. Chosen 2026-11-02
+  by a bake-off on three bars — no stalls, exact supplied captions, all four cartoon styles
+  (grazlab-llm-fleet #221). *History:* FLUX.2 [dev] held the route from August; its 93 GB
+  set twice hung while loading under memory pressure. Steps are per model —
+  see `RouteProfile` in `generate/image_styles.py`.
 
 ---
 
@@ -127,8 +133,10 @@ LITELLM_API_KEY=sk-no-key-required
 
 BRAIN_MODEL=dgx/vllm/qwen3.8-27b-nvfp4
 WRITE_MODEL=dgx/vllm/qwen3.8-27b-nvfp4
-IMAGE_MODEL=m3/comfy/flux-2-dev
-IMAGE_FALLBACK_MODEL=m3/comfy/qwen-image
+IMAGE_MODEL=m3/comfy/qwen-image-2.1
+IMAGE_FALLBACK_MODEL=m3/comfy/qwen-image-2.1-turbo
+IMAGE_THUMBNAIL_MODEL=m3/comfy/qwen-image-2.1-turbo
+IMAGE_THUMBNAIL_FALLBACK_MODEL=m3/comfy/qwen-image-2.1
 FALLBACK_TEXT_MODEL=m3/mlx/qwen3.8-27b-8bit
 
 SERPER_API_KEY=...                  # web_search via Serper.dev (doc 05)

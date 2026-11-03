@@ -1,4 +1,4 @@
-"""Tests for FLUX image generation via the LiteLLM proxy.
+"""Tests for image generation via the LiteLLM proxy (route names here are arbitrary).
 
 The proxy speaks the OpenAI images API, so generate_image just calls
 client.images.generate(...) and pulls the base64 PNG. The client is injected so

@@ -87,9 +87,9 @@ class Gag:
         return bool(self.gag)
 
 # NOTE ON NEGATION: the "do not" rules below are FINE here. This is a text-to-text LLM call
-# (Qwen3.8), which handles negation normally. Do NOT copy this style into the FLUX image
-# prompt in image_styles.py — the Mistral encoder there reads negation as things to DRAW, and
-# every fragment on that side must be phrased positively. Two different models, two different
+# (Qwen3.8), which handles negation normally. Do NOT copy this style into the image prompt in
+# image_styles.py — FLUX's Mistral encoder read negation as things to DRAW, and every fragment
+# on that side stays phrased positively on Qwen-Image 2.1 too. Two different models, two different
 # rules; conflating them is what produced a nine-NO text ban that summoned a "STOP" sign.
 _GAG_PROMPT = (
     "You are the cartoonist for a daily satirical newspaper about AI and comedy.\n\n"

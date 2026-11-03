@@ -26,7 +26,12 @@ fun_no_comedy           warn      degraded         craicgpt:degraded:fun_no_come
 translation_degraded    warn      degraded         craicgpt:degraded:translations:…
 qc_flagged              warn      flagged          craicgpt:flagged:qc:<date>:<vid>
 held                    page      decision_needed  craicgpt:decision_needed:held:…
+image_preflight         page      decision_needed  craicgpt:decision_needed:image_preflight:<date>
 ======================  ========  ===============  ==================================
+
+``image_preflight`` (#154, fleet #219) is a SAFE decision whose passive action is
+"proceed": the run carries on regardless; the page only gives Graham the chance to free
+the M3 before the images start rather than meet a held edition at 07:00.
 
 ``held`` is the one thing that asks Graham for something within a deadline, so it is
 the one event that may still reach Telegram from here — and only as a **fallback**:
@@ -498,3 +503,41 @@ def notify_flagged(date_iso: str, flagged_by_ref: dict[str, dict], *,
         detail=f"Please spot-check:\n{body}{tail}",
         dedup_key=f"craicgpt:flagged:qc:{date_iso}{_vid_tail(vid)}")
     return emit_once("qc_flagged", date_iso, ev, vid=vid, s3=s3, bucket=bucket)
+
+
+def notify_image_preflight(date_iso: str, reasons: Iterable[str], *,
+                           snapshot: Optional[dict] = None, window_minutes: int = 30,
+                           s3: Any | None = None, bucket: Optional[str] = None) -> dict:
+    """Page ``decision_needed`` when the M3 render slot looks sick before the image stage.
+
+    A SAFE decision that passively PROCEEDS: the image stage starts anyway (per-image
+    deadlines and the per-image fallback bound the damage). The page exists so Graham can
+    act early — free memory on the M3, stop a stray job — instead of meeting a held
+    edition at 07:00 (fleet #219/#222). Once per date, on the ONE ops bot, with the same
+    dead-lane Telegram fallback as ``held``."""
+    reasons = list(reasons) or ["(no reason given)"]
+    body = "\n".join(f"• {r}" for r in reasons)
+    snap = ", ".join(f"{k}={v}" for k, v in (snapshot or {}).items() if v is not None)
+    now = _utc_now()
+    decision = {
+        "nonce": uuid.uuid4().hex[:12],
+        "tier": "SAFE",
+        "options": ["proceed", "intervene"],
+        "expires_at": _ts(now + dt.timedelta(minutes=window_minutes)),
+        "passive_action": "proceed",
+    }
+    m3 = urllib.parse.urlparse(content_cfg.image_shim_health_url).hostname or "the M3"
+    how = ("The image stage is PROCEEDING now (each image falls back to the other Qwen 2.1 "
+           f"model on its own). To help it on {m3}: POST /free to ComfyUI to unload its "
+           "models; look for stray renders and unbudgeted MLX servers. Doing nothing is "
+           "fine if it clears.")
+    ev = build_event(
+        severity="page", kind="decision_needed", component="image_stage",
+        title=f"CraicGPT {date_iso}: M3 render slot looks sick before the images",
+        detail=f"Memory pre-flight failed:\n{body}\n{('Read: ' + snap) if snap else ''}\n{how}",
+        dedup_key=f"craicgpt:decision_needed:image_preflight:{date_iso}",
+        decision=decision, ttl_hours=12, now=now)
+    text = (f"⚠️ <b>CraicGPT image pre-flight</b> — {date_iso}\n"
+            f"The M3 render slot looks sick; proceeding anyway.\n{body}")
+    return emit_once("image_preflight", date_iso, ev, page_fallback_text=text, s3=s3,
+                     bucket=bucket)

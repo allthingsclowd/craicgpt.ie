@@ -482,15 +482,14 @@ def _finalize_fun(fun: list, date_iso: str) -> None:
 def image_targets(ai: dict, fun: list) -> list[tuple[dict, str]]:
     """Every illustrated slot in the edition, paired with its RENDER TIER.
 
-    Pure and separately testable, because the tiering is a cost decision worth
-    asserting on its own: at FLUX.2 [dev]'s baked 28 steps an 18-image edition is
-    3h38m against a 190-minute task cap, and the only thing that makes it fit is
-    that most of those images are not worth 28 steps (issue #101).
+    Pure and separately testable, because the tiering is a cost AND route decision
+    worth asserting on its own (issue #101; history: at FLUX.2 [dev]'s 28 steps an
+    all-hero edition was 3h38m against a 190-minute task cap).
 
-    Tiers (Graham's call, 2026-08-25):
-      hero      — the headliner and both subarticles, full 28 steps
-      standard  — the Craic & Throttle desk
-      thumbnail — the ten AI shorts, 512x512 (issue #103)
+    Tiers (Graham's calls, 2026-08-25 and 2026-11-02):
+      hero      — the headliner and both subarticles: Qwen-Image 2.1, 1024², 40 steps
+      standard  — the Craic & Throttle desk: the same route and size
+      thumbnail — the ten AI shorts: 2.1-Turbo first, 768² (issue #103, #154)
     """
     targets: list[tuple[dict, str]] = []
     if isinstance(ai.get("headliner"), dict):
@@ -513,10 +512,13 @@ def _generate_images(
     the agent, which invents stock URLs), overwriting any image_url the editor set and
     stamping ``image_alt``, ``_image_model``, ``_image_style`` and ``_image_gag``.
 
-    Cost is per-tier, not global — see :func:`image_targets`. So is the TEXT policy: only
-    the 28-step hero renders may carry a speech bubble, because at 8 steps the lettering
-    comes out mangled and a misspelled word reads as broken in a way a misshapen elbow
-    never does (``RenderSpec.allows_text``).
+    Cost AND route are per tier — see :func:`image_targets`. The leads and the fun desk
+    render on Qwen-Image 2.1 with 2.1-Turbo behind them; the 10 shorts render on Turbo
+    with 2.1 behind them (Graham, 2026-11-02). The fallback is PER IMAGE: a failed or
+    timed-out render is re-done on the other model for that image only, and
+    ``_image_model`` records the route that actually drew it (``_image_fallback_from``
+    names the one that failed). Every tier may carry a SUPPLIED caption, budgeted by the
+    tier (``RenderSpec.caption_words``).
 
     ⚠️ TRANSLATIONS SHARE THESE IMAGES. ``publish._is_local_path`` skips re-upload for a
     translated edition, so a hero speech bubble written in English appears verbatim on the
@@ -542,8 +544,8 @@ def _generate_images(
         def _gen(prompt: str):
             from content_pipeline.generate.images import save_image
 
-            return save_image(prompt, size=spec.size, steps=spec.steps,
-                              negative_prompt=negative_prompt_for(spec))
+            # The spec carries the tier's routes, per-route steps and per-image deadline.
+            return save_image(prompt, spec=spec, negative_prompt=negative_prompt_for(spec))
 
         return _gen
 
@@ -571,6 +573,10 @@ def _generate_images(
             # words are already visible to anyone who can see the image.
             item["image_alt"] = gag or item.get("title", "")
             item["_image_model"] = model or image_model
+            # Honest attribution of a per-image fallback: only when we KNOW which route was
+            # asked first (the default path), and the drawing came from another one.
+            if generate is None and model and model != spec.model:
+                item["_image_fallback_from"] = spec.model
             item["_image_style"] = style["name"]
             item["_image_tier"] = tier
             used_model = model or used_model
@@ -578,6 +584,20 @@ def _generate_images(
             logger.warning("[run_edition] image generation failed: %s", exc)
             item["image_url"] = None
     return used_model
+
+
+def _image_preflight(date_iso: str, trace: TraceRecorder) -> None:
+    """The memory pre-flight on the M3 render slot (fleet #219/#222), run once before the
+    REAL image stage. Waits briefly while the slot looks sick, pages ``decision_needed``
+    once, then proceeds — it never blocks or raises (see :mod:`image_preflight`)."""
+    try:
+        from content_pipeline.generate import image_preflight
+
+        reading = image_preflight.preflight(date_iso)
+        trace.tool_call("image_preflight", "M3 render slot: shim /health + memory",
+                        result="ok" if reading.ok else "; ".join(reading.reasons))
+    except Exception as exc:  # noqa: BLE001 — a pre-flight must never sink the edition
+        logger.warning("[run_edition] image pre-flight failed (%s); proceeding", exc)
 
 
 def _stamp_attribution(
@@ -641,15 +661,21 @@ def _trace_images(trace: TraceRecorder, ai: dict, fun: list, image_model: Option
     from this list is generated and published but invisible in the trace, which is the one
     surface a tutorial reader uses to see what the pipeline actually did.
     """
-    if image_model:
-        trace.model_route("image", image_model)
     items = ([ai.get("headliner")] + list(ai.get("subarticles", []))
              + list(ai.get("shorts", [])) + list(fun))
+    # Since #154 one edition draws on more than one route (shorts on Turbo, leads on 2.1,
+    # plus any per-image fallback), so name every route that actually drew a picture.
+    drawn = sorted({i["_image_model"] for i in items
+                    if isinstance(i, dict) and i.get("image_url") and i.get("_image_model")})
+    if drawn or image_model:
+        trace.model_route("image", ", ".join(drawn) or image_model)
     for item in items:
         if isinstance(item, dict) and item.get("image_url") and item.get("_image_style"):
-            trace.tool_call("generate_image",
-                            f"style={item['_image_style']} tier={item.get('_image_tier', '?')}",
-                            result=item.get("image_alt", ""))
+            info = (f"style={item['_image_style']} tier={item.get('_image_tier', '?')} "
+                    f"model={item.get('_image_model', '?')}")
+            if item.get("_image_fallback_from"):
+                info += f" (fallback from {item['_image_fallback_from']})"
+            trace.tool_call("generate_image", info, result=item.get("image_alt", ""))
 
 
 def run_edition(
@@ -871,6 +897,10 @@ def run_edition(
     # image in the harness (the editor invents stock URLs rather than using the
     # image tool output), then stamp model attribution.
     _finalize_fun(fun, date_iso)
+    if image_generate is None:
+        # Only on the real image path — a test that injects image_generate never reaches
+        # the M3 (and tests/conftest.py refuses the /health fetch regardless).
+        _image_preflight(date_iso, trace)
     image_model = _generate_images(ai, fun, date_iso, generate=image_generate,
                                    image_model=image_model, gag_generate=gag_generate)
     _trace_images(trace, ai, fun, image_model)

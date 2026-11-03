@@ -17,32 +17,35 @@ different hand. One style per edition reads as designed, and a returning reader
 still sees the full range across a week. See :func:`style_for_edition`, which
 counts days rather than hashing them so the cycle genuinely rotates.
 
-TEXT: ALLOWED WHERE IT CAN BE LETTERED CLEANLY
-----------------------------------------------
+TEXT: SUPPLIED, NEVER INVENTED
+------------------------------
 :data:`NO_TEXT_CLAUSE` was written when the image model could not render legible
-text. FLUX.2 [dev] can, and it does so whether or not it is asked: measured
-2026-08-25, all four style candidates returned a road sign reading "STOP" in clean
-capitals while carrying BOTH the full clause AND a negative prompt banning
-``text, letters, words, signage``. So the clause never bought wordless art — it
-bought UNCONTROLLED text.
+text. FLUX.2 [dev] could, and did so whether or not it was asked (2026-08-25: a
+"STOP" sign on every style candidate despite a nine-NO text ban). So the clause
+never bought wordless art — it bought UNCONTROLLED text.
 
-Graham's call: text is allowed on the 28-step renders. The threshold
-(:data:`TEXT_STEP_FLOOR`) is a real quality boundary — at 8 steps letterforms come
-out mangled, and a misspelled word reads as broken in a way a misshapen elbow never
-does. So the hero tier may carry a short speech bubble (:data:`TEXT_CLAUSE`) and
-the 8-step fun and shorts renders stay wordless.
+The policy since: every tier may carry a short caption, but the caption is SUPPLIED
+verbatim by the gag step and the model is only asked to COPY it
+(:func:`build_image_prompt`). That policy is model-neutral and survived the move to
+Qwen-Image 2.1 (2026-11-02, #154): in the fleet #221 bake-off 2.1 copied the supplied
+captions exactly 4/4, Turbo 7/8. :data:`TEXT_STEP_FLOOR` stays as the physical floor
+for any route that takes steps.
 
 ⚠️ TRANSLATIONS SHARE THESE IMAGES. A hero bubble written in English appears
 verbatim on the de/es/it/ja/fr editions, because a translated edition reuses the
 English image URLs. That is accepted rather than solved: the alternative was never
 wordless art, only uncontrolled English signage nobody chose.
 
-RENDER TIERS
-------------
-Images are not all worth the same money. FLUX.2 [dev] costs ~727 s at its baked
-28 steps and ~201 s at 8, and the paper makes 18 images a day against a 190-minute
-task cap — so the step count is per-item, not one global setting. See
-:data:`HERO` / :data:`STANDARD` / :data:`THUMBNAIL` and :func:`render_spec_for`.
+RENDER TIERS AND ROUTES
+-----------------------
+Images are not all worth the same money, and steps are per MODEL, not one number.
+The tiers (:data:`HERO` / :data:`STANDARD` / :data:`THUMBNAIL`) carry size, steps and
+caption budget, and name their routes: the leads and the fun desk render on
+Qwen-Image 2.1 (40 steps) with 2.1-Turbo as the per-image fallback; the AI shorts
+render on Turbo (a fixed 8-step schedule) with 2.1 behind them. :class:`RouteProfile`
+holds each route's cost model and step rule. History: on FLUX.2 [dev] (2026-08-24 →
+2026-11-02) a 28-step hero cost ~411-727 s, which is why the tiers once bought steps
+down — and why 8 steps cost limbs.
 """
 
 from __future__ import annotations
@@ -50,10 +53,13 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from datetime import date
+from typing import Optional
 
 # The exact no-typography framing (was inline in editor_in_chief._image_prompt).
 # Centralised here so every style is guaranteed text-free in one place.
-# Say what we WANT, never what we want to avoid. FLUX.2's Mistral encoder treats English
+# Say what we WANT, never what we want to avoid. LESSON FROM FLUX (kept on Qwen-Image 2.1,
+# because it costs nothing and text encoders generally treat negation as content): FLUX.2's
+# Mistral encoder treats English
 # negation as semantically loaded — Black Forest Labs' own guidance is "always describe what
 # you want, not what you want to avoid", and their worked example is that "without glasses"
 # renders glasses. The previous version of this clause was nine consecutive NOs about text,
@@ -70,7 +76,9 @@ NO_TEXT_CLAUSE = (
 # prompt, because diffusion models are poor at negation. Two jobs here:
 #   - ROUNDNESS, which is Graham's standing brief for the cartoons ("no sharp edges")
 #   - the text suppression that NO_TEXT_CLAUSE alone no longer achieves
-# NO NEGATIVE PROMPT. FLUX.2 [dev] is guidance-distilled: the unconditional pathway is
+# NO NEGATIVE PROMPT. Qwen-Image 2.1 runs at cfg 1.0 (guidance-free) in the fleet graph, so
+# there is no unconditional pass for a negative embedding to attach to — the same position
+# FLUX.2 [dev] was in. HISTORY (FLUX): FLUX.2 [dev] is guidance-distilled: the unconditional pathway is
 # collapsed into the network, so there is no second forward pass for a negative embedding to
 # attach to. Sending one is inert at best. At the cfg the shim currently runs it was actively
 # harmful — the string used to read "sharp edges, hard corners, angular, jagged", and
@@ -84,14 +92,14 @@ NEGATIVE_PROMPT = ""
 
 def negative_prompt_for(spec: "RenderSpec | None" = None) -> str:
     """Always empty — see NEGATIVE_PROMPT. Kept as a seam so the caller need not care, and
-    so a future non-distilled route (qwen-image uses true CFG) can reintroduce one here."""
+    so a future route that runs true CFG (cfg > 1) can reintroduce one here."""
     return ""
 
 
 # Text is permitted only on renders with enough steps to letter it cleanly.
 # Graham's call, 2026-08-25: "text is allowed on the 20+ [step] images".
 #
-# The threshold is a real quality boundary, not a round number. FLUX.2 [dev] is a
+# HISTORY (FLUX): the threshold is a real quality boundary, not a round number. FLUX.2 [dev] is a
 # guidance-distilled 28-step model; at 8 steps letterforms come out mangled, and a
 # misspelled word reads as broken in a way a misshapen elbow never does. So the
 # 28-step heroes may carry a speech bubble and the 8-step fun/shorts renders stay
@@ -101,6 +109,7 @@ TEXT_STEP_FLOOR = 20
 # What to ASK for when text is allowed. Deliberately modest: a few hand-lettered
 # words in a bubble is where a Beano panel's joke lives, but a paragraph is where
 # a diffusion model's spelling falls apart.
+# UNUSED since the caption became supplied (build_image_prompt); kept for its lesson.
 # FLUX.2 renders text well, but only when asked the documented way: put the string in
 # QUOTES and BIND it to a physical surface, because the model paints letters onto objects
 # rather than compositing a caption. Reliability falls off past four or five words per
@@ -114,74 +123,148 @@ TEXT_CLAUSE = (
 
 
 @dataclass(frozen=True)
-class RenderSpec:
-    """How much render one image slot is worth: output size and sampler steps.
+class RouteProfile:
+    """What one image ROUTE costs and how it takes steps — steps are per model, not global.
 
-    Both are per-request on the ComfyUI route and nothing else is reachable
-    (issue #105), so this dataclass IS the complete cost dial.
+    Cost is ``steps x (per_px_step x pixels + per_step) + fixed`` seconds: linear in pixels
+    per step, plus a fixed text-encode + VAE-decode + transfer tail.
+
+    ``fixed_steps`` marks a route whose step count is baked into its graph (Turbo's
+    ManualSigmas schedule): the request carries no ``steps`` and the tier's number is
+    ignored. ``tier_steps`` lets a route keep its own per-tier table (FLUX, kept as a
+    rollback) instead of the tier's default.
+    """
+
+    per_px_step: float
+    per_step: float
+    fixed: float
+    fixed_steps: Optional[int] = None
+    tier_steps: Optional[dict] = None
+
+
+# Qwen-Image 2.1 (7B DiT, cfg 1.0, 40 steps). Fitted 2026-11-02 to the TOP of the measured
+# ranges, so the budget is the slow end: 1024²/40 = 148-175 s (fleet #221 bake-off) and
+# 512²/40 = 73 s (generating-local-images skill, 2026-11-01). → 4.2 s/step at 1024²,
+# 1.6 s/step at 512², ~8 s fixed. Gives 175 s for a 1024² hero.
+QWEN21 = RouteProfile(per_px_step=3.23e-6, per_step=0.78, fixed=8.0)
+# 2.1-Turbo: the same DiT, so the same per-step cost, on a fixed 8-step sigma schedule.
+# Check: 1024²/8 → 41 s against the bake-off's 34-41 s. 768²/8 → ~30 s.
+QWEN21_TURBO = RouteProfile(per_px_step=3.23e-6, per_step=0.78, fixed=8.0, fixed_steps=8)
+# FLUX.2 [dev] — NOT on craicgpt's path since #154; kept so `IMAGE_MODEL=m3/comfy/flux-2-dev`
+# is a working rollback with its own step table and honest estimates (14.2 s/step at
+# 1024², 2026-08-26, after the fleet #166 graph fix).
+FLUX2_DEV = RouteProfile(per_px_step=1.3e-5, per_step=0.6, fixed=14.0,
+                         tier_steps={"hero": 28, "standard": 20, "thumbnail": 20})
+
+_ROUTE_PROFILES = {
+    "qwen-image-2.1": QWEN21,
+    "qwen-image-2.1-turbo": QWEN21_TURBO,
+    "flux-2-dev": FLUX2_DEV,
+}
+
+
+def profile_for(route: str) -> RouteProfile:
+    """The profile for a LiteLLM route name (matched on its last path segment).
+
+    An unknown route gets the Qwen-Image 2.1 profile: the tier's own steps and a 2.1-shaped
+    estimate. Defaults rather than raises, like :func:`render_spec_for`.
+    """
+    return _ROUTE_PROFILES.get((route or "").rsplit("/", 1)[-1], QWEN21)
+
+
+def wire_steps_for(route: str, steps: Optional[int]) -> Optional[int]:
+    """The ``steps`` to SEND to ``route``: ``None`` on a fixed-schedule route (Turbo), whose
+    graph would otherwise be asked to re-space a sigma schedule it was distilled on."""
+    return None if profile_for(route).fixed_steps else steps
+
+
+@dataclass(frozen=True)
+class RenderSpec:
+    """How much render one image slot is worth: size, steps, caption budget — and the
+    ROUTES it renders on.
+
+    ``size``/``steps``/``seed``/``negative_prompt`` are the only per-request knobs the
+    ComfyUI shim honours (issue #105). ``steps`` is the tier's step count on a route that
+    takes steps (Qwen-Image 2.1); a fixed-schedule route (Turbo) ignores it — see
+    :meth:`steps_for`.
+
+    The routes are read from ``content_cfg`` at call time (so an env change or a test's
+    monkeypatch is seen): the thumbnail tier has its own pair, everything else shares
+    ``IMAGE_MODEL`` / ``IMAGE_FALLBACK_MODEL``.
     """
 
     size: str
     steps: int
     allows_text: bool = False
     caption_words: int = 5
+    tier: str = "standard"
+
+    @property
+    def model(self) -> str:
+        """The PRIMARY route for this tier."""
+        from content_pipeline.content_config import content_cfg
+
+        if self.tier == "thumbnail":
+            return content_cfg.image_thumbnail_model
+        return content_cfg.image_model
+
+    @property
+    def fallback_model(self) -> str:
+        """The route that re-renders THIS image when the primary fails or times out."""
+        from content_pipeline.content_config import content_cfg
+
+        if self.tier == "thumbnail":
+            return content_cfg.image_thumbnail_fallback_model
+        return content_cfg.image_fallback_model
+
+    def steps_for(self, route: str) -> int:
+        """The steps ``route`` will actually run for this tier."""
+        prof = profile_for(route)
+        if prof.fixed_steps:
+            return prof.fixed_steps
+        if prof.tier_steps and self.tier in prof.tier_steps:
+            return prof.tier_steps[self.tier]
+        return self.steps
+
+    def wire_steps(self, route: str) -> Optional[int]:
+        """The ``steps`` to SEND for this tier on ``route`` — see :func:`wire_steps_for`."""
+        return wire_steps_for(route, self.steps_for(route))
+
+    def est_seconds_for(self, route: str) -> float:
+        """Rough wall-clock for one render of this tier on ``route``, slot idle.
+
+        Used to budget an edition BEFORE spending an hour discovering it does not fit, and
+        to set the per-image deadline (``images.image_deadline``). Linear in PIXELS, not a
+        size bucket — the bucket version once treated 768² as costing the same as 1024².
+        """
+        prof = profile_for(route)
+        w, _, h = self.size.partition("x")
+        per_step = prof.per_px_step * (int(w) * int(h)) + prof.per_step
+        return self.steps_for(route) * per_step + prof.fixed
 
     @property
     def est_seconds(self) -> float:
-        """Rough wall-clock, re-measured 2026-08-26 AFTER the ComfyUI graph fix.
-
-        ~14 s/step at 1024x1024 and ~4 s/step at 512x512, plus a fixed ~14 s of text
-        encode + VAE decode + transfer that dominates once steps get small.
-
-        These roughly HALVED on 2026-08-26 (from 26 and 7). The flux graph had been
-        running true two-pass classifier-free guidance on a guidance-distilled model —
-        cfg 4.0 with no FluxGuidance node — so every image cost two model evaluations
-        per step. Measured same prompt and seed, 28 steps at 1024x1024: 742 s before,
-        411 s after (grazlab-llm-fleet #166).
-
-        Used to budget an edition BEFORE spending three hours discovering it does not fit.
-        """
-        w, _, h = self.size.partition("x")
-        # Linear in PIXELS, not a size bucket. The bucket version treated 768x768 as though
-        # it cost the same as 1024x1024 and over-budgeted an edition by 20 minutes. Fitted to
-        # both real measurements: 14.2 s/step at 1024x1024 and 4.0 at 512x512.
-        per_step = 1.3e-5 * (int(w) * int(h)) + 0.6
-        return self.steps * per_step + 14.0
+        """The estimate on this tier's PRIMARY route."""
+        return self.est_seconds_for(self.model)
 
 
-# The three tiers. The page-leading images get the full 28 steps (Graham's call); the
-# rest are bought down — but NOT below 20.
+# The three tiers, re-set for Qwen-Image 2.1 on 2026-11-02 (#154).
 #
-# THE 8-STEP TIERS WERE A MISTAKE, corrected 2026-08-26. FLUX.2 [dev] targets 20-50
-# sampling steps; at 8 it under-samples badly, and that is what produced the missing
-# limbs and the garbled small lettering ("CHAKE SOME NOISE" on a motorcycle fairing) in
-# the 2026-08-26 edition. 8 was chosen purely to fit the budget, before anyone had looked
-# at what it did to the pictures.
+# Every tier asks for 40 steps on 2.1. Not a cost dial being ignored — a deliberate choice:
+#   * 40 is 2.1's own default, and the ONLY step count the bake-off (fleet #221) measured
+#     caption fidelity at (4/4 exact). 2.1 is NOT guidance-distilled the way FLUX was, and
+#     under-sampling is what cost FLUX limbs and letters at 8 steps (2026-08-26). Dropping
+#     below 40 would trade a measured bar for an unmeasured one.
+#   * It is affordable: 8 x 1024²@40 (~175 s) = ~23 min. The 10 shorts render on TURBO
+#     (Graham, 2026-11-02) at ~30 s each = ~5 min, so a whole edition is ~28 min of images
+#     against ~61 min on FLUX.
+#   * THUMBNAIL keeps 40 because 40 is what its FALLBACK (2.1) runs; Turbo ignores it.
 #
-# What makes 20 affordable is the ComfyUI graph fix (grazlab-llm-fleet #166) — flux was
-# paying double for two-pass CFG it does not need, so every render roughly halved:
-#
-#     3 x 1024@28  + 5 x 1024@20 + 10 x 512@20  =  ~61 min of images
-#
-# against ~67 min for the OLD all-8-step layout. More steps everywhere, and cheaper.
-# `allows_text` is an EXPLICIT flag, not a function of the step count. It was derived from
-# steps until 2026-08-26, when raising the cheap tiers from 8 to 20 silently switched text ON
-# for the whole paper — Graham's decision was "text is allowed in the hero images", and that
-# is an editorial choice about the page, not a side effect of a cost knob.
-#
-# TEXT_STEP_FLOOR still applies as a PHYSICAL floor: a tier may only opt in if it has enough
-# steps to letter legibly. A test enforces that pairing.
-# Word budgets scale with the canvas rather than sitting at a flat five. The evidence for
-# the hero number is direct: on 2026-08-26 a THIRTEEN-word headline rendered cleanly at
-# 1024x1024 / 28 steps. Five everywhere was an over-correction from a general guideline,
-# contradicted by our own output.
-#
-# Shorts moved 512 -> 768 (2026-08-26) so lettering has pixels to land in; five words in a
-# 512px frame is roughly 40px of text height, which is where FLUX letterforms smear. 768 is
-# a multiple of 16, which the ComfyUI shim requires.
-HERO = RenderSpec("1024x1024", 28, allows_text=True, caption_words=12)
-STANDARD = RenderSpec("1024x1024", 20, allows_text=True, caption_words=8)
-THUMBNAIL = RenderSpec("768x768", 20, allows_text=True, caption_words=5)
+# The tiers still differ where it matters: canvas (768² for the shorts) and the caption
+# word budget (12 / 8 / 5). Sizes are multiples of 32, which the 2.1 routes require.
+HERO = RenderSpec("1024x1024", 40, allows_text=True, caption_words=12, tier="hero")
+STANDARD = RenderSpec("1024x1024", 40, allows_text=True, caption_words=8, tier="standard")
+THUMBNAIL = RenderSpec("768x768", 40, allows_text=True, caption_words=5, tier="thumbnail")
 
 _TIERS = {"hero": HERO, "standard": STANDARD, "thumbnail": THUMBNAIL}
 

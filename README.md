@@ -41,11 +41,21 @@ rendering of its title. The paper wears **one cartoon style per edition**, cycli
 four looks — Beano/Dandy, flat 2D TV, Saturday-morning, and plasticine stop-motion — on a true
 day-ordinal rotation, so consecutive editions never repeat and a week shows the full range.
 
-Cost is **tiered**, because 18 images at full quality would not fit the daily budget: the
-headliner and both subarticles render at 1024² / 28 steps, the Craic & Throttle desk at
-1024² / 20, and the ten AI shorts as 768² / 20 spot thumbnails. That is ~75 minutes of GPU
-against a 180-minute task cap. **No tier goes below 20 steps** — FLUX.2 [dev] is designed for
-20–50, and under-sampling it costs limbs and legible lettering, not just fine detail.
+The pictures come from **Qwen-Image 2.1** and its 8-step sibling **2.1-Turbo**, both on
+ComfyUI on the M3 Ultra (since 2026-11-02; the fleet #221 bake-off). The headliner, both
+subarticles and the Craic & Throttle desk render on 2.1 at 1024² / 40 steps (~3 min each);
+the ten AI shorts render on Turbo as 768² spot thumbnails (~30 s each; Graham's call). That is
+~28 minutes of GPU against a 190-minute task cap. Each model is the other's **per-image
+fallback**: a render that fails or overruns its own deadline (minutes, not half an hour) is
+re-drawn on the other model, and the page records which model really drew it. The two share
+one encoder and VAE, so crossing over costs no model reload. Before the first render a
+**memory pre-flight** reads the render server's health; if the M3 looks starved it waits
+briefly, pages Graham once, and carries on.
+
+*History:* from August to November 2026 the route was **FLUX.2 [dev]** — gorgeous, ~7 min a
+hero, and its 93 GB model set twice hung while loading under memory pressure and cost an
+edition each time. Its lessons stay in the code: never under-sample a step-taking model, keep
+prompts positive, and put a deadline on every call.
 
 **Every cartoon carries words, and the words are written before the picture is.** The same
 call that invents the gag also writes the caption — what a character says, or what a sign in
@@ -55,7 +65,7 @@ lettering. Budgets scale with the canvas: twelve words on a hero, eight on the f
 on a thumbnail.
 
 **Open-source only:** generation runs on **Qwen3.8-27B** (text, NVFP4 on the DGX Spark) and
-**FLUX.2 [dev]** (images, BF16 via ComfyUI on the M3 Ultra), and the daily **voice clones** on **Qwen3-TTS** (M3 mlx-audio), all via a
+**Qwen-Image 2.1 + 2.1-Turbo** (images, BF16 via ComfyUI on the M3 Ultra), and the daily **voice clones** on **Qwen3-TTS** (M3 mlx-audio), all via a
 homelab **LiteLLM** proxy (TTS is a direct call — see *Audio & podcast* below);
 orchestration *and the edition judge* are **LangChain `deepagents` + LangGraph** — the
 rubric judge runs in-pipeline on an **independent** local model (`qwen3-coder-next`,
@@ -120,7 +130,7 @@ flowchart TD
     subgraph FLEET["🤖 grazlab local fleet · one LiteLLM proxy, routed by name (TTS is a direct call)"]
         direction TB
         QWEN["Qwen3.8-27B · DGX Spark<br/>research + writing + banter"]:::model
-        IMGM["FLUX.2 [dev] · M3 Ultra<br/>images"]:::model
+        IMGM["Qwen-Image 2.1 + Turbo · M3 Ultra<br/>images"]:::model
         JUDGEM["qwen3-coder-next · M3 :8087<br/>rubric judge — independent of the writer"]:::model
         TTSM["Qwen3-TTS · M3 mlx-audio<br/>Graham/Tom + parody voice clones"]:::model
     end
@@ -184,7 +194,7 @@ the model's tool-call serialisation). So responsibilities are split:
 - **The agent does open-ended research** → writes candidate JSON files.
 - **A deterministic harness does the mechanical work** — dedupe, continent/topic
   diversity, link validation, persona assignment, **article writing via small
-  plain-chat→JSON calls**, FLUX.2 image generation, schema assembly, attribution.
+  plain-chat→JSON calls**, Qwen-Image 2.1 image generation, schema assembly, attribution.
   The cartoons' **style, size and step count are all code**; the model is asked for exactly
   one thing — the joke.
 
@@ -352,7 +362,7 @@ sequenceDiagram
 | Stage | Where | What |
 |------|-------|------|
 | Generate | Conductor `craicgpt_daily_0500` @ 05:00 UTC → `craicgpt_generate_daily` worker on `.75` | deep-agent research → harness writes + images → compile v3 — **English once**; then `translate_paper` → de/es/it/ja/fr (prose only, images shared, not re-judged) |
-| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.8-27B NVFP4 (research + writing + banter), FLUX.2 [dev] (images), `qwen3-coder-next` (independent rubric judge), Qwen3-TTS (voice clones, direct call) |
+| Models | LiteLLM proxy → DGX Spark / M3 Ultra | Qwen3.8-27B NVFP4 (research + writing + banter), Qwen-Image 2.1 + Turbo (images), `qwen3-coder-next` (independent rubric judge), Qwen3-TTS (voice clones, direct call) |
 | Judge | **in-pipeline, on `.75`** (last build step) | a `deepagents` `RubricMiddleware` grades the finished edition (harmless / on-brand / attributed) on an **independent** local model (`qwen3-coder-next` — distinct from the writer) and writes `verdict-rubric.json`. **No separate review VMs** — this replaces the retired openclaw + hermes consensus |
 | Narrate | **after the judge, on `.75` / M3** | per-article readings (Graham⇄Tom; parody items in their own voice clones) + the rubric-gated dad↔son podcast + a <180s TL;DR, all bookended by the **80s call-sign jingle** — additive audio written onto the draft (`generate/narration.py`). **Loops every language** (clones reused cross-lingually; a translated edition opens with a spoken "machine-translated by `<model>`" note) |
 | Signal | `s3://…/preview/YYYY/MM/DD/` | `status.json {complete}` + `verdict-rubric.json` |
@@ -490,7 +500,7 @@ write/brain model, image model, S3 bucket, and preview prefix are all overridabl
 
 - **LangChain `deepagents` + LangGraph** (OSS) — planning, subagents, virtual FS,
   and the **`RubricMiddleware`** edition judge.
-- **Qwen3.8-27B** (research + writing + banter) + **FLUX.2 [dev]** (images) + **`qwen3-coder-next`**
+- **Qwen3.8-27B** (research + writing + banter) + **Qwen-Image 2.1 + Turbo** (images) + **`qwen3-coder-next`**
   (the *independent* rubric judge) via **LiteLLM** on a DGX Spark + M3 Ultra homelab fleet;
   the daily **voice clones** run on **Qwen3-TTS** (M3 mlx-audio, a direct call).
 - **Web search** — **Serper.dev** (Google SERP) powers the agent's `web_search` tool
