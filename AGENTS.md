@@ -97,7 +97,7 @@ run_edition (content_pipeline/agent/editor_in_chief.py)
    │
    ├─ 3. WRITE (deterministic) — generate/writer.py turns candidates into prose
    │      (AI section in one JSON call; each fun story in Graham's voice, crediting
-   │      the creator). LiteLLM brain/writer = DGX Qwen3.8-27B NVFP4, M3 cross-box fallback.
+   │      the creator). LiteLLM brain/writer = DGX Qwen3.8-Flash-Next NVFP4, M3 cross-box fallback.
    │      MOTO items carry a hard "this is a BIKE, never a car" constraint + a
    │      car-noun check with ONE re-write (writer.car_words_in).
    │      _snap_ai_sources forces every written source_url onto a validated candidate.
@@ -418,8 +418,8 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 |----------|----------|---------|
 | `LITELLM_BASE_URL` | No | `https://llm.grazlab.thescriptingpaddy.com/v1` |
 | `LITELLM_API_KEY` | No | `sk-no-key-required` |
-| `BRAIN_MODEL` (research) | No | `dgx/vllm/qwen3.8-27b-nvfp4` |
-| `WRITE_MODEL` (prose) | No | `dgx/vllm/qwen3.8-27b-nvfp4` |
+| `BRAIN_MODEL` (research) | No | `dgx/vllm/qwen3.8-flash-next-fp4` |
+| `WRITE_MODEL` (prose) | No | `dgx/vllm/qwen3.8-flash-next-fp4` |
 | `JUDGE_MODEL` (rubric judge) | No | `m3/mlx/qwen3-coder-next-4bit` (independent of the writer) |
 | `IMAGE_MODEL` (hero + fun) | No | `m3/comfy/qwen-image-2.1` (40 steps; 148–175s at 1024²) |
 | `IMAGE_FALLBACK_MODEL` (hero + fun, per image) | No | `m3/comfy/qwen-image-2.1-turbo` (fixed 8 steps; shares 2.1's encoder + VAE, so no reload) |

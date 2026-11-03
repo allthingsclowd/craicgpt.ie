@@ -29,7 +29,7 @@ prompt = ChatPromptTemplate.from_messages([
     ("human", "Write today's headliner from these candidates:\n{candidates}"),
 ])
 
-llm = get_litellm_llm("dgx/vllm/qwen3.8-27b-nvfp4")   # any route on the LiteLLM proxy
+llm = get_litellm_llm("dgx/vllm/qwen3.8-flash-next-fp4")   # any route on the LiteLLM proxy
 chain = prompt | llm | StrOutputParser()
 
 headline = chain.invoke({"candidates": "..."})
@@ -106,7 +106,7 @@ from content_pipeline.providers.litellm import run_with_fallback
 
 result = run_with_fallback(
     lambda model: (prompt | get_litellm_llm(model) | StrOutputParser() | RunnableLambda(loads_lenient)).invoke(inputs),
-    local_model="dgx/vllm/qwen3.8-27b-nvfp4",
+    local_model="dgx/vllm/qwen3.8-flash-next-fp4",
     fallback_model="m3/mlx/qwen3.8-27b-8bit",
     validate=lambda out: bool(out and out.get("headliner")),   # empty/garbage → fall back
 )

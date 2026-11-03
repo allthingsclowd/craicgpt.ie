@@ -15,7 +15,7 @@ from langchain_openai import ChatOpenAI
 
 def get_litellm_llm(model, *, temperature=None, max_tokens=None, extra_body=None):
     return ChatOpenAI(
-        model=model,                              # e.g. "dgx/vllm/qwen3.8-27b-nvfp4"
+        model=model,                              # e.g. "dgx/vllm/qwen3.8-flash-next-fp4"
         base_url=content_cfg.litellm_base_url,    # the ONE proxy
         api_key=content_cfg.litellm_api_key,      # "sk-no-key-required" — LiteLLM accepts a dummy
         temperature=content_cfg.temperature if temperature is None else temperature,
@@ -35,7 +35,7 @@ different model? Change the string. That's the whole multi-provider story.
 
 | Box | Role | Example routes |
 |-----|------|----------------|
-| **DGX Spark** | Research brain + prose (reliable tool-calling) | `dgx/vllm/qwen3.8-27b-nvfp4` |
+| **DGX Spark** | Research brain + prose (reliable tool-calling) | `dgx/vllm/qwen3.8-flash-next-fp4` |
 | **M3 Ultra (Mac Studio)** | Images + **independent rubric judge** + **TTS voice clones** (+ the cross-box text fallback) | `m3/comfy/qwen-image-2.1` (+ `-turbo`), `m3/mlx/qwen3-coder-next-4bit`, `Qwen3-TTS` (mlx-audio), `m3/mlx/qwen3.8-27b-8bit` |
 | **Fallback** | Local cross-box (the proxy has **no** frontier route) | `m3/mlx/qwen3.8-27b-8bit` |
 
@@ -52,8 +52,8 @@ The config picks a route per *role* (override any with an env var):
 
 ```python
 # content_pipeline/content_config.py
-brain_model         = os.getenv("BRAIN_MODEL",        "dgx/vllm/qwen3.8-27b-nvfp4")            # research agent loop
-write_model         = os.getenv("WRITE_MODEL",        "dgx/vllm/qwen3.8-27b-nvfp4")            # article prose
+brain_model         = os.getenv("BRAIN_MODEL",        "dgx/vllm/qwen3.8-flash-next-fp4")            # research agent loop
+write_model         = os.getenv("WRITE_MODEL",        "dgx/vllm/qwen3.8-flash-next-fp4")            # article prose
 image_model         = os.getenv("IMAGE_MODEL",        "m3/comfy/qwen-image-2.1")               # illustrations (leads + fun)
 image_thumbnail_model = os.getenv("IMAGE_THUMBNAIL_MODEL", "m3/comfy/qwen-image-2.1-turbo")  # the 10 shorts
 fallback_text_model = os.getenv("FALLBACK_TEXT_MODEL", "m3/mlx/qwen3.8-27b-8bit")   # local cross-box fallback
@@ -84,7 +84,7 @@ the engine disables it:
 
 ```python
 get_litellm_llm(
-    "dgx/vllm/qwen3.8-27b-nvfp4",
+    "dgx/vllm/qwen3.8-flash-next-fp4",
     extra_body={"chat_template_kwargs": {"enable_thinking": False}},
 )
 ```
@@ -131,8 +131,8 @@ If both attempts fail it raises — never a silent dud. See
 LITELLM_BASE_URL=https://llm.grazlab.thescriptingpaddy.com/v1
 LITELLM_API_KEY=sk-no-key-required
 
-BRAIN_MODEL=dgx/vllm/qwen3.8-27b-nvfp4
-WRITE_MODEL=dgx/vllm/qwen3.8-27b-nvfp4
+BRAIN_MODEL=dgx/vllm/qwen3.8-flash-next-fp4
+WRITE_MODEL=dgx/vllm/qwen3.8-flash-next-fp4
 IMAGE_MODEL=m3/comfy/qwen-image-2.1
 IMAGE_FALLBACK_MODEL=m3/comfy/qwen-image-2.1-turbo
 IMAGE_THUMBNAIL_MODEL=m3/comfy/qwen-image-2.1-turbo

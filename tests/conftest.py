@@ -44,3 +44,24 @@ def _no_m3_health(monkeypatch):
 
     monkeypatch.setattr(image_preflight, "_fetch_health", lambda: None)
     monkeypatch.setattr(image_preflight, "_sleep", lambda s: None)
+
+
+
+@pytest.fixture(autouse=True)
+def _no_live_llm(monkeypatch):
+    """No test may reach the LiteLLM proxy. The writer's default generator (the editor's
+    brief and the About page, which `run_edition` writes with no injected generator) used to
+    make REAL calls from the offline suite — slow against a live route, and a hang against a
+    route the proxy does not serve (seen when the DGX route was renamed). Refusing the
+    ChatOpenAI wire call here makes those fail fast; both are best-effort and simply omitted.
+    Building a client (`get_litellm_llm`) still works. A test that wants a model injects its
+    own fake — a later ``monkeypatch.setattr`` wins."""
+    from langchain_openai.chat_models.base import BaseChatOpenAI
+
+    def _refuse(*a, **k):
+        raise ConnectionRefusedError("tests must not reach the LiteLLM proxy — inject generate=")
+
+    monkeypatch.setattr(BaseChatOpenAI, "_generate", _refuse)
+    monkeypatch.setattr(BaseChatOpenAI, "_agenerate", _refuse)
+    monkeypatch.setattr(BaseChatOpenAI, "_stream", _refuse)
+    monkeypatch.setattr(BaseChatOpenAI, "_astream", _refuse)
