@@ -292,6 +292,9 @@ def test_default_generate_sends_the_schema_as_response_format(monkeypatch):
         return _LLM()
 
     monkeypatch.setattr(litellm_mod, "get_litellm_llm", _factory)
+    # Pin the policy so this checks the NON-thinking path whatever WRITE_MODEL is;
+    # the Flash-Next path is covered in tests/test_thinking_policy.py.
+    monkeypatch.setenv("LLM_THINKING_MODELS", "")
     writer._default_generate("prompt", schema=writer.SCHEMA_HEADLINER)
 
     rf = captured["extra_body"]["response_format"]

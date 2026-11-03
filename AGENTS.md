@@ -436,6 +436,7 @@ catalog). On the host they live in `/etc/craicgpt.env`. Key ones:
 | `CRAICGPT_LANGUAGES` (multi-lingual: the daily set) | No | `en,de,es,it,ja,fr` |
 | `CRAICGPT_SOURCE_LANGUAGE` (always generated natively; the rest are translations) | No | `en` |
 | `FALLBACK_TEXT_MODEL` (local cross-box) | No | `m3/mlx/qwen3.8-27b-8bit` (MUST accept `response_format: json_schema` — the 3.6 route stalls, it does not error) |
+| `LLM_THINKING_MODELS` (routes that think at `reasoning_effort: low`; all others send `enable_thinking: false`) | No | `dgx/vllm/qwen3.8-flash-next-fp4,dgx/vllm/qwen3.8-flash-next-fp4-long` — Flash-Next mangles identifiers with thinking off (`providers/litellm.thinking_policy`); `""` = none. A thinking route also gets a ≥360 s client timeout |
 | `SERPER_API_KEY` | Yes (web_search) | — |
 | `MIN_AI_SOURCES` (hard floor) / `MIN_FUN_SOURCES` (target only since 2026-06-11) | No | `11` / `4` |
 | `AI_FEED_HOURS` | No | `48` |

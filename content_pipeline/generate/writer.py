@@ -203,14 +203,18 @@ def _default_generate_text(prompt: str, *, max_tokens: int = 8000) -> str:
     kept — a DGX blip still crosses to the M3 — but the JSON re-sample loop in
     :func:`_default_generate` would be meaningless here and is deliberately absent.
     """
-    from content_pipeline.providers.litellm import get_litellm_llm, run_with_fallback
+    from content_pipeline.providers.litellm import (
+        get_litellm_llm, run_with_fallback, thinking_policy)
 
     def _try(model: str) -> str:
+        # Per-ROUTE thinking: off for most, low-effort on for Flash-Next (which drops
+        # digits from identifiers with it off — see providers/litellm.thinking_policy).
+        extra_body, tokens = thinking_policy(model, max_tokens)
         llm = get_litellm_llm(
             model,
             temperature=None,
-            max_tokens=max_tokens,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            max_tokens=tokens,
+            extra_body=extra_body,
         )
         resp = llm.invoke(prompt)
         return resp.content if isinstance(resp.content, str) else str(resp.content)
@@ -232,8 +236,10 @@ def _default_generate(
 ) -> dict:
     """Plain chat completion on the write model, parsed leniently to a dict.
 
-    Thinking mode is disabled — the Qwen routes otherwise emit a long ``<think>`` preamble
-    that consumes the output budget before any JSON appears.
+    Thinking follows :func:`providers.litellm.thinking_policy`: OFF for most routes (the
+    Qwen routes otherwise emit a long ``<think>`` preamble that consumes the output
+    budget before any JSON appears), LOW-effort ON for Flash-Next, with the reasoning
+    given its own extra budget and returned separately by vLLM's reasoning parser.
 
     The local model occasionally returns JSON the lenient parser can't recover (an
     unterminated string, a stray control char, a truncated tail). Rather than HOLD
@@ -255,7 +261,8 @@ def _default_generate(
     held the edition at the last gate. A blank article is a failed generation; it
     now costs a re-sample, and then the other box.
     """
-    from content_pipeline.providers.litellm import get_litellm_llm, run_with_fallback
+    from content_pipeline.providers.litellm import (
+        get_litellm_llm, run_with_fallback, thinking_policy)
 
     required = _required_keys(schema)
 
@@ -267,6 +274,7 @@ def _default_generate(
             # First try at the configured temperature; retries nudge it up so the
             # re-sample differs even if the default were 0 (deterministic).
             temp = None if n == 0 else max(content_cfg.temperature, 0.4) + 0.1 * n
+            thinking_body, tokens = thinking_policy(model, max_tokens)
             llm = get_litellm_llm(
                 model,
                 temperature=temp,
@@ -274,9 +282,13 @@ def _default_generate(
                 # as one JSON object. Too tight a cap truncates the tail shorts (the
                 # lenient parser then drops them, risking review.MIN_SHORTS). 8000 slack.
                 # Callers translating into token-dense scripts (e.g. CJK) pass a higher cap.
-                max_tokens=max_tokens,
+                # On a thinking route this is max_tokens + the reasoning allowance.
+                max_tokens=tokens,
                 extra_body={
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    # Thinking per route; the json_schema response_format is KEPT on
+                    # every route (vLLM applies guided decoding to the answer, after
+                    # the reasoning parser has split the reasoning off).
+                    **thinking_body,
                     **({"response_format": schema} if schema else {}),
                 },
             )
