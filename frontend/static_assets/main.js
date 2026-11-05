@@ -57,7 +57,7 @@ const I18N = {
         editionDraft: 'v3 · draft', approved: '✓ approved', draftLabel: '⏳ draft',
         aboutTitle: 'About the Editor', aboutSubtitle: "Who's behind all this craic, anyway?",
         placeholderDateline: 'No recent edition',
-        navToday: 'Today', navAi: 'AI Desk', navCraic: 'Craic', navLang: 'Languages', navListen: 'Listen',
+        navToday: 'Today', navAi: 'AI Desk', navCraic: 'Craic', navListen: 'Listen',
         navOlder: '◀ Older', navNewer: 'Newer ▶',
         navOlderAria: 'Go to the previous (older) edition', navNewerAria: 'Go to the next (newer) edition',
         translatedNote: 'This edition was machine-translated from English by {model} — blame the robot, not the editor.',
@@ -77,7 +77,7 @@ const I18N = {
         editionDraft: 'v3 · Entwurf', approved: '✓ freigegeben', draftLabel: '⏳ Entwurf',
         aboutTitle: 'Über den Redakteur', aboutSubtitle: 'Wer steckt hinter all dem Craic?',
         placeholderDateline: 'Keine aktuelle Ausgabe',
-        navToday: 'Heute', navAi: 'KI-Desk', navCraic: 'Craic', navLang: 'Sprachen', navListen: 'Hören',
+        navToday: 'Heute', navAi: 'KI-Desk', navCraic: 'Craic', navListen: 'Hören',
         navOlder: '◀ Älter', navNewer: 'Neuer ▶',
         navOlderAria: 'Zur vorherigen (älteren) Ausgabe', navNewerAria: 'Zur nächsten (neueren) Ausgabe',
         translatedNote: 'Diese Ausgabe wurde von {model} maschinell aus dem Englischen übersetzt — schimpft mit dem Roboter, nicht mit der Redaktion.',
@@ -97,7 +97,7 @@ const I18N = {
         editionDraft: 'v3 · borrador', approved: '✓ aprobado', draftLabel: '⏳ borrador',
         aboutTitle: 'Sobre el editor', aboutSubtitle: '¿Quién está detrás de todo este craic?',
         placeholderDateline: 'Sin edición reciente',
-        navToday: 'Hoy', navAi: 'Mesa IA', navCraic: 'Craic', navLang: 'Idiomas', navListen: 'Escuchar',
+        navToday: 'Hoy', navAi: 'Mesa IA', navCraic: 'Craic', navListen: 'Escuchar',
         navOlder: '◀ Anterior', navNewer: 'Siguiente ▶',
         navOlderAria: 'Ir a la edición anterior (más antigua)', navNewerAria: 'Ir a la edición siguiente (más reciente)',
         translatedNote: 'Esta edición fue traducida automáticamente del inglés por {model} — la culpa es del robot, no de la redacción.',
@@ -117,7 +117,7 @@ const I18N = {
         editionDraft: 'v3 · bozza', approved: '✓ approvato', draftLabel: '⏳ bozza',
         aboutTitle: 'Informazioni sul redattore', aboutSubtitle: 'Chi c’è dietro tutto questo craic?',
         placeholderDateline: 'Nessuna edizione recente',
-        navToday: 'Oggi', navAi: 'Desk IA', navCraic: 'Craic', navLang: 'Lingue', navListen: 'Ascolta',
+        navToday: 'Oggi', navAi: 'Desk IA', navCraic: 'Craic', navListen: 'Ascolta',
         navOlder: '◀ Precedente', navNewer: 'Successiva ▶',
         navOlderAria: "Vai all'edizione precedente (più vecchia)", navNewerAria: "Vai all'edizione successiva (più recente)",
         translatedNote: "Questa edizione è stata tradotta automaticamente dall'inglese da {model} — prendetevela col robot, non con la redazione.",
@@ -137,7 +137,7 @@ const I18N = {
         editionDraft: 'v3 · 下書き', approved: '✓ 承認済み', draftLabel: '⏳ 下書き',
         aboutTitle: '編集長について', aboutSubtitle: 'このクレイクの裏にいるのは誰？',
         placeholderDateline: '最近のエディションなし',
-        navToday: '本日', navAi: 'AIデスク', navCraic: 'クレイク', navLang: '言語', navListen: '聴く',
+        navToday: '本日', navAi: 'AIデスク', navCraic: 'クレイク', navListen: '聴く',
         navOlder: '◀ 前の号', navNewer: '次の号 ▶',
         navOlderAria: '前の（古い）号へ', navNewerAria: '次の（新しい）号へ',
         translatedNote: 'この号は{model}により英語から機械翻訳されています。おかしな点はロボットのせいということで。',
@@ -157,7 +157,7 @@ const I18N = {
         editionDraft: 'v3 · brouillon', approved: '✓ approuvé', draftLabel: '⏳ brouillon',
         aboutTitle: 'À propos du rédacteur', aboutSubtitle: 'Qui se cache derrière tout ce craic ?',
         placeholderDateline: 'Aucune édition récente',
-        navToday: "Aujourd'hui", navAi: 'Bureau IA', navCraic: 'Craic', navLang: 'Langues', navListen: 'Écouter',
+        navToday: "Aujourd'hui", navAi: 'Bureau IA', navCraic: 'Craic', navListen: 'Écouter',
         navOlder: '◀ Précédente', navNewer: 'Suivante ▶',
         navOlderAria: "Aller à l'édition précédente (plus ancienne)", navNewerAria: "Aller à l'édition suivante (plus récente)",
         translatedNote: "Cette édition a été traduite automatiquement de l'anglais par {model} — blâmez le robot, pas la rédaction.",
@@ -189,8 +189,9 @@ let navBusy = false;           // guards against overlapping prev/next clicks
 const el = id => document.getElementById(id);
 
 /** A language link that preserves the current edition date + preview flag, so switching
- *  language keeps you on the same day's edition. */
+ *  language keeps you on the same day's edition — and on the About page keeps you on About. */
 function langHref(lang) {
+  if (/\/about\.html$/.test(location.pathname)) return `/${lang}/about.html`;
   const qs = new URLSearchParams(location.search);
   if (currentDate) qs.set('date', toISODate(currentDate));
   const q = qs.toString();
@@ -477,16 +478,15 @@ function flagImg(lang) {
   return img;
 }
 
-/** The masthead language switcher — a compact flag dropdown: the current language's flag + code,
- *  opening a menu of the rest. Each choice preserves the edition date/preview flag (langHref) and
- *  sets the cg_lang cookie so the CloudFront edge detector honours the override. Smaller than the
- *  old "EN DE ES…" text row and instantly recognisable; SVG flags (emoji flags fail on Windows). */
+/** The masthead language switcher — a globe button (globe + the current code on desktop)
+ *  opening a menu of every language, each with its flag. A choice preserves the edition
+ *  date/preview flag (langHref) and sets the cg_lang cookie so the CloudFront edge detector
+ *  honours the override. SVG flags, because emoji flags fail on Windows. */
 function renderLangSwitcher() {
   // The ONE language control lives in the masthead's account cluster, beside the theme
-  // toggle (the family header standard). It used to sit in the dateline strip, with a
-  // second "Languages" tab in the nav pointing at it.
-  const strip = document.querySelector('.site-header .account');
-  if (!strip || el('lang-switcher')) return;
+  // toggle (the family header standard), on the front page and on About alike.
+  const account = document.querySelector('.site-header .account');
+  if (!account || el('lang-switcher')) return;
   const wrap = node('div', 'lang-switcher'); wrap.id = 'lang-switcher';
 
     const btn = node('button', 'lang-trigger'); btn.type = 'button';
@@ -534,7 +534,7 @@ function renderLangSwitcher() {
   });
 
   wrap.append(btn, menu);
-  strip.append(wrap);
+  account.append(wrap);
 }
 
 /** The full-width Editor's Brief band: portrait byline + Graham's whole-edition synthesis. */
