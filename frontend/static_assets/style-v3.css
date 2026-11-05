@@ -332,7 +332,7 @@
 }
 .lang-switcher .lang-trigger:hover { border-color: var(--accent, #B23A36); color: var(--accent, #B23A36); }
 .lang-switcher .lang-trigger:focus-visible { outline: 2px solid var(--accent, #B23A36); outline-offset: 1px; }
-/* The flag chip: a hairline ring so white-edged flags (Japan, the white stripes) read on the strip. */
+/* The flag chip: a hairline ring so white-edged flags (Japan, the white stripes) read on the menu. */
 .lang-flag {
   width: 21px; height: 14px; display: block; flex: none; object-fit: cover;
   border-radius: 1px; box-shadow: 0 0 0 1px rgba(0,0,0,.12);
@@ -341,10 +341,35 @@
 .lang-switcher .lang-caret { font-size: .58rem; opacity: .55; line-height: 1; color: inherit; transition: transform .15s ease; }
 .lang-switcher.is-open .lang-caret { transform: rotate(180deg); }
 
+/* In the masthead's account cluster the switcher is an icon button on the navy band,
+   matching the theme toggle. Below 1200px: globe only, 44px square (family header
+   standard — nothing in the masthead may outgrow its border). 1200px and up: globe + code. */
+.account .lang-switcher { margin-left: 0; }
+/* The buttons keep their 44px: on a narrow phone the wordmark gives way, never a control. */
+.site-header .account, .site-header .account > *, .account .lang-switcher .lang-trigger { flex-shrink: 0; }
+@media (max-width: 599px) {
+  .site-header .inner { gap: var(--space-3); padding-right: var(--space-4); }
+  .site-header .wordmark { font-size: 1rem; letter-spacing: .02em; }
+}
+.account .lang-switcher .lang-trigger {
+  min-height: var(--tap); padding: 0 12px; gap: 7px; border-radius: 10px;
+  background: rgba(255,255,255,.08); color: var(--band-ink);
+  border: 1px solid rgba(255,255,255,.22); font-size: .8rem;
+}
+.account .lang-switcher .lang-trigger:hover { background: rgba(255,255,255,.16); color: var(--band-ink); border-color: rgba(255,255,255,.22); }
+.account .lang-switcher .ic-globe { width: 20px; height: 20px; }
+@media (max-width: 1199px) {
+  .account .lang-switcher .lang-trigger { width: var(--tap); height: var(--tap); padding: 0; justify-content: center; }
+  .account .lang-switcher .lang-trigger .lang-code,
+  .account .lang-switcher .lang-trigger .lang-caret {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  }
+}
+
 .lang-menu {
   position: absolute; top: calc(100% + 5px); right: 0; z-index: 1000;
   display: flex; flex-direction: column; min-width: 9.5rem; padding: .25rem;
-  text-transform: none;                 /* the strip is uppercase; let endonyms keep their case */
+  text-transform: none;                 /* endonyms keep their own case */
   background: var(--paper, #FAFAF8); border: 1px solid var(--hairline, #E4E2DC);
   border-radius: var(--radius, 2px); box-shadow: 0 8px 24px rgba(0,0,0,.14);
 }
