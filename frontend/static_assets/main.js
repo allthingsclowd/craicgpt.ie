@@ -482,16 +482,23 @@ function flagImg(lang) {
  *  sets the cg_lang cookie so the CloudFront edge detector honours the override. Smaller than the
  *  old "EN DE ES…" text row and instantly recognisable; SVG flags (emoji flags fail on Windows). */
 function renderLangSwitcher() {
-  const strip = document.querySelector('.masthead-top-strip');
+  // The ONE language control lives in the masthead's account cluster, beside the theme
+  // toggle (the family header standard). It used to sit in the dateline strip, with a
+  // second "Languages" tab in the nav pointing at it.
+  const strip = document.querySelector('.site-header .account');
   if (!strip || el('lang-switcher')) return;
   const wrap = node('div', 'lang-switcher'); wrap.id = 'lang-switcher';
 
-  // Trigger: current flag + code + caret.
-  const btn = node('button', 'lang-trigger'); btn.type = 'button';
+    const btn = node('button', 'lang-trigger'); btn.type = 'button';
   btn.setAttribute('aria-haspopup', 'true');
   btn.setAttribute('aria-expanded', 'false');
   btn.setAttribute('aria-label', `Language: ${LANG_NAMES[LANG] || LANG.toUpperCase()}. Change language`);
-  btn.append(flagImg(LANG), node('span', 'lang-code', LANG.toUpperCase()), node('span', 'lang-caret', '▾'));
+  btn.title = LANG_NAMES[LANG] || LANG.toUpperCase();
+  // Trigger: a globe (the icon every site in the family uses) + the current code. Below
+  // the desktop breakpoint the CSS shows only the globe in a 44px square button.
+  btn.innerHTML = '<svg class="ic ic-globe" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/>'
+    + '<path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/></svg>';
+  btn.append(node('span', 'lang-code', LANG.toUpperCase()), node('span', 'lang-caret', '▾'));
 
   // Menu: every language (the current one marked), each a link to /<lang>/ on the same edition.
   const menu = node('nav', 'lang-menu'); menu.setAttribute('aria-label', 'Language'); menu.hidden = true;
@@ -925,7 +932,7 @@ function applyNavLabels() {
 
 /** Hide the in-page section-nav anchors whose target isn't rendered (a placeholder has no
  *  AI/Craic desks; an audio-less edition keeps #podcast-strip hidden), so "Listen"/section
- *  links never scroll nowhere (#132). #top and #lang-switcher are always present. */
+ *  links never scroll nowhere (#132). #top is always present. */
 function updateNavVisibility() {
   document.querySelectorAll('.shell-nav a[href^="#"]').forEach(a => {
     const target = document.getElementById(a.getAttribute('href').slice(1));
@@ -953,20 +960,6 @@ function initThemeToggle() {
   });
 }
 
-/** The "Languages" shell-nav item opens the existing masthead language switcher
- *  (rendered by renderLangSwitcher into .masthead-top-strip). The href scrolls the
- *  switcher into view; this then pops its menu open. */
-function initNavLanguages() {
-  const link = el('nav-languages');
-  if (!link) return;
-  link.addEventListener('click', () => {
-    setTimeout(() => {
-      const trigger = document.querySelector('#lang-switcher .lang-trigger');
-      if (trigger && trigger.getAttribute('aria-expanded') !== 'true') trigger.click();
-    }, 60);
-  });
-}
-
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = String(str ?? '');
@@ -991,7 +984,6 @@ async function init() {
   if (fy) fy.textContent = new Date().getFullYear();
   applyNavLabels();
   initThemeToggle();
-  initNavLanguages();
   renderLangSwitcher();
   initDatePicker();
   initVersionSelect();
