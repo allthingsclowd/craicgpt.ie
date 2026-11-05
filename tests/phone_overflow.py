@@ -2,7 +2,7 @@
 
     uv run python tests/phone_overflow.py <dir> /page.html
 
-The header standard (thegeekwiththepeak.com map #208) has three measurable invariants: at
+The header standard (thegeekwiththepeak.com map #208) has measurable invariants: at
 any width from 320px up the document is never wider than the viewport; below 1200px every
 control in the masthead's account cluster is a 44px touch target; and no nav label is wider
 than its own tab or pill at any width. A control that outgrows the masthead shows up as
@@ -45,26 +45,46 @@ const widths = JSON.parse(q.get('widths'));
 for (const p of JSON.parse(q.get('paths'))) for (const w of widths) jobs.push([p, w]);
 const out = [];
 function controls(d) {
-  // [shorter side of the smallest visible control in the account cluster, how many there are]
-  let small = null, n = 0;
+  // [shortest side, longest side, count] over the visible controls in the account cluster
+  let small = null, large = null, n = 0;
   for (const k of d.querySelectorAll('.site-header .account > *')) {
     const r = k.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) continue;   // hidden, or a 1px separator
-    const m = Math.min(r.width, r.height);
-    small = small === null ? m : Math.min(small, m);
+    small = Math.min(small === null ? Infinity : small, r.width, r.height);
+    large = Math.max(large === null ? 0 : large, r.width, r.height);
     n += 1;
   }
-  return [small, n];
+  return [small, large, n];
+}
+function tab(d) {
+  // The shorter side of the smallest visible nav link (the phone's touch targets); null if none.
+  let small = null;
+  for (const a of d.querySelectorAll('.shell-nav a')) {
+    const r = a.getBoundingClientRect();
+    if (!r.width) continue;
+    small = Math.min(small === null ? Infinity : small, r.width, r.height);
+  }
+  return small;
 }
 function spills(d) {
-  // Nav links whose label is wider than the link's own box (text lying on its neighbour),
-  // or that sit partly off screen (a fixed tab bar never widens the document).
+  // Nav links whose label reaches past the link's own box on either side (text lying on
+  // its neighbour), or that sit partly off screen (a fixed tab bar never widens the
+  // document). The label's own rectangle is measured: scrollWidth sees only the right-hand
+  // half of a centred label's overflow.
   let n = 0;
   const vw = d.documentElement.clientWidth;
   for (const a of d.querySelectorAll('.shell-nav a')) {
     const r = a.getBoundingClientRect();
     if (!r.width) continue;
-    if (a.scrollWidth > a.clientWidth + 1 || r.left < -0.5 || r.right > vw + 0.5) n += 1;
+    let bad = r.left < -0.5 || r.right > vw + 0.5;
+    for (const node of a.childNodes) {
+      if (node.nodeName.toLowerCase() === 'svg' || !node.textContent.trim()) continue;
+      const range = d.createRange();
+      range.selectNodeContents(node);
+      const t = range.getBoundingClientRect();
+      if (t.width && (t.left < r.left - 0.5 || t.right > r.right + 0.5)) bad = true;
+    }
+    if (bad) n += 1;
   }
   return n;
 }
@@ -79,9 +99,9 @@ function next() {
     // -1 marks a page that did not load the site shell (a 404 has no masthead), so a
     // mistyped path fails instead of measuring an empty document as "no overflow".
     const shell = d.querySelector('.site-header');
-    const [small, count] = shell ? controls(d) : [null, 0];
-    out.push([p, w, shell ? d.documentElement.scrollWidth : -1, small, count,
-              shell ? spills(d) : 0]);
+    const [small, large, count] = shell ? controls(d) : [null, null, 0];
+    out.push([p, w, shell ? d.documentElement.scrollWidth : -1, small, large, count,
+              shell ? spills(d) : 0, shell ? tab(d) : null]);
     f.remove();
     next();
   }, 400);
@@ -95,9 +115,11 @@ class Row(NamedTuple):
     path: str
     width: int  # the viewport
     scroll: int  # the document's scrollWidth
-    smallest: float | None  # shorter side of the smallest account control; None if none found
+    smallest: float | None  # shortest side of any account control; None if none found
+    largest: float | None  # longest side of any account control
     controls: int  # visible account controls
-    spills: int  # nav links whose label is wider than the link
+    spills: int  # nav links whose label reaches past the link, or that sit off screen
+    tab: float | None  # shorter side of the smallest nav link; None if the page has no nav
 
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
@@ -181,6 +203,17 @@ def undersized(rows: list[Row], minimum: int = MIN_TOUCH) -> list[Row]:
     ]
 
 
+def not_square(rows: list[Row], side: int = MIN_TOUCH) -> list[Row]:
+    """Rows below desktop width where an account control is longer than the square it should
+    be: a labelled pill that kept its words."""
+    return [r for r in rows if r.width < 1200 and r.largest is not None and r.largest > side + 0.5]
+
+
+def small_tabs(rows: list[Row], minimum: int = MIN_TOUCH) -> list[Row]:
+    """Rows where a nav link is under the touch target, at any width."""
+    return [r for r in rows if r.tab is not None and r.tab < minimum - 0.5]
+
+
 def spilling(rows: list[Row]) -> list[Row]:
     """Rows where a nav label is wider than its own tab or pill, or a tab is off screen."""
     return [r for r in rows if r.spills]
@@ -192,15 +225,21 @@ def main(argv: list[str]) -> int:
         return 2
     rows = measure(Path(argv[1]), argv[2:] or ["/"])
     wide, small, spilt = overflowing(rows), undersized(rows), spilling(rows)
+    long, tabs = not_square(rows), small_tabs(rows)
     for r in wide:
         print(f"  OVERFLOW {r.path} at {r.width}px: document is {r.scroll}px wide")
     for r in small:
         print(f"  UNDERSIZED {r.path} at {r.width}px: smallest header control {r.smallest}px")
     for r in spilt:
         print(f"  SPILL {r.path} at {r.width}px: {r.spills} nav link(s) spill or sit off screen")
-    if not (wide or small or spilt):
+    for r in long:
+        print(f"  NOT SQUARE {r.path} at {r.width}px: a header control is {r.largest}px long")
+    for r in tabs:
+        print(f"  SMALL TAB {r.path} at {r.width}px: smallest nav link {r.tab}px")
+    bad = bool(wide or small or spilt or long or tabs)
+    if not bad:
         print(f"  header layout holds: {len(rows)} page/width pairs")
-    return 1 if wide or small or spilt else 0
+    return 1 if bad else 0
 
 
 if __name__ == "__main__":

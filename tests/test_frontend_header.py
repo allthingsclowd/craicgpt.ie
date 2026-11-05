@@ -14,7 +14,9 @@ from tests.phone_overflow import (
     WIDTHS,
     find_chrome,
     measure,
+    not_square,
     overflowing,
+    small_tabs,
     spilling,
     undersized,
 )
@@ -59,7 +61,9 @@ def test_no_page_is_wider_than_a_phone_or_its_buttons_smaller_than_a_thumb():
     assert len(rows) == len(PAGES) * len(WIDTHS)
     assert overflowing(rows) == []
     assert undersized(rows) == []
-    assert spilling(rows) == []  # no nav label wider than its own tab or pill
+    assert not_square(rows) == []  # ...and stays a square below 1200px
+    assert spilling(rows) == []  # no nav label reaches past its own tab or pill
+    assert small_tabs(rows) == []  # every nav tab keeps its 44px touch target
     # the theme toggle and the language switcher, on both pages at every width
     assert {r.controls for r in rows} == {2}
     with pytest.raises(RuntimeError, match="did not load the site shell"):
