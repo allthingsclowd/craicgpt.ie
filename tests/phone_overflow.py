@@ -5,7 +5,8 @@
 The header standard (thegeekwiththepeak.com map #208) has measurable invariants: at
 any width from 320px up the document is never wider than the viewport; below 1200px every
 control in the masthead's account cluster is a 44px touch target; and no nav label is wider
-than its own tab or pill at any width. A control that outgrows the masthead shows up as
+than its own tab or pill at any width, no nav link lies on a header control, and the theme
+toggle is never squeezed. A control that outgrows the masthead shows up as
 horizontal scroll on a phone, a squeezed one as a 30px button, a squeezed nav as text lying
 on its neighbour, and none of that shows in a unit test, so this measures the real layout.
 
@@ -29,7 +30,7 @@ import urllib.parse
 from pathlib import Path
 from typing import NamedTuple
 
-WIDTHS = (320, 360, 412, 600, 768, 1024, 1199, 1200, 1440)
+WIDTHS = (320, 360, 412, 600, 768, 1024, 1199, 1200, 1280, 1366, 1440, 1600, 1920)
 MIN_TOUCH = 44
 CHROME_CANDIDATES = (
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -88,6 +89,28 @@ function spills(d) {
   }
   return n;
 }
+function collisions(d) {
+  // Nav links that lie on an account control: a top nav too long for its row slides under
+  // the cluster without widening the document, so scrollWidth alone never sees it.
+  const boxes = [...d.querySelectorAll('.site-header .account > *')]
+    .map(k => k.getBoundingClientRect()).filter(r => r.width >= 2 && r.height >= 2);
+  let n = 0;
+  for (const a of d.querySelectorAll('.shell-nav a')) {
+    const r = a.getBoundingClientRect();
+    if (!r.width) continue;
+    const hits = b => r.left < b.right - 0.5 && b.left < r.right - 0.5
+      && r.top < b.bottom - 0.5 && b.top < r.bottom - 0.5;
+    if (boxes.some(hits)) n += 1;
+  }
+  return n;
+}
+function toggle(d) {
+  // The theme toggle's shorter side: a square button at every width, never squeezed by its row.
+  const t = d.querySelector('.site-header .theme-toggle');
+  if (!t) return null;
+  const r = t.getBoundingClientRect();
+  return r.width ? Math.min(r.width, r.height) : null;
+}
 function next() {
   if (!jobs.length) { document.title = 'RESULT' + JSON.stringify(out) + 'END'; return; }
   const [p, w] = jobs.shift();
@@ -101,7 +124,8 @@ function next() {
     const shell = d.querySelector('.site-header');
     const [small, large, count] = shell ? controls(d) : [null, null, 0];
     out.push([p, w, shell ? d.documentElement.scrollWidth : -1, small, large, count,
-              shell ? spills(d) : 0, shell ? tab(d) : null]);
+              shell ? spills(d) : 0, shell ? tab(d) : null,
+              shell ? collisions(d) : 0, shell ? toggle(d) : null]);
     f.remove();
     next();
   }, 400);
@@ -120,6 +144,8 @@ class Row(NamedTuple):
     controls: int  # visible account controls
     spills: int  # nav links whose label reaches past the link, or that sit off screen
     tab: float | None  # shorter side of the smallest nav link; None if the page has no nav
+    collisions: int = 0  # nav links lying on an account control
+    toggle: float | None = None  # shorter side of the theme toggle; None if the page has none
 
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
@@ -219,6 +245,16 @@ def spilling(rows: list[Row]) -> list[Row]:
     return [r for r in rows if r.spills]
 
 
+def colliding(rows: list[Row]) -> list[Row]:
+    """Rows where a nav link lies on an account control, at any width."""
+    return [r for r in rows if r.collisions]
+
+
+def squeezed_toggle(rows: list[Row], minimum: int = MIN_TOUCH) -> list[Row]:
+    """Rows where the theme toggle is under the touch target, at any width."""
+    return [r for r in rows if r.toggle is not None and r.toggle < minimum - 0.5]
+
+
 def main(argv: list[str]) -> int:
     if len(argv) < 2:
         print(__doc__)
@@ -236,7 +272,12 @@ def main(argv: list[str]) -> int:
         print(f"  NOT SQUARE {r.path} at {r.width}px: a header control is {r.largest}px long")
     for r in tabs:
         print(f"  SMALL TAB {r.path} at {r.width}px: smallest nav link {r.tab}px")
-    bad = bool(wide or small or spilt or long or tabs)
+    hit, thin = colliding(rows), squeezed_toggle(rows)
+    for r in hit:
+        print(f"  COLLISION {r.path} at {r.width}px: {r.collisions} nav link(s) on a control")
+    for r in thin:
+        print(f"  SQUEEZED {r.path} at {r.width}px: the theme toggle is {r.toggle}px")
+    bad = bool(wide or small or spilt or long or tabs or hit or thin)
     if not bad:
         print(f"  header layout holds: {len(rows)} page/width pairs")
     return 1 if bad else 0
